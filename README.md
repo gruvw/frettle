@@ -1,2 +1,3 @@
-# frettle
+# Frettle
+
 Fret visualizer
