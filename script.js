@@ -30,31 +30,32 @@ const MAX_CAPO = 12;
 const SINGLE_DOTS = [3, 5, 7, 9, 15, 17, 19, 21];
 const DOUBLE_DOTS = [12, 24];
 
-/* Scales: semitone steps from the root. */
+/* Scales: semitone steps from the root; `short` is the name shown in the
+   phone's tab bar, where space is tight. */
 const SCALES = [
   { group: 'Major & modes', items: [
-    { id: 'major', name: 'Major (Ionian)', steps: [0, 2, 4, 5, 7, 9, 11] },
-    { id: 'dorian', name: 'Dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
-    { id: 'phrygian', name: 'Phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
-    { id: 'lydian', name: 'Lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
-    { id: 'mixolydian', name: 'Mixolydian', steps: [0, 2, 4, 5, 7, 9, 10] },
-    { id: 'minor', name: 'Natural minor (Aeolian)', steps: [0, 2, 3, 5, 7, 8, 10] },
-    { id: 'locrian', name: 'Locrian', steps: [0, 1, 3, 5, 6, 8, 10] },
+    { id: 'major', name: 'Major (Ionian)', short: 'Major', steps: [0, 2, 4, 5, 7, 9, 11] },
+    { id: 'dorian', name: 'Dorian', short: 'Dorian', steps: [0, 2, 3, 5, 7, 9, 10] },
+    { id: 'phrygian', name: 'Phrygian', short: 'Phrygian', steps: [0, 1, 3, 5, 7, 8, 10] },
+    { id: 'lydian', name: 'Lydian', short: 'Lydian', steps: [0, 2, 4, 6, 7, 9, 11] },
+    { id: 'mixolydian', name: 'Mixolydian', short: 'Mixolyd.', steps: [0, 2, 4, 5, 7, 9, 10] },
+    { id: 'minor', name: 'Natural minor (Aeolian)', short: 'Minor', steps: [0, 2, 3, 5, 7, 8, 10] },
+    { id: 'locrian', name: 'Locrian', short: 'Locrian', steps: [0, 1, 3, 5, 6, 8, 10] },
   ] },
   { group: 'Minor variants', items: [
-    { id: 'harmonic-minor', name: 'Harmonic minor', steps: [0, 2, 3, 5, 7, 8, 11] },
-    { id: 'melodic-minor', name: 'Melodic minor', steps: [0, 2, 3, 5, 7, 9, 11] },
+    { id: 'harmonic-minor', name: 'Harmonic minor', short: 'Harm. min', steps: [0, 2, 3, 5, 7, 8, 11] },
+    { id: 'melodic-minor', name: 'Melodic minor', short: 'Mel. min', steps: [0, 2, 3, 5, 7, 9, 11] },
   ] },
   { group: 'Pentatonic & blues', items: [
-    { id: 'major-pentatonic', name: 'Major pentatonic', steps: [0, 2, 4, 7, 9] },
-    { id: 'minor-pentatonic', name: 'Minor pentatonic', steps: [0, 3, 5, 7, 10] },
-    { id: 'blues', name: 'Blues', steps: [0, 3, 5, 6, 7, 10] },
+    { id: 'major-pentatonic', name: 'Major pentatonic', short: 'Maj. pent', steps: [0, 2, 4, 7, 9] },
+    { id: 'minor-pentatonic', name: 'Minor pentatonic', short: 'Min. pent', steps: [0, 3, 5, 7, 10] },
+    { id: 'blues', name: 'Blues', short: 'Blues', steps: [0, 3, 5, 6, 7, 10] },
   ] },
   { group: 'Symmetric', items: [
-    { id: 'whole-tone', name: 'Whole tone', steps: [0, 2, 4, 6, 8, 10] },
-    { id: 'dim-wh', name: 'Diminished (whole-half)', steps: [0, 2, 3, 5, 6, 8, 9, 11] },
-    { id: 'dim-hw', name: 'Diminished (half-whole)', steps: [0, 1, 3, 4, 6, 7, 9, 10] },
-    { id: 'chromatic', name: 'Chromatic', steps: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+    { id: 'whole-tone', name: 'Whole tone', short: 'W. tone', steps: [0, 2, 4, 6, 8, 10] },
+    { id: 'dim-wh', name: 'Diminished (whole-half)', short: 'Dim. W-H', steps: [0, 2, 3, 5, 6, 8, 9, 11] },
+    { id: 'dim-hw', name: 'Diminished (half-whole)', short: 'Dim. H-W', steps: [0, 1, 3, 4, 6, 7, 9, 10] },
+    { id: 'chromatic', name: 'Chromatic', short: 'Chromatic', steps: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
   ] },
 ];
 
@@ -595,7 +596,7 @@ function renderDock(ch, sc) {
   else els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}</span><span>${esc(shortTab(ch.shape))}</span>`;
 
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
-  els.tabScaleValue.textContent = sc ? `${noteName(sc.root)} ${sc.def.name.replace(/ \(.*\)$/, '')}` : 'None';
+  els.tabScaleValue.textContent = sc ? `${noteName(sc.root)} ${sc.def.short}` : 'None';
   els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : instrument().short;
 
   const open = !isWide() && ui.tab !== null;
