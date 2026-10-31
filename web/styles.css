@@ -1,7 +1,12 @@
 /* ==========================================================================
    Frettle: design tokens
    Everything below is built from these values: one type scale, one spacing
-   scale, three radii and two control heights.
+   scale, three radii and a few control heights.
+
+   Mobile first: the base styles are the phone layout (vertical neck, dock
+   with tabs at the bottom). The "wide" media query at the end turns it into
+   the desktop layout (horizontal neck, panels below it). The same query is
+   used in script.js (WIDE_QUERY), keep them in sync.
    ========================================================================== */
 :root {
   color-scheme: dark;
@@ -33,10 +38,11 @@
   --fs-xs: 0.72rem;      /* uppercase labels, ruler numbers */
   --fs-pill: 0.75rem;    /* note pills and badges */
   --fs-sm: 0.82rem;      /* secondary text, chips, small buttons */
-  --fs-md: 0.92rem;      /* body, controls, buttons */
+  --fs-md: 0.92rem;      /* body, buttons */
+  --fs-input: 1rem;      /* menus: 16px on phones so iOS does not zoom in */
   --fs-lg: 1.05rem;      /* section titles, emphasised values */
-  --fs-xl: 1.5rem;       /* app title */
-  --fs-display: 1.9rem;  /* chord symbol */
+  --fs-xl: 1.35rem;      /* app title */
+  --fs-display: 1.6rem;  /* chord symbol */
 
   /* Spacing */
   --sp-1: 4px;
@@ -44,29 +50,32 @@
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
+  --gutter: 10px;        /* page side margin */
 
   /* Shape */
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
+  --r-xl: 18px;
   --r-pill: 999px;
-  --control-h: 36px;
-  --chip-h: 28px;
+  --control-h: 42px;     /* touch-sized on phones */
+  --chip-h: 32px;
   --pill-h: 22px;
+  --dock-h: 120px;       /* real height set by script.js */
 
-  /* Neck geometry */
-  --label-w: 28px;
+  /* Neck geometry (vertical on phones) */
+  --label-w: 26px;       /* fret numbers column */
+  --row-h: 40px;         /* one fret */
+  --ruler-row: 22px;     /* string numbers row */
+  --cell-w: 46px;        /* horizontal neck only */
   --open-w: 54px;
-  --cell-w: 46px;
-  --row-h: 38px;
-  --ruler-h: 24px;
-  --ruler-row: 26px;      /* ruler row height: numbers sit close above the neck */
-  --scroll-gap: 10px;     /* space between scrolling content and its scrollbar */
+  --scroll-gap: 10px;    /* space between scrolling content and its scrollbar */
   --fret-wire: color-mix(in srgb, var(--pk-grey) 38%, transparent);
   --string: color-mix(in srgb, var(--pk-grey) 70%, transparent);
   --nut: color-mix(in srgb, var(--pk-white) 85%, transparent);
   --inlay: color-mix(in srgb, var(--text) 4%, var(--bg));
   --octave-alt: color-mix(in srgb, var(--text) 8%, var(--bg));   /* every other octave */
+  --hover: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 /* ==========================================================================
@@ -74,12 +83,21 @@
    ========================================================================== */
 * { box-sizing: border-box; }
 
+html { -webkit-text-size-adjust: 100%; }
+
 body {
   margin: 0;
+  padding-bottom: calc(var(--dock-h) + var(--sp-3));   /* room for the dock */
   background: var(--bg);
   color: var(--text);
   font: var(--fs-md)/1.5 var(--font);
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* While a sheet is open, leave enough room to scroll the end of the neck above it */
+body.sheet-open { padding-bottom: calc(var(--dock-h) + 60vh); }
+
+button, select, a { touch-action: manipulation; }   /* no double-tap zoom delay */
 
 h1, h2 { margin: 0; line-height: 1.25; }
 h1 { font-size: var(--fs-xl); letter-spacing: -0.01em; }
@@ -87,6 +105,7 @@ h2 { font-size: var(--fs-lg); }
 
 .muted { color: var(--muted); font-weight: 400; }
 .mono { font-family: var(--mono); }
+.wide-only { display: none !important; }
 
 /* The one label style: field labels and row labels */
 .label,
@@ -108,44 +127,49 @@ kbd {
   border-bottom-width: 2px;
   background: var(--kbd-bg);
   color: var(--text);
-  font: 500 var(--fs-pill)/1 var(--mono);
+  font: 500 var(--fs-pill)/1 var(--font);
   white-space: nowrap;
 }
 
 /* ==========================================================================
-   Layout
+   Header: title + star link, instrument picker below
    ========================================================================== */
 .top {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 28px 20px var(--sp-2);
+  padding: var(--sp-4) var(--gutter) var(--sp-2);
   display: grid;
-  grid-template-columns: 1fr auto 1fr;   /* title | instrument picker (centred) | star link */
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title star" "picker picker";
   gap: var(--sp-3);
   align-items: center;
 }
-/* Header: title, instrument picker, link to the source code */
-.top h1 { justify-self: start; }
-.repo-link { justify-self: end; gap: var(--sp-2); text-decoration: none; }
+.top h1 { grid-area: title; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.h1-sub { display: none; margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 500; color: var(--muted); letter-spacing: 0; }   /* shown on wide screens */
+.repo-link { grid-area: star; justify-self: end; gap: var(--sp-2); text-decoration: none; }
 .repo-link svg { flex: none; }
-.repo-link:hover svg { fill: var(--warn); stroke: var(--warn); }
-.h1-sub { margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 500; color: var(--muted); letter-spacing: 0; }
-.h2-sub { margin-left: var(--sp-2); }
+.repo-more { display: none; }   /* just "Star" on phones */
 
-main {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: var(--sp-3) 20px var(--sp-5);
+.segmented {
+  grid-area: picker;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--sp-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
 }
+.segmented .btn { height: 36px; padding: 0 6px; border-color: transparent; font-size: var(--fs-sm); }   /* a bit slimmer on phones */
+.segmented .btn[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.inst-long { display: none; }
 
+/* ==========================================================================
+   Panels
+   ========================================================================== */
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 20px;
+  padding: var(--sp-4) 14px;
 }
 .panel-head {
   display: flex;
@@ -158,7 +182,7 @@ main {
 }
 
 .theory-title { display: flex; align-items: center; gap: var(--sp-2); }
-.swatch { display: inline-block; flex: none; width: 14px; height: 14px; }
+.swatch { display: inline-block; flex: none; width: 12px; height: 12px; }
 .swatch-chord { border-radius: 3px; background: var(--chord); }
 .swatch-scale { border-radius: 50%; background: var(--scale); }
 
@@ -168,16 +192,19 @@ main {
    Controls
    ========================================================================== */
 .bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3); }
-.field { display: grid; gap: 7px; }
-.field.grow { flex: 1 1 170px; min-width: 0; }
-.field.grow select { width: 100%; min-width: 0; }
-.field.root select { min-width: 84px; }
-.field.scale-type select { width: 240px; min-width: 0; }
+.field { display: grid; gap: 7px; min-width: 0; }
 .field > span { margin-left: -2px; } /* optical alignment with the rounded box */
+.field.root { flex: none; }
+.field.root select { width: 84px; min-width: 0; }
+.field.grow { flex: 1 1 150px; }
+.field.grow select, .field.scale-type select { width: 100%; min-width: 0; }
+.field.scale-type { flex: 1 1 120px; }
+.chord-bar .voicing { flex-basis: 60%; }
+.bar .push-right { margin-left: 0; }
 
 select {
   height: var(--control-h);
-  min-width: 140px;
+  min-width: 0;
   padding: 0 30px 0 var(--sp-3);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -191,13 +218,11 @@ select {
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   color: var(--text);
-  font: inherit;
+  font: 400 var(--fs-input)/1.2 var(--font);
   cursor: pointer;
 }
-select:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 
-/* Buttons: outlined by default, .small is compact, [aria-checked] is the
-   selected button of a segmented group */
+/* Buttons: outlined by default, .primary filled, .small compact, .icon square */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -213,61 +238,43 @@ select:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)
   cursor: pointer;
   transition: border-color 100ms, background-color 100ms;
 }
-.btn:not(:disabled):hover { border-color: var(--accent); }
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.btn.primary:not(:disabled):hover { filter: brightness(1.08); }
-.btn.small { height: var(--chip-h); padding: 0 10px; font-size: var(--fs-sm); border-radius: var(--r-sm); }
+.btn.small { height: var(--chip-h); padding: 0 12px; font-size: var(--fs-sm); border-radius: var(--r-sm); }
+.btn.icon { width: var(--control-h); padding: 0; flex: none; font-size: var(--fs-lg); }
+.btn.deselect { width: var(--control-h); padding: 0; flex: none; }   /* phones: just ✕ */
+.btn-label { display: none; }
+.btn:not(:disabled):active { filter: brightness(1.15); }
 
-.segmented {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1);
-  padding: var(--sp-1);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
-}
-.segmented .btn { border-color: transparent; }
-.segmented .btn[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-
-select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible {
+select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible,
+.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Switch-style pill toggle */
-.toggles { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+/* Switch-style toggles and the capo menu (the neck settings) */
+.settings { display: grid; gap: var(--sp-2); }
+.settings-slot:empty { display: none; }
 .pill-toggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
-  height: 32px;
-  padding: 0 14px 0 var(--sp-2);
-  border-radius: var(--r-pill);
-  border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  gap: var(--sp-3);
+  height: var(--control-h);
+  padding: 0 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
   background: transparent;
   color: color-mix(in srgb, var(--text) 80%, transparent);
-  font: 500 var(--fs-sm)/1 var(--font);
+  font: 500 var(--fs-md)/1 var(--font);
+  text-align: left;
   cursor: pointer;
 }
-.pill-toggle:hover { border-color: var(--accent); }
 .pill-toggle[hidden] { display: none; }
-
-/* Select in the same pill shape (capo position) */
-.pill-select {
-  height: 32px;
-  min-width: 0;
-  padding-left: 14px;
-  border-radius: var(--r-pill);
-  border-color: color-mix(in srgb, var(--muted) 45%, transparent);
-  color: color-mix(in srgb, var(--text) 80%, transparent);
-  font: 500 var(--fs-sm)/1 var(--font);
-}
-.pill-select:hover { border-color: var(--accent); }
+.pill-select { width: 100%; }
 .pill-select.on { border-color: var(--accent); color: var(--text); }
 .pill-dot {
   position: relative;
+  flex: none;
   width: 26px;
   height: 14px;
   border-radius: var(--r-pill);
@@ -294,7 +301,7 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: var(--chip-h);
+  height: 28px;
   padding: 0 var(--sp-3);
   border-radius: var(--r-pill);
   border: 1px solid var(--border);
@@ -323,46 +330,40 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   white-space: nowrap;
   cursor: pointer;
 }
-.chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
 .chip-num { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
 .chip .mono { font-weight: 600; }
 .chip.selected { background: var(--chord); color: var(--chord-text); }
 .chip.selected .chip-num { color: var(--chord-text); opacity: 0.8; }
 
 /* ==========================================================================
-   Neck
+   Neck. Phones: vertical (nut on top, low string on the left, frets going
+   down). Wide screens: horizontal (nut on the left, high string on top).
+   script.js places the cells; the .vertical class switches the drawing.
    ========================================================================== */
-.neck-panel {
-  width: calc(100% - 40px);
-  max-width: 1400px;
-  margin: var(--sp-3) auto 0;
-  padding-bottom: var(--sp-4);
-}
-.neck-panel .panel-head { margin-bottom: var(--sp-3); }
-.neck-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: var(--scroll-gap); }
+.neck-panel { margin: var(--sp-2) var(--gutter) 0; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
+.neck-head { display: none; }   /* phones: the instrument picker above already names it */
+.neck-panel h2 { font-size: var(--fs-md); }
+.neck-scroll { overflow-x: auto; overflow-y: hidden; }
 
 .neck {
   display: grid;
-  grid-template-rows: var(--ruler-row);
-  grid-auto-rows: var(--row-h);
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Fret numbers above the neck; inlay frets get dots */
+/* Fret numbers (beside or above the neck), inlay frets get dots */
 .ruler {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: var(--ruler-h);
-  align-self: start;
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--muted);
 }
 .ruler.mark { color: var(--text); }
 .ruler i { width: 5px; height: 5px; border-radius: 50%; background: var(--pk-grey); }
+.ruler.capo { color: var(--accent); font-weight: 800; }
 
 .slabel {
   display: grid;
@@ -377,28 +378,34 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   display: grid;
   place-items: center;
   min-width: 0;
-  transition: background-color 80ms;
+  cursor: pointer;   /* tap a note to hear it */
 }
 /* The string runs through every cell */
 .cell::before {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: var(--sw, 1px);
-  transform: translateY(-50%);
   background: var(--string);
 }
 .cell.open::before { opacity: 0.45; }
-.cell.fret { background: var(--bg); border-right: 2px solid var(--fret-wire); }
+.cell.fret { background: var(--bg); }
 .cell.fret.mark { background: var(--inlay); }
-.cell.open { border-right: 5px solid var(--nut); }
-.neck .cell { cursor: pointer; }   /* click a note to hear it */
-.neck .cell:hover { box-shadow: inset 0 0 0 99px color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* Vertical: strings go down, fret wires and the nut run across */
+.neck.vertical .cell::before { top: 0; bottom: 0; left: 50%; width: var(--sw, 1px); transform: translateX(-50%); }
+.neck.vertical .cell.fret { border-bottom: 2px solid var(--fret-wire); }
+.neck.vertical .cell.open { border-bottom: 5px solid var(--nut); }
+.neck.vertical .ruler { justify-content: flex-end; padding-right: 6px; }
+.neck.vertical .ruler i { display: none; }   /* bright numbers mark the inlays */
+.neck.vertical .slabel { align-self: end; padding-bottom: 2px; }
+
+/* Horizontal: strings go across, fret wires and the nut run down */
+.neck.horizontal .cell::before { left: 0; right: 0; top: 50%; height: var(--sw, 1px); transform: translateY(-50%); }
+.neck.horizontal .cell.fret { border-right: 2px solid var(--fret-wire); }
+.neck.horizontal .cell.open { border-right: 5px solid var(--nut); }
+.neck.horizontal .ruler { align-self: start; height: 24px; }
 
 /* Octaves: alternate octaves are shaded, open strings included (replacing
-   the inlay tint), and each octave's bottom-left cell shows its number.
+   the inlay tint), and each octave's first cell shows its number.
    C starts an octave. */
 .neck.octaves .cell.fret, .neck.octaves .cell.open { background: var(--bg); }
 .neck.octaves .cell.fret.o-alt, .neck.octaves .cell.open.o-alt { background: var(--octave-alt); }
@@ -411,28 +418,23 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   opacity: 0.8;
 }
 
-/* Capo: a bar on the capo's fret wire; frets behind it can't be played */
+/* Capo: a bar in the fret space just behind its wire; frets behind it fade */
 .capo-bar {
-  justify-self: end;
-  align-self: stretch;
   z-index: 2;
-  width: 8px;
-  margin: 3px 6px 3px 0;          /* sits in the fret space, just behind the wire */
   border-radius: var(--r-pill);
   background: var(--accent);
   pointer-events: none;
 }
-.cell.capo { padding-right: 14px; }  /* keep the notes clear of the capo */
-.cell.behind .note { opacity: 0.3; }
-.cell.behind::before, .cell.behind .oct { opacity: 0.3; }
-.neck .cell.behind { cursor: default; }
-.neck .cell.behind:hover { box-shadow: none; }
-.ruler.capo { color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
+.neck.vertical .capo-bar { align-self: end; height: 8px; margin: 0 3px 6px; }
+.neck.horizontal .capo-bar { justify-self: end; width: 8px; margin: 3px 6px 3px 0; }
+.neck.vertical .cell.capo { padding-bottom: 14px; }    /* keep the notes clear of the capo */
+.neck.horizontal .cell.capo { padding-right: 14px; }
+.cell.behind { cursor: default; }
+.cell.behind .note, .cell.behind::before, .cell.behind .oct { opacity: 0.3; }
 
-/* Note pills.
-   Every note is shown at full strength. Scale notes are teal,
-   chord-shape notes pink with their interval,
-   other chord tones (optional) pink outlines. */
+/* Note pills. Every note is shown at full strength. Scale notes are teal,
+   chord-shape notes pink with their interval, other chord tones (optional)
+   pink outlines. A ring around a pill always means "root". */
 .note {
   position: relative;
   z-index: 1;
@@ -448,30 +450,49 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   box-shadow: inset 0 0 0 1px var(--border);
   font: 700 var(--fs-pill)/1 var(--font);
   white-space: nowrap;
-  transition: opacity 120ms;
 }
-/* A ring around a pill always means "root" (scale root or chord root) */
 .note.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }
 .note.scale-root { outline: 2px solid var(--scale); outline-offset: 2px; }
 .note.ghost { background: var(--bg); color: var(--chord); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chord) 55%, transparent); }
 .note.chord { background: var(--chord); color: var(--chord-text); box-shadow: none; font-weight: 800; }
 .note.chord.root { outline: 2px solid var(--chord); outline-offset: 2px; }
+/* Chord notes show their name; the interval (R, 3, 5, ♭7…) sits in a small
+   badge on the pill's top-right corner */
+.deg-badge {
+  position: absolute;
+  top: -9px;
+  right: -11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1.5px solid var(--chord);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--chord);
+  font: 800 var(--fs-xs)/1 var(--font);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.note.ghost .deg-badge { border-color: color-mix(in srgb, var(--chord) 55%, transparent); }
+.note.mute { background: transparent; box-shadow: none; color: var(--chord); font-size: var(--fs-lg); }
 /* A note lights up in amber while it sounds */
 @keyframes ping {
   0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
   100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
 }
 .note.ping { animation: ping 450ms ease-out; }
-.note.mute { background: transparent; box-shadow: none; color: var(--chord); font-size: var(--fs-lg); }
 
 /* ==========================================================================
    Chords panel
    ========================================================================== */
 .np-body {
   display: grid;
-  grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--sp-4) var(--sp-5);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
   border-top: 1px solid var(--border);
@@ -480,8 +501,8 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
 .np-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
 .np-symbol {
   flex: none;
-  width: 140px;
-  height: 96px;
+  width: 104px;
+  height: 76px;
   display: grid;
   place-items: center;
   padding: 0 var(--sp-2);
@@ -506,20 +527,18 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
 .np-notes {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 0 0 var(--scroll-gap);
   display: flex;
   align-items: flex-start;
   gap: var(--sp-2);
   height: calc(100px + var(--scroll-gap) + 12px);   /* cards + gap + thin scrollbar */
-  padding-bottom: var(--scroll-gap);
   overflow-x: auto;
   overflow-y: hidden;
 }
 .np-placeholder { align-self: center; color: var(--muted); font-size: var(--fs-sm); }
 
-/* Note card: name + interval badge, role, where to play it */
+/* Note card: name + interval badge, role, where to play it (tap to hear) */
 .np-note {
-  cursor: pointer;   /* click a card to hear its note */
   flex: 1 1 0;
   min-width: 96px;
   max-width: 124px;
@@ -531,6 +550,7 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   padding: 10px;
   border-radius: var(--r-lg);
   border: 1px solid var(--border);
+  cursor: pointer;
 }
 .np-note-name { font-size: var(--fs-lg); font-weight: 800; line-height: 22px; }
 .np-deg {
@@ -554,23 +574,22 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
   text-overflow: ellipsis;
 }
 .np-loc { grid-column: 1 / -1; align-self: end; }
-.np-note:hover { border-color: var(--accent); }
 .np-note.root { border-color: var(--chord); box-shadow: inset 0 0 0 1px var(--chord); }
 .np-note.root .np-deg { outline: 2px solid var(--chord); outline-offset: 2px; }
-.np-loc kbd { font-family: var(--font); }
 
 /* ==========================================================================
-   Rows with a label on the left (shapes, scale notes, triads)
+   Rows with a label (shapes, scale notes, triads)
    ========================================================================== */
 .line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-2) var(--sp-3);
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
   border-top: 1px solid var(--border);
 }
-.line > .label { flex: none; width: 56px; }
+.line > .label { flex: 1 0 100%; }   /* phones: label on its own line */
 .line .btn.small { flex: none; }
 
 .chip-list {
@@ -590,18 +609,16 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
 .empty-text { color: var(--muted); font-size: var(--fs-sm); }
 
 /* Scale notes on the top line, each step under the gap it describes */
-.line.notes-line { align-items: flex-start; }
-.line.notes-line > .label { line-height: var(--chip-h); margin-top: 4px; }
 .scale-chain {
   list-style: none;
-  margin: 0;
+  margin: 0 0 calc(-1 * var(--scroll-gap));
   padding: 4px 4px var(--scroll-gap);   /* room for the root's ring and the scrollbar */
-  margin-bottom: calc(-1 * var(--scroll-gap));
   display: grid;
   grid-auto-flow: column;
   grid-template-rows: var(--chip-h) 18px;
   justify-content: start;
   align-items: center;
+  flex: 1;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
@@ -621,56 +638,274 @@ select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focu
 }
 .scale-note.root { outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
 .scale-note.octave { background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }
-.scale-gap { grid-row: 1 / 3; align-self: end; width: 26px; display: flex; justify-content: center; }
+.scale-gap { grid-row: 1 / 3; align-self: end; width: 22px; display: flex; justify-content: center; }
 .scale-gap > span { font-size: var(--fs-xs); font-weight: 800; line-height: 18px; color: var(--muted); white-space: nowrap; }
 
 /* Thin, rounded scrollbars for the sideways-scrolling rows */
-.neck-scroll, .np-notes, .chip-list, .scale-chain {
+.neck-scroll, .np-notes, .chip-list, .scale-chain, .sheet {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
 }
 
 /* Optical centring of pill text where supported */
-.note, .np-deg, .scale-note, .chip, .status, kbd { text-box: trim-both cap alphabetic; }
-
-/* Footer: a short description of the app (also read by search engines) */
-.foot {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 0 20px 40px;
-  color: var(--muted);
-  font-size: var(--fs-sm);
-  text-align: center;
-}
-.foot p { max-width: 720px; margin: 0 auto; }
-.foot p.foot-link { margin-top: var(--sp-3); font-size: var(--fs-xs); }
-.foot-link a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
-.foot-link a:hover { color: var(--accent); }
+.note, .deg-badge, .np-deg, .scale-note, .chip, .status, kbd { text-box: trim-both cap alphabetic; }
 
 /* ==========================================================================
-   Narrow screens
+   Dock (phones): shape bar + tabs fixed at the bottom; a tab opens its panel
+   as a sheet above the dock. On wide screens the dock is just the page body.
    ========================================================================== */
-@media (max-width: 1100px) {
-  .top { grid-template-columns: 1fr auto; }
-  .top .segmented { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
+.dock-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  padding: var(--sp-2) var(--gutter) env(safe-area-inset-bottom);
+  background: var(--panel);
+  border-top: 1px solid var(--border);
 }
 
-@media (max-width: 860px) {
-  .np-body { grid-template-columns: minmax(0, 1fr); }
+.dock-shape { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-1); }
+.dock-shape[hidden] { display: none; }   /* no chord selected: only the tabs */
+.dock-shape-info {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-symbol {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--chord);
+  color: var(--chord-text);
+  font: 800 var(--fs-md)/1 var(--font);
+  max-width: 50%;
+  overflow: hidden;
+}
+.dock-symbol:empty { display: none; }
+.dock-tab { display: grid; min-width: 0; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* shape number above the tab */
+
+.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); padding: var(--sp-1) 0 var(--sp-2); }
+/* Each tab is a soft rounded button; the open one is tinted purple */
+.tab {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  min-width: 0;
+  padding: 7px var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  background: var(--kbd-bg);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms, color 120ms;
+}
+.tab:active { filter: brightness(1.2); }
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tab-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.tab[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
 }
 
-@media (max-width: 640px) {
-  :root { --cell-w: 40px; --open-w: 46px; --label-w: 22px; --row-h: 34px; }
-  .top { padding: 20px 12px var(--sp-2); }
-  .neck-panel { width: calc(100% - 24px); padding: 14px 12px 10px; }
-  main { padding-left: 12px; padding-right: 12px; }
-  .panel { padding: var(--sp-4) 14px; }
-  .top h1 { white-space: nowrap; }
-  .repo-more { display: none; }   /* just "Star" on phones */
-  .segmented { grid-column: 1 / -1; grid-row: 2; width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
-  .segmented .btn { padding: 0 10px; }
-  .np-symbol { width: 110px; height: 80px; font-size: var(--fs-xl); }
-  .field.scale-type { flex: 1; }
-  .field.scale-type select { width: 100%; }
-  .line > .label { width: auto; }
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--dock-h);
+  z-index: 20;
+  max-height: 56vh;                                            /* older browsers */
+  max-height: min(56dvh, calc(100dvh - var(--dock-h) - 160px)); /* leave some neck visible */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
+  transform: translateY(calc(100% + var(--dock-h)));
+  visibility: hidden;
+  transition: transform 220ms ease, visibility 0s linear 220ms;
+}
+.sheet.open { transform: none; visibility: visible; transition: transform 220ms ease; }
+.sheet .panel { display: none; border: 0; border-radius: 0; background: transparent; padding-top: 0; }
+.sheet .panel.active { display: block; }
+.sheet-close {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 26px;
+  border: 0;
+  background: var(--panel);
+  cursor: pointer;
+}
+.sheet-close span { width: 40px; height: 5px; border-radius: var(--r-pill); background: var(--border); }
+
+/* Phones in portrait: Strum becomes a square play button to leave room for the tab */
+@media (max-width: 429px) {
+  .strum-label { display: none; }
+  #dockStrum { width: var(--control-h); padding: 0; }
+}
+/* Very small phones: the chord name is already in the Chord tab below */
+@media (max-width: 349px) {
+  .dock-symbol { display: none; }
+}
+
+/* ==========================================================================
+   Hover effects only where there is a real pointer (no "stuck" hover after
+   a tap on touch screens)
+   ========================================================================== */
+@media (hover: hover) {
+  .btn:not(:disabled):hover { border-color: var(--accent); }
+  .btn.primary:not(:disabled):hover { filter: brightness(1.08); }
+  .btn:not(:disabled):active { filter: none; }
+  select:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+  .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
+  .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
+  .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
+  .cell.behind:hover { box-shadow: none; }
+  .np-note:hover { border-color: var(--accent); }
+  .repo-link:hover svg { fill: var(--warn); stroke: var(--warn); }
+  .dock-shape-info:hover { color: var(--text); }
+  .tab:hover { border-color: var(--border); color: var(--text); }
+  .tab[aria-pressed="true"]:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
+}
+
+/* ==========================================================================
+   Wide screens (desktop, tablets, phones held sideways): horizontal neck,
+   panels below it, settings in the neck's header, no dock.
+   Keep in sync with WIDE_QUERY in script.js.
+   ========================================================================== */
+@media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
+  :root {
+    --gutter: 20px;
+    --control-h: 36px;
+    --chip-h: 28px;
+    --fs-input: var(--fs-md);
+    --fs-xl: 1.5rem;
+    --fs-display: 1.9rem;
+    --label-w: 28px;
+    --row-h: 38px;
+    --ruler-row: 26px;
+  }
+  body { padding-bottom: 0; }
+  .wide-only { display: revert !important; }
+  .btn.wide-only { display: inline-flex !important; }
+  .narrow-only { display: none !important; }
+
+  /* Header: title | picker (centred) | star link */
+  .top {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding-top: 28px;
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-areas: "title picker star";
+  }
+  .h1-sub { display: inline; }
+  .repo-more { display: inline; }
+  .segmented { display: flex; }
+  .btn.deselect { width: auto; padding: 0 14px; }
+  .btn-label { display: inline; }
+  .bar .push-right { margin-left: auto; }
+  .segmented .btn { height: var(--control-h); padding: 0 14px; font-size: var(--fs-md); }
+  .inst-long { display: inline; }
+  .inst-short { display: none; }
+
+  .panel { padding: 20px; }
+  .swatch { width: 14px; height: 14px; }
+
+  /* Neck */
+  .neck-panel { max-width: 1400px; margin: var(--sp-3) auto 0; width: calc(100% - 40px); padding: 20px 20px var(--sp-4); }
+  .neck-head { display: flex; }
+  .neck-panel .panel-head { margin-bottom: var(--sp-3); min-height: 32px; }
+  .neck-panel h2 { font-size: var(--fs-lg); }
+  .neck-scroll { padding-bottom: var(--scroll-gap); }
+
+  /* Settings as a row of compact pills in the neck's header */
+  .settings { display: flex; flex-wrap: wrap; align-items: center; }
+  .pill-toggle { height: 32px; padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); font-size: var(--fs-sm); }
+  .pill-select {
+    width: auto;
+    height: 32px;
+    padding-left: 14px;
+    border-radius: var(--r-pill);
+    border-color: color-mix(in srgb, var(--muted) 45%, transparent);
+    color: color-mix(in srgb, var(--text) 80%, transparent);
+    font: 500 var(--fs-sm)/1 var(--font);
+  }
+
+  /* The dock becomes the page body: panels stacked under the neck */
+  .dock {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: var(--sp-4) var(--gutter) 40px;
+  }
+  .sheet {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);   /* long chip rows scroll instead of widening the page */
+    gap: var(--sp-4);
+    max-height: none;
+    overflow: visible;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+    visibility: visible;
+    transition: none;
+  }
+  .sheet .panel { display: block; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); padding: 20px; }
+  .sheet .panel.narrow-only { display: none; }
+  .sheet-close { display: none; }
+
+  /* Chords panel: description and notes side by side */
+  .np-body { grid-template-columns: minmax(0, 400px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }
+  .np-symbol { width: 140px; height: 96px; }
+  .chord-bar .voicing { flex-basis: 170px; }
+
+  /* Rows: label on the left */
+  .line { flex-wrap: nowrap; }
+  .line > .label { flex: none; width: 56px; }
+  .line.notes-line { align-items: flex-start; }
+  .line.notes-line > .label { line-height: var(--chip-h); margin-top: 4px; }
+  .field.scale-type { flex: none; }
+  .field.scale-type select { width: 240px; }
+  .scale-gap { width: 26px; }
+
+}
+
+/* Wide but not very wide: the instrument picker gets its own centred row */
+@media (min-width: 640px) and (max-width: 1100px) and (orientation: landscape),
+       (min-width: 900px) and (max-width: 1100px) {
+  .top { grid-template-columns: 1fr auto; grid-template-areas: "title star" "picker picker"; }
+  .segmented { justify-self: center; }
 }
