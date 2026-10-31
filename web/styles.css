@@ -61,7 +61,7 @@
   --control-h: 42px;     /* touch-sized on phones */
   --chip-h: 32px;
   --pill-h: 22px;
-  --dock-h: 120px;       /* real height set by script.js */
+  --tab-h: 54px;         /* dock tabs (phones): a fixed height, see --dock-h */
 
   /* Neck geometry (vertical on phones) */
   --label-w: 26px;       /* fret numbers column */
@@ -86,6 +86,13 @@
 html { -webkit-text-size-adjust: 100%; }
 
 body {
+  /* Height of the phone dock, worked out from its fixed rows rather than
+     measured: top border and padding, the shape bar (only with a chord), the
+     tabs, the bottom padding, and the phone's safe area, which the browser
+     keeps up to date by itself */
+  --dock-shape-h: calc(var(--control-h) + var(--sp-1));
+  --dock-h: calc(1px + var(--sp-2) + var(--dock-shape-h) + var(--sp-1) + var(--tab-h) + var(--sp-2)
+    + env(safe-area-inset-bottom, 0px));
   margin: 0;
   padding-bottom: calc(var(--dock-h) + var(--sp-3));   /* room for the dock */
   background: var(--bg);
@@ -93,6 +100,8 @@ body {
   font: var(--fs-md)/1.5 var(--font);
   -webkit-tap-highlight-color: transparent;
 }
+
+body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
 
 /* While a sheet is open, leave enough room to scroll the end of the neck above it */
 body.sheet-open { padding-bottom: calc(var(--dock-h) + 60vh); }
@@ -387,7 +396,7 @@ kbd {
   color: var(--muted);
 }
 .ruler.mark { color: var(--text); }
-.ruler i { width: 5px; height: 5px; border-radius: 50%; background: var(--pk-grey); }
+.ruler i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }   /* same colour as the number */
 .ruler.capo { color: var(--accent); font-weight: 800; }
 
 .slabel {
@@ -449,6 +458,15 @@ kbd {
   text-align: center;
   pointer-events: none;
 }
+
+/* Barre: a pink band behind the notes one finger lies across, from the
+   middle of the first note to the middle of the last (--k strings) */
+.barre { z-index: 1; display: grid; place-items: center; pointer-events: none; }
+.barre i { display: block; border-radius: var(--r-pill); background: var(--chord); }
+.neck.vertical .barre { padding-bottom: 2px; }    /* the fret wire: centre on the notes */
+.neck.vertical .barre i { width: calc(100% * (var(--k) - 1) / var(--k)); height: 10px; }
+.neck.horizontal .barre { padding-right: 2px; }
+.neck.horizontal .barre i { width: 10px; height: calc(100% * (var(--k) - 1) / var(--k)); }
 
 /* Capo: a bar in the fret space just behind its wire; frets behind it fade */
 .capo-bar {
@@ -513,7 +531,9 @@ kbd {
 .note.mute { background: transparent; box-shadow: none; color: var(--chord); }
 .mute-ico { width: 15px; height: 15px; }
 
-/* "Only scale notes": notes outside the scale disappear (and stay silent) */
+/* Notes outside the shown scale are a little darker; with "Only scale
+   notes" they disappear (and stay silent) */
+.note.off { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.out { visibility: hidden; }
 .cell.empty { cursor: default; }
 
@@ -708,19 +728,25 @@ kbd {
   scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
 }
 
-/* Optical centring of pill text where supported */
-.note, .deg-badge, .np-deg, .scale-note, .chip, .status, kbd { text-box: trim-both cap alphabetic; }
+/* Optical centring of pill text where supported. Trimming only works on a
+   block of text, not on the flex pills themselves, so the text of the note
+   pills and circles sits in a .tx block cut to its capital letters (cap
+   height to baseline): the pill then centres the letters exactly, whatever
+   the font. Browsers without trimming centre the whole line, as before. */
+.tx { display: block; text-box: trim-both cap alphabetic; }
+.chip, .status, kbd { text-box: trim-both cap alphabetic; }
 
 /* ==========================================================================
    Dock (phones): shape bar + tabs fixed at the bottom; a tab opens its panel
    as a sheet above the dock. On wide screens the dock is just the page body.
+   The sheet is placed against the top of the bar itself (not at a measured
+   height), so the two always touch, whatever the browser's bars or the
+   phone's safe area do to the bar's height.
    ========================================================================== */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; }
 .dock-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 30;
+  position: relative;
+  z-index: 2;   /* in front of the sheet as it slides down behind it */
   padding: var(--sp-2) var(--gutter) env(safe-area-inset-bottom);
   background: var(--panel);
   border-top: 1px solid var(--border);
@@ -767,6 +793,8 @@ kbd {
 .tab {
   display: grid;
   justify-items: center;
+  align-content: center;
+  height: var(--tab-h);   /* fixed, so the dock's height is known without measuring */
   gap: 1px;
   min-width: 0;
   padding: 7px var(--sp-2);
@@ -796,11 +824,11 @@ kbd {
 }
 
 .sheet {
-  position: fixed;
+  position: absolute;
   left: 0;
   right: 0;
-  bottom: var(--dock-h);
-  z-index: 20;
+  bottom: 100%;   /* right on top of the dock bar */
+  z-index: 1;
   max-height: 56vh;                                            /* older browsers */
   max-height: min(56dvh, calc(100dvh - var(--dock-h) - 160px)); /* leave some neck visible */
   overflow-y: auto;
@@ -809,7 +837,7 @@ kbd {
   border-top: 1px solid var(--border);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
-  transform: translateY(calc(100% + var(--dock-h)));
+  transform: translateY(100%);   /* closed: slid down behind the dock bar */
   visibility: hidden;
   transition: transform 220ms ease, visibility 0s linear 220ms;
 }
@@ -989,6 +1017,7 @@ kbd {
    Keep in sync with WIDE_QUERY in script.js.
    ========================================================================== */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
+  body { --dock-h: 0px; }   /* no dock bar: the panels are part of the page */
   :root {
     --gutter: 20px;
     --control-h: 36px;
@@ -1053,6 +1082,7 @@ kbd {
 
   /* The dock becomes the page body: panels stacked under the neck */
   .dock {
+    position: static;
     max-width: 1120px;
     margin: 0 auto;
     padding: var(--sp-4) var(--gutter) 40px;

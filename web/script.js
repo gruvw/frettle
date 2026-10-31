@@ -10,7 +10,7 @@
    1. Music data
    ========================================================================== */
 const STORAGE_KEY = 'frettle.settings.v1';
-const SAVE_VERSION = 2;   // raised when a default changes for people with saved settings
+const SAVE_VERSION = 3;   // raised when a default changes for people with saved settings
 const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglAllTones', 'allTones'],
   ['tglScaleOnly', 'scaleOnly'], ['tglScaleGroups', 'scaleGroups']];   // [button id, state key]
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
@@ -243,9 +243,39 @@ const SHAPE_WEIGHTS = {
   pos: -0.5,          // per fret of position (only used to pick the first shape)
 };
 
+/* Barres to draw on the neck for a shape, as chord charts show them: the
+   index finger across the lowest fret when the shape is a movable one (no
+   open strings), or when it would need more than four fingers without it;
+   then a second finger across neighbouring strings at the highest fret if
+   the shape still needs one. Never drawn over a muted or open string.
+   Returns [{ fret, from, to }], strings from low to high. */
+function barresFor(frets) {
+  const fretted = [];
+  frets.forEach((f, s) => { if (f > 0) fretted.push({ s, f }); });
+  if (fretted.length < 2) return [];
+  const low = Math.min(...fretted.map((x) => x.f));
+  const high = Math.max(...fretted.map((x) => x.f));
+  const atLow = fretted.filter((x) => x.f === low).map((x) => x.s);
+  const from = Math.min(...atLow);
+  const to = Math.max(...atLow);
+  const out = [];
+  let fingers = fretted.length;   // one finger per note, until a barre takes several
+  const indexBarre = atLow.length >= 2 && !frets.slice(from, to + 1).some((f) => f < low);
+  if (indexBarre && (!frets.includes(0) || fingers > MAX_FINGERS)) {
+    out.push({ fret: low, from, to });
+    fingers = 1 + fretted.filter((x) => x.f > low).length;
+  }
+  if (fingers > MAX_FINGERS && high > low) {
+    const top = fretted.filter((x) => x.f === high).map((x) => x.s).sort((x, y) => x - y);
+    if (top.length >= 2 && top[top.length - 1] - top[0] === top.length - 1) out.push({ fret: high, from: top[0], to: top[top.length - 1] });
+  }
+  return out;
+}
+
 /* Fingers needed: the index finger may barre the lowest fret (if no open
-   string lies under the barre), and one more finger may barre adjacent
-   strings at the highest fret (as in an A-shape barre chord). */
+   or muted string lies under the barre: the barre would make it sound), and
+   one more finger may barre adjacent strings at the highest fret (as in an
+   A-shape barre chord). */
 function fingersFor(frets) {
   const fretted = [];
   frets.forEach((f, s) => { if (f > 0) fretted.push({ s, f }); });
@@ -255,7 +285,7 @@ function fingersFor(frets) {
   const atLow = fretted.filter((x) => x.f === low).map((x) => x.s);
   const lo = Math.min(...atLow);
   const hi = Math.max(...atLow);
-  const barre = atLow.length >= 2 && !frets.some((f, s) => s > lo && s < hi && f === 0);
+  const barre = atLow.length >= 2 && !frets.slice(lo, hi + 1).some((f) => f < low);
   let fingers = barre ? 1 : atLow.length;
   const rest = fretted.filter((x) => x.f > low);
   if (high > low) {
@@ -472,7 +502,8 @@ const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape
 
 /* Node (tests) gets the pure part; the browser runs the app below. */
 if (typeof module !== 'undefined') {
-  module.exports = { INSTRUMENTS, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf,
+  module.exports = {
+    barresFor, fingersFor, INSTRUMENTS, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf,
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
     ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote };
   module.exports.groupsFor = (...args) => scaleGroups(...args);
@@ -487,7 +518,7 @@ function defaultState() {
     instrument: 'guitar',
     flats: false,
     allTones: false,
-    scaleOnly: false,                 // hide the notes that are not in the scale
+    scaleOnly: true,                  // hide the notes that are not in the scale
     scaleGroups: true,                // outline the scale in groups of notes per string
     octaves: false,
     lowG: false,                      // standard ukulele tuned with a low G (G3)
@@ -508,8 +539,10 @@ function loadState() {
     for (const k of ['flats', 'allTones', 'octaves', 'lowG', 'scaleOnly', 'scaleGroups']) {
       if (typeof saved[k] === 'boolean') s[k] = saved[k];
     }
-    // Settings saved before version 2 had groups off by default: start them on once
-    if (!(saved.v >= SAVE_VERSION)) s.scaleGroups = true;
+    // A default that changed is applied once to settings saved before it:
+    // version 2 turned the groups on, version 3 "Only scale notes"
+    if (!(saved.v >= 2)) s.scaleGroups = true;
+    if (!(saved.v >= 3)) s.scaleOnly = true;
     if (saved.chord && findChord(saved.chord.type)) {
       s.chord = { on: saved.chord.on !== false, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
     }
@@ -615,6 +648,11 @@ function selectShape(index) {
    of noise circulates in a delay line one period long and is softened a
    little on every pass, which sounds like a plucked string. Each pitch is
    computed once, on first use, and kept.
+   To sound clear but not buzzy: the burst is softened more for high notes
+   (a softer pick) and shaped as if plucked away from the bridge (some
+   harmonics cancel), low strings lose a little of their long-ringing fizz,
+   and every note goes through a light tone shaping, a little body warmth, a
+   small room made from decaying noise, and a soft limiter.
    ========================================================================== */
 const STRUM_GAP = 0.035;   // seconds between strings in a strum
 let audio = null;
@@ -625,15 +663,73 @@ function audioOut() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     const ctx = new AC();
-    const limiter = ctx.createDynamicsCompressor();   // keeps strums from clipping
-    const volume = ctx.createGain();
-    volume.gain.value = 0.8;
-    limiter.connect(volume);
-    volume.connect(ctx.destination);
-    audio = { ctx, out: limiter };
+    audio = { ctx, out: soundChain(ctx) };
   }
   if (audio.ctx.state === 'suspended') audio.ctx.resume();
   return audio;
+}
+
+/* Notes → tone filter → body → (dry + room) → soft limiter → speakers.
+   Returns the node notes connect to. */
+function soundChain(ctx) {
+  const input = ctx.createGain();
+  const tone = ctx.createBiquadFilter();   // rounds off only the very top, where plucks fizz
+  tone.type = 'lowpass';
+  tone.frequency.value = 9000;
+  tone.Q.value = 0.5;
+  const body = ctx.createBiquadFilter();   // a little wooden warmth
+  body.type = 'peaking';
+  body.frequency.value = 220;
+  body.Q.value = 0.9;
+  body.gain.value = 2;
+  const presence = ctx.createBiquadFilter();   // a touch less of the piercing band, not enough to dull it
+  presence.type = 'peaking';
+  presence.frequency.value = 3200;
+  presence.Q.value = 1.2;
+  presence.gain.value = -1.5;
+  const limiter = ctx.createDynamicsCompressor();   // soft: only tames loud strums
+  limiter.threshold.value = -14;
+  limiter.knee.value = 12;
+  limiter.ratio.value = 4;
+  limiter.attack.value = 0.006;
+  limiter.release.value = 0.25;
+  const volume = ctx.createGain();
+  volume.gain.value = 0.9;
+  input.connect(tone);
+  tone.connect(body);
+  body.connect(presence);
+  presence.connect(limiter);
+  if (ctx.createConvolver) {   // the room
+    const room = ctx.createConvolver();
+    room.buffer = roomImpulse(ctx);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.1;
+    presence.connect(room);
+    room.connect(wet);
+    wet.connect(limiter);
+  }
+  limiter.connect(volume);
+  volume.connect(ctx.destination);
+  return input;
+}
+
+/* A small room's echo, made rather than recorded: soft noise fading out
+   in under a second, slightly different in each ear. */
+function roomImpulse(ctx) {
+  const sr = ctx.sampleRate;
+  const len = Math.floor(sr * 0.9);
+  const ir = ctx.createBuffer(2, len, sr);
+  const gap = Math.floor(sr * 0.012);   // first reflections arrive after 12 ms
+  for (let c = 0; c < 2; c++) {
+    const d = ir.getChannelData(c);
+    let lp = 0;
+    for (let i = gap; i < len; i++) {
+      const t = (i - gap) / sr;
+      lp = 0.55 * lp + 0.45 * (Math.random() * 2 - 1);   // darker than plain noise
+      d[i] = lp * Math.exp(-t * 8) * 0.5;
+    }
+  }
+  return ir;
 }
 
 function pluck(ctx, midi) {
@@ -644,27 +740,42 @@ function pluck(ctx, midi) {
   // sample, so it sounds at sr / (n - 0.5); playbackRate fixes the rounding
   const n = Math.max(2, Math.floor(sr / freq + 0.5));
   const rate = freq / (sr / (n - 0.5));
-  const seconds = midi < 48 ? 1.8 : 1.4;   // note length (low notes ring a bit longer)
+  const seconds = midi < 48 ? 1.55 : 1.2;   // note length (low notes ring a bit longer)
   const len = Math.floor(sr * seconds);
   const buffer = ctx.createBuffer(1, len, sr);
   const data = buffer.getChannelData(0);
 
-  // Excitation: slightly smoothed noise without DC offset
+  // Excitation: smoothed noise, smoother for higher notes (a softer pick
+  // where the buzz would be), without DC offset
+  const high = Math.min(1, Math.max(0, (midi - 40) / 40));   // 0 for a low E, 1 four octaves up
+  const soft = 0.45 + 0.25 * high;
   const loop = new Float32Array(n);
   let prev = 0;
-  // (smoothed a bit more than plain noise: a softer, less clicky pluck)
-  for (let i = 0; i < n; i++) { prev = 0.45 * (Math.random() * 2 - 1) + 0.55 * prev; loop[i] = prev; }
-  const mean = loop.reduce((a, v) => a + v, 0) / n;
-  for (let i = 0; i < n; i++) loop[i] -= mean;
+  for (let i = 0; i < n; i++) { prev = (1 - soft) * (Math.random() * 2 - 1) + soft * prev; loop[i] = prev; }
+  // Plucked a fifth of the way from the bridge: subtracting a copy shifted by
+  // that much cancels every fifth harmonic and rounds the tone
+  const shift = Math.max(1, Math.round(n * 0.2));
+  const plucked = loop.map((v, i) => v - loop[(i + n - shift) % n]);
+  const mean = plucked.reduce((a, v) => a + v, 0) / n;
+  let power = 0;
+  for (let i = 0; i < n; i++) { loop[i] = plucked[i] - mean; power += loop[i] * loop[i]; }
+  const gain = 0.2 / (Math.sqrt(power / n) || 1);   // every note plucked equally hard
+  for (let i = 0; i < n; i++) loop[i] *= gain;
 
-  const damping = 0.997;              // extra loss per pass: shorter, less boomy low notes
-  const fade = Math.floor(sr * 0.5);  // gentle fade over the last half second, never a click
-  const attack = Math.floor(sr * 0.006);   // 6 ms fade-in takes the edge off the attack
+  const damping = 0.9965;             // extra loss per pass: shorter, less boomy low notes
+  const fade = Math.floor(sr * 0.4);  // gentle fade over the last 0.4 s, never a click
+  const attack = Math.floor(sr * 0.004);   // 4 ms fade-in takes the edge off the attack
+  // Low strings keep their high harmonics for long; on small speakers (that
+  // cannot play the low fundamental) that is all you hear, a buzz. A gentle
+  // low-pass that follows the pitch keeps them round.
+  const smooth = 1 - Math.exp((-2 * Math.PI * Math.min(12000, freq * 36)) / sr);
+  let y = 0;
   let k = 0;
   for (let i = 0; i < len; i++) {
     const next = (k + 1) % n;
     const env = i < attack ? i / attack : i > len - fade ? (len - i) / fade : 1;
-    data[i] = loop[k] * env;
+    y += smooth * (loop[k] - y);
+    data[i] = y * env;
     loop[k] = damping * 0.5 * (loop[k] + loop[next]);
     k = next;
   }
@@ -781,6 +892,9 @@ const wideMedia = typeof window !== 'undefined' ? window.matchMedia(WIDE_QUERY) 
 const isWide = () => Boolean(wideMedia && wideMedia.matches);
 const ui = { tab: null, shapeKey: null, groups: [] };   // open dock tab (phones), last shape shown
 const els = {};
+/* Text for a pill or circle, wrapped so its capital letters can be centred
+   exactly (see .tx in styles.css) */
+const tx = (s) => `<span class="tx">${esc(s)}</span>`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function render() {
@@ -939,12 +1053,6 @@ function openTab(tab) {
   if (ui.tab) els.sheet.scrollTop = 0;
   // Once the sheet has slid up, make sure the shape is still visible above it
   if (ui.tab) setTimeout(revealShape, 240);
-}
-
-/* The dock's height, used by the page padding and to place the sheet. */
-function measureDock() {
-  const h = isWide() ? 0 : els.dockBar.offsetHeight;
-  document.documentElement.style.setProperty('--dock-h', `${h}px`);
 }
 
 function renderHeader() {
@@ -1121,7 +1229,7 @@ function renderNeck(ch, sc) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
         n = sc.spell.names.get(pc) || n;
       } else {
-        cls += onlyScale ? ' plain out' : ' plain';
+        cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';   // off: shown, but not in the scale
       }
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
@@ -1131,12 +1239,12 @@ function renderNeck(ch, sc) {
       const empty = onlyScale && cls.includes(' out');
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
         `${f < c ? ' behind' : ''}${c && f === c ? ' capo' : ''}${empty ? ' empty' : ''}`;
-      const inner = cls.includes(' mute') ? MUTE_ICON : esc(text);
+      const inner = cls.includes(' mute') ? MUTE_ICON : tx(text);
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
       html.push(
         `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
         `${octTag}<span class="${cls}" title="${esc(title)}">${inner}` +
-        `${badge ? `<span class="deg-badge" aria-hidden="true">${esc(badge)}</span>` : ''}</span></div>`
+        `${badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
       );
     }
   });
@@ -1144,6 +1252,14 @@ function renderNeck(ch, sc) {
   if (c) {
     html.push(`<div class="capo-bar" style="${capoAt}" ` +
       `title="Place the capo here, just behind fret ${c}" aria-hidden="true"></div>`);
+  }
+  // Barres: a pink band behind the notes the finger lies across
+  if (ch && ch.shape) {
+    for (const { fret, from, to } of barresFor(ch.shape.frets)) {
+      const at = vertical ? `grid-row:${fret + c + 2};grid-column:${from + 2} / ${to + 3}`
+        : `grid-column:${fret + c + 2};grid-row:${n - to + 1} / ${n - from + 2}`;
+      html.push(`<div class="barre" style="${at};--k:${to - from + 1}" aria-hidden="true"><i></i></div>`);
+    }
   }
   html.push('<svg class="group-layer" aria-hidden="true"></svg>');
   els.neck.innerHTML = html.join('');
@@ -1322,7 +1438,7 @@ function renderChordPanel(ch, sc) {
     return `<li class="np-note${deg === 'R' ? ' root' : ''}" data-midi="${x.midi}" data-s="${x.s}" ` +
       `data-f="${x.f + c}" title="Click to hear ${esc(name)}">` +
       `<span class="np-note-name">${esc(name)}</span>` +
-      `<span class="np-deg">${esc(fmtDeg(deg))}</span>` +
+      `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
       `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
       `<span class="np-loc"><kbd>${loc}</kbd></span></li>`;
   }).join('');
@@ -1364,12 +1480,12 @@ function renderScalePanel(sc, ch) {
 
   const parts = [];
   sc.spell.notes.forEach((n, i) => {
-    parts.push(`<li class="scale-note${i === 0 ? ' root' : ''}">${esc(noteText(n))}</li>`);
+    parts.push(`<li class="scale-note${i === 0 ? ' root' : ''}">${tx(noteText(n))}</li>`);
     const next = i + 1 < sc.def.steps.length ? sc.def.steps[i + 1] : 12;
     const gap = next - sc.def.steps[i];
     parts.push(`<li class="scale-gap" aria-label="${gap} semitones"><span>${STEP_NAMES[gap] || gap}</span></li>`);
   });
-  parts.push(`<li class="scale-note octave">${esc(sc.rootName)}</li>`);
+  parts.push(`<li class="scale-note octave">${tx(sc.rootName)}</li>`);
   els.scaleNotes.innerHTML = parts.join('');
 
   const triads = scaleTriads(sc);
@@ -1490,12 +1606,10 @@ function init() {
     placeSettings();
     if (isWide()) ui.tab = null;
     render();
-    measureDock();
   };
   if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
   else wideMedia.addListener(relayout);
   if (window.ResizeObserver) {
-    new ResizeObserver(measureDock).observe(els.dockBar);
     new ResizeObserver(() => drawGroups()).observe(els.neck);   // keep group outlines on their cells
   }
 
@@ -1634,7 +1748,6 @@ function init() {
 
   placeSettings();
   render();
-  measureDock();
   keepScreenOn();
   installable();
 }
