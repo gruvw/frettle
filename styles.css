@@ -1,0 +1,651 @@
+/* ==========================================================================
+   Frettle — design tokens
+   Everything below is built from these values: one type scale, one spacing
+   scale, three radii and two control heights.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* Colour */
+  --bg: #121317;
+  --panel: #1b1d23;
+  --text: #e6e7eb;
+  --muted: #9097a3;
+  --border: #2d3039;
+  --accent: #8c86f7;
+  --accent-text: #11101f;
+  --accent-soft: #26244a;
+  --danger: #f07272;
+  --ok: #5ccf8d;
+  --warn: #f0b75a;
+  --kbd-bg: #262932;
+  --chord: #ff4d86;
+  --chord-text: #ffffff;
+  --scale: #22b8a6;
+  --scale-text: #03201c;
+  --pk-white: #e4e5e9;
+  --pk-black: #08080a;
+  --pk-grey: #8f9198;
+
+  /* Type scale */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-xs: 0.72rem;      /* uppercase labels, ruler numbers */
+  --fs-pill: 0.75rem;    /* note pills and badges */
+  --fs-sm: 0.82rem;      /* secondary text, chips, small buttons */
+  --fs-md: 0.92rem;      /* body, controls, buttons */
+  --fs-lg: 1.05rem;      /* section titles, emphasised values */
+  --fs-xl: 1.5rem;       /* app title */
+  --fs-display: 1.9rem;  /* chord symbol */
+
+  /* Spacing */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  /* Shape */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+  --control-h: 36px;
+  --chip-h: 28px;
+  --pill-h: 22px;
+
+  /* Neck geometry */
+  --label-w: 28px;
+  --open-w: 54px;
+  --cell-w: 46px;
+  --row-h: 38px;
+  --ruler-h: 24px;
+  --ruler-row: 26px;      /* ruler row height: numbers sit close above the neck */
+  --scroll-gap: 10px;     /* space between scrolling content and its scrollbar */
+  --fret-wire: color-mix(in srgb, var(--pk-grey) 38%, transparent);
+  --string: color-mix(in srgb, var(--pk-grey) 70%, transparent);
+  --nut: color-mix(in srgb, var(--pk-white) 85%, transparent);
+  --inlay: color-mix(in srgb, var(--text) 4%, var(--bg));
+  --octave-alt: color-mix(in srgb, var(--text) 8%, var(--bg));   /* every other octave */
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-md)/1.5 var(--font);
+}
+
+h1, h2 { margin: 0; line-height: 1.25; }
+h1 { font-size: var(--fs-xl); letter-spacing: -0.01em; }
+h2 { font-size: var(--fs-lg); }
+
+.muted { color: var(--muted); font-weight: 400; }
+.mono { font-family: var(--mono); }
+
+/* The one label style: field labels and row labels */
+.label,
+.field > span {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  height: var(--pill-h);
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  background: var(--kbd-bg);
+  color: var(--text);
+  font: 500 var(--fs-pill)/1 var(--mono);
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Layout
+   ========================================================================== */
+.top {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 20px var(--sp-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+  align-items: center;
+  justify-content: space-between;
+}
+.h1-sub { margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.h2-sub { margin-left: var(--sp-2); }
+
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--sp-3) 20px 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px;
+}
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-height: 32px;
+  margin-bottom: var(--sp-4);
+}
+
+.theory-title { display: flex; align-items: center; gap: var(--sp-2); }
+.swatch { display: inline-block; flex: none; width: 14px; height: 14px; }
+.swatch-chord { border-radius: 3px; background: var(--chord); }
+.swatch-scale { border-radius: 50%; background: var(--scale); }
+
+.push-right { margin-left: auto; }
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
+.bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3); }
+.field { display: grid; gap: 7px; }
+.field.grow { flex: 1 1 170px; min-width: 0; }
+.field.grow select { width: 100%; min-width: 0; }
+.field.root select { min-width: 84px; }
+.field.scale-type select { width: 240px; min-width: 0; }
+.field > span { margin-left: -2px; } /* optical alignment with the rounded box */
+
+select {
+  height: var(--control-h);
+  min-width: 140px;
+  padding: 0 30px 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--panel);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+select:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+
+/* Buttons: outlined by default, .small is compact, [aria-checked] is the
+   selected button of a segmented group */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-h);
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: 500 var(--fs-md)/1 var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 100ms, background-color 100ms;
+}
+.btn:not(:disabled):hover { border-color: var(--accent); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.primary:not(:disabled):hover { filter: brightness(1.08); }
+.btn.small { height: var(--chip-h); padding: 0 10px; font-size: var(--fs-sm); border-radius: var(--r-sm); }
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.segmented .btn { border-color: transparent; }
+.segmented .btn[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+select:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Switch-style pill toggle */
+.toggles { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.pill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 32px;
+  padding: 0 14px 0 var(--sp-2);
+  border-radius: var(--r-pill);
+  border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 80%, transparent);
+  font: 500 var(--fs-sm)/1 var(--font);
+  cursor: pointer;
+}
+.pill-toggle:hover { border-color: var(--accent); }
+.pill-toggle[hidden] { display: none; }
+
+/* Select in the same pill shape (capo position) */
+.pill-select {
+  height: 32px;
+  min-width: 0;
+  padding-left: 14px;
+  border-radius: var(--r-pill);
+  border-color: color-mix(in srgb, var(--muted) 45%, transparent);
+  color: color-mix(in srgb, var(--text) 80%, transparent);
+  font: 500 var(--fs-sm)/1 var(--font);
+}
+.pill-select:hover { border-color: var(--accent); }
+.pill-select.on { border-color: var(--accent); color: var(--text); }
+.pill-dot {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+  transition: background-color 120ms;
+}
+.pill-dot::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--panel);
+  transition: transform 120ms;
+}
+.pill-toggle[aria-pressed="true"] { color: var(--text); border-color: var(--accent); }
+.pill-toggle[aria-pressed="true"] .pill-dot { background: var(--accent); }
+.pill-toggle[aria-pressed="true"] .pill-dot::after { transform: translateX(12px); }
+
+/* Status pill (shape counter) */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chip-h);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.status[hidden] { display: none; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--chord); }
+.status.warn { color: var(--warn); border-color: var(--warn); }
+.status.warn::before { background: var(--warn); }
+
+/* Chips: shapes and triads (one style, pink when selected) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--chip-h);
+  padding: 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--text);
+  font: 700 var(--fs-sm)/1 var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
+.chip-num { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
+.chip .mono { font-weight: 600; }
+.chip.selected { background: var(--chord); color: var(--chord-text); }
+.chip.selected .chip-num { color: var(--chord-text); opacity: 0.8; }
+
+/* ==========================================================================
+   Neck
+   ========================================================================== */
+.neck-panel {
+  width: calc(100% - 40px);
+  max-width: 1400px;
+  margin: var(--sp-3) auto 0;
+  padding-bottom: var(--sp-4);
+}
+.neck-panel .panel-head { margin-bottom: var(--sp-3); }
+.neck-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: var(--scroll-gap); }
+
+.neck {
+  display: grid;
+  grid-template-rows: var(--ruler-row);
+  grid-auto-rows: var(--row-h);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Fret numbers above the neck; inlay frets get dots */
+.ruler {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: var(--ruler-h);
+  align-self: start;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.ruler.mark { color: var(--text); }
+.ruler i { width: 5px; height: 5px; border-radius: 50%; background: var(--pk-grey); }
+
+.slabel {
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  transition: background-color 80ms;
+}
+/* The string runs through every cell */
+.cell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: var(--sw, 1px);
+  transform: translateY(-50%);
+  background: var(--string);
+}
+.cell.open::before { opacity: 0.45; }
+.cell.fret { background: var(--bg); border-right: 2px solid var(--fret-wire); }
+.cell.fret.mark { background: var(--inlay); }
+.cell.open { border-right: 5px solid var(--nut); }
+.neck .cell { cursor: pointer; }   /* click a note to hear it */
+.neck .cell:hover { box-shadow: inset 0 0 0 99px color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* Octaves: alternate octaves are shaded, open strings included (replacing
+   the inlay tint), and each octave's bottom-left cell shows its number.
+   C starts an octave. */
+.neck.octaves .cell.fret, .neck.octaves .cell.open { background: var(--bg); }
+.neck.octaves .cell.fret.o-alt, .neck.octaves .cell.open.o-alt { background: var(--octave-alt); }
+.oct {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font: 700 var(--fs-xs)/1 var(--font);
+  color: var(--text);
+  opacity: 0.8;
+}
+
+/* Capo: a bar on the capo's fret wire; frets behind it can't be played */
+.capo-bar {
+  justify-self: end;
+  align-self: stretch;
+  z-index: 2;
+  width: 8px;
+  margin: 3px 6px 3px 0;          /* sits in the fret space, just behind the wire */
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  pointer-events: none;
+}
+.cell.capo { padding-right: 14px; }  /* keep the notes clear of the capo */
+.cell.behind .note { opacity: 0.3; }
+.cell.behind::before, .cell.behind .oct { opacity: 0.3; }
+.neck .cell.behind { cursor: default; }
+.neck .cell.behind:hover { box-shadow: none; }
+.ruler.capo { color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
+
+/* Note pills.
+   Every note is shown at full strength. Scale notes are teal,
+   chord-shape notes pink with their interval,
+   other chord tones (optional) pink outlines. */
+.note {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--pill-h);
+  min-width: var(--pill-h);
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--kbd-bg);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font: 700 var(--fs-pill)/1 var(--font);
+  white-space: nowrap;
+  transition: opacity 120ms;
+}
+/* A ring around a pill always means "root" (scale root or chord root) */
+.note.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }
+.note.scale-root { outline: 2px solid var(--scale); outline-offset: 2px; }
+.note.ghost { background: var(--bg); color: var(--chord); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chord) 55%, transparent); }
+.note.chord { background: var(--chord); color: var(--chord-text); box-shadow: none; font-weight: 800; }
+.note.chord.root { outline: 2px solid var(--chord); outline-offset: 2px; }
+/* A note lights up in amber while it sounds */
+@keyframes ping {
+  0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
+  100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+}
+.note.ping { animation: ping 450ms ease-out; }
+.note.mute { background: transparent; box-shadow: none; color: var(--chord); font-size: var(--fs-lg); }
+
+/* ==========================================================================
+   Chords panel
+   ========================================================================== */
+.np-body {
+  display: grid;
+  grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-4) var(--sp-5);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+
+.np-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
+.np-symbol {
+  flex: none;
+  width: 140px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-lg);
+  background: var(--accent-soft);
+  color: var(--muted);
+  font: 800 var(--fs-display)/1 var(--font);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.np-symbol.on { background: var(--chord); color: var(--chord-text); }
+
+.np-desc { display: grid; gap: 2px; min-width: 0; }
+.np-desc > div { min-height: 1.4em; overflow: hidden; text-overflow: ellipsis; }
+.np-mode { color: var(--chord); }
+.np-title { font-size: var(--fs-lg); font-weight: 700; white-space: nowrap; }
+.np-meta { font-size: var(--fs-sm); }
+.np-alt { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
+.np-capo { color: var(--accent); font-weight: 600; }
+
+.np-tones { display: grid; gap: var(--sp-2); min-width: 0; }
+.np-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  height: calc(100px + var(--scroll-gap) + 12px);   /* cards + gap + thin scrollbar */
+  padding-bottom: var(--scroll-gap);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.np-placeholder { align-self: center; color: var(--muted); font-size: var(--fs-sm); }
+
+/* Note card: name + interval badge, role, where to play it */
+.np-note {
+  cursor: pointer;   /* click a card to hear its note */
+  flex: 1 1 0;
+  min-width: 96px;
+  max-width: 124px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto 1fr;
+  row-gap: 2px;
+  height: 100px;
+  padding: 10px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+}
+.np-note-name { font-size: var(--fs-lg); font-weight: 800; line-height: 22px; }
+.np-deg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--pill-h);
+  min-width: var(--pill-h);
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--chord);
+  color: var(--chord-text);
+  font: 800 var(--fs-pill)/1 var(--font);
+}
+.np-role {
+  grid-column: 1 / -1;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-loc { grid-column: 1 / -1; align-self: end; }
+.np-note:hover { border-color: var(--accent); }
+.np-note.root { border-color: var(--chord); box-shadow: inset 0 0 0 1px var(--chord); }
+.np-note.root .np-deg { outline: 2px solid var(--chord); outline-offset: 2px; }
+.np-loc kbd { font-family: var(--font); }
+
+/* ==========================================================================
+   Rows with a label on the left (shapes, scale notes, triads)
+   ========================================================================== */
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.line > .label { flex: none; width: 56px; }
+.line .btn.small { flex: none; }
+
+.chip-list {
+  position: relative;
+  list-style: none;
+  margin: 0 0 calc(-1 * var(--scroll-gap));   /* keeps the row centred */
+  padding: 0 0 var(--scroll-gap);             /* keeps the scrollbar off the chips */
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.chip-list:empty::before { content: attr(data-empty); line-height: var(--chip-h); color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.chip-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: var(--chip-h); }
+.empty-text { color: var(--muted); font-size: var(--fs-sm); }
+
+/* Scale notes on the top line, each step under the gap it describes */
+.line.notes-line { align-items: flex-start; }
+.line.notes-line > .label { line-height: var(--chip-h); margin-top: 4px; }
+.scale-chain {
+  list-style: none;
+  margin: 0;
+  padding: 4px 4px var(--scroll-gap);   /* room for the root's ring and the scrollbar */
+  margin-bottom: calc(-1 * var(--scroll-gap));
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: var(--chip-h) 18px;
+  justify-content: start;
+  align-items: center;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.scale-note {
+  grid-row: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--chip-h);
+  min-width: var(--chip-h);
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--scale);
+  color: var(--scale-text);
+  font: 700 var(--fs-sm)/1 var(--font);
+}
+.scale-note.root { outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
+.scale-note.octave { background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }
+.scale-gap { grid-row: 1 / 3; align-self: end; width: 26px; display: flex; justify-content: center; }
+.scale-gap > span { font-size: var(--fs-xs); font-weight: 800; line-height: 18px; color: var(--muted); white-space: nowrap; }
+
+/* Thin, rounded scrollbars for the sideways-scrolling rows */
+.neck-scroll, .np-notes, .chip-list, .scale-chain {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
+}
+
+/* Optical centring of pill text where supported */
+.note, .np-deg, .scale-note, .chip, .status, kbd { text-box: trim-both cap alphabetic; }
+
+/* ==========================================================================
+   Narrow screens
+   ========================================================================== */
+@media (max-width: 860px) {
+  .np-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  :root { --cell-w: 40px; --open-w: 46px; --label-w: 22px; --row-h: 34px; }
+  .top { padding: 20px 12px var(--sp-2); }
+  .neck-panel { width: calc(100% - 24px); padding: 14px 12px 10px; }
+  main { padding-left: 12px; padding-right: 12px; }
+  .panel { padding: var(--sp-4) 14px; }
+  .segmented { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .segmented .btn { padding: 0 10px; }
+  .np-symbol { width: 110px; height: 80px; font-size: var(--fs-xl); }
+  .field.scale-type { flex: 1; }
+  .field.scale-type select { width: 100%; }
+  .line > .label { width: auto; }
+}

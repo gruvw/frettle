@@ -1,1 +1,121 @@
-<h1>Hello World</h1>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frettle · Fretboard trainer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Frettle <span class="h1-sub">Fretboard trainer</span></h1>
+    <div id="instrumentPicker" class="segmented" role="radiogroup" aria-label="Instrument"></div>
+  </header>
+
+  <section class="panel neck-panel" aria-label="Fretboard">
+    <div class="panel-head">
+      <h2 id="neckTitle"></h2>
+      <div class="toggles">
+        <select id="capoSelect" class="pill-select" aria-label="Capo position"
+                title="Fret where the capo sits. Chord shapes are then counted from the capo."></select>
+        <button type="button" id="tglLowG" class="pill-toggle" aria-pressed="false" hidden
+                title="Tune the 4th string to a low G (G3) instead of the usual high G (G4)">
+          <span class="pill-dot" aria-hidden="true"></span>Low G
+        </button>
+        <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
+                title="Shade every other octave and show each note's octave number (C4 = middle C)">
+          <span class="pill-dot" aria-hidden="true"></span>Octaves
+        </button>
+        <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
+                title="Name black-key notes with flats (B♭) instead of sharps (A♯)">
+          <span class="pill-dot" aria-hidden="true"></span>Flats
+        </button>
+        <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
+                title="Also mark every other place the chord's notes appear on the neck">
+          <span class="pill-dot" aria-hidden="true"></span>All chord tones
+        </button>
+      </div>
+    </div>
+    <div class="neck-scroll">
+      <div id="neck" class="neck" role="grid" aria-label="Fretboard notes"></div>
+    </div>
+  </section>
+
+  <main>
+    <section class="panel" aria-label="Chords">
+      <div class="panel-head">
+        <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i>Chords</h2>
+        <span id="shapeCount" class="status" hidden></span>
+      </div>
+
+      <div class="bar">
+        <label class="field root">
+          <span>Root</span>
+          <select id="chordRoot"></select>
+        </label>
+        <label class="field grow">
+          <span>Chord</span>
+          <select id="chordType"></select>
+        </label>
+        <label class="field grow">
+          <span>Voicing</span>
+          <select id="chordVoicing"></select>
+        </label>
+        <button type="button" id="chordStrum" class="btn primary" title="Strum the shape (Space)">▶ Strum</button>
+        <button type="button" id="chordClear" class="btn">✕ Deselect</button>
+      </div>
+
+      <div id="chordBody" class="np-body" aria-live="polite">
+        <div class="np-head">
+          <div id="chordSymbol" class="np-symbol">—</div>
+          <div class="np-desc">
+            <div id="chordMode" class="label np-mode"></div>
+            <div id="chordName" class="np-title"></div>
+            <div id="chordMeta" class="np-meta"></div>
+            <div id="chordAlt" class="np-alt"></div>
+            <div id="chordCapo" class="np-meta np-capo" hidden></div>
+          </div>
+        </div>
+        <div class="np-tones">
+          <span id="tonesLabel" class="label">Shape notes · bass to top</span>
+          <ol id="chordTones" class="np-notes"></ol>
+        </div>
+      </div>
+
+      <div class="line">
+        <span class="label">Shapes</span>
+        <button type="button" id="shapePrev" class="btn small" title="Previous shape (←)" aria-label="Previous shape">←</button>
+        <ol id="shapeList" class="chip-list" aria-label="Chord shapes, from the nut up the neck"></ol>
+        <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape">→</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Scale">
+      <div class="panel-head">
+        <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</h2>
+      </div>
+      <div class="bar">
+        <label class="field root">
+          <span>Root</span>
+          <select id="scaleRoot"></select>
+        </label>
+        <label class="field scale-type">
+          <span>Type</span>
+          <select id="scaleType"></select>
+        </label>
+        <button type="button" id="scaleClear" class="btn push-right">✕ Deselect</button>
+      </div>
+      <div class="line notes-line">
+        <span class="label">Notes</span>
+        <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
+      </div>
+      <div class="line">
+        <span class="label">Triads</span>
+        <div id="scaleTriads" class="chip-wrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
