@@ -18,10 +18,10 @@ const FLAT_NAMES = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A'
    when you hold the instrument to the one nearest the floor. The standard
    ukulele is re-entrant: its first-listed string is a high G. */
 const INSTRUMENTS = [
-  { id: 'guitar', name: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
-  { id: 'bass', name: 'Bass', strings: [28, 33, 38, 43], frets: 20 },
-  { id: 'ukulele', name: 'Standard Ukulele', strings: [67, 60, 64, 69], frets: 18, note: 'high G' },
-  { id: 'baritone', name: 'Baritone Ukulele', strings: [50, 55, 59, 64], frets: 18 },
+  { id: 'guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
+  { id: 'bass', name: 'Bass', short: 'Bass', strings: [28, 33, 38, 43], frets: 20 },
+  { id: 'ukulele', name: 'Standard Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18, note: 'high G' },
+  { id: 'baritone', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18 },
 ];
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
    Ukulele chords (re-entrant G) and baritone chords often have another note lowest. */
@@ -293,6 +293,8 @@ function pickShapes(found) {
 }
 
 const tabOf = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(' ');
+/* Compact tab for tight spaces: "x32010", spaced only when a fret has two digits */
+const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape.frets.some((f) => f > 9) ? ' ' : '');
 
 /* Node (tests) gets the pure part; the browser runs the app below. */
 if (typeof module !== 'undefined') {
@@ -450,7 +452,7 @@ function pluck(ctx, midi) {
   // sample, so it sounds at sr / (n - 0.5); playbackRate fixes the rounding
   const n = Math.max(2, Math.floor(sr / freq + 0.5));
   const rate = freq / (sr / (n - 0.5));
-  const seconds = midi < 48 ? 3 : 2.2;
+  const seconds = midi < 48 ? 1.8 : 1.4;   // note length (low notes ring a bit longer)
   const len = Math.floor(sr * seconds);
   const buffer = ctx.createBuffer(1, len, sr);
   const data = buffer.getChannelData(0);
@@ -463,7 +465,7 @@ function pluck(ctx, midi) {
   for (let i = 0; i < n; i++) loop[i] -= mean;
 
   const damping = 0.997;              // extra loss per pass: shorter, less boomy low notes
-  const fade = Math.floor(sr * 0.25); // fade out the tail so it never clicks
+  const fade = Math.floor(sr * 0.5);  // gentle fade over the last half second, never a click
   let k = 0;
   for (let i = 0; i < len; i++) {
     const next = (k + 1) % n;
@@ -519,7 +521,14 @@ function strum() {
 
 /* ==========================================================================
    5. Rendering
+   Phones (narrow): vertical neck, controls in a dock with tabs that open a
+   sheet. Wide screens: horizontal neck, panels below it. WIDE_QUERY must
+   match the media query at the end of styles.css.
    ========================================================================== */
+const WIDE_QUERY = '(min-width: 900px), (orientation: landscape) and (min-width: 640px)';
+const wideMedia = typeof window !== 'undefined' ? window.matchMedia(WIDE_QUERY) : null;
+const isWide = () => Boolean(wideMedia && wideMedia.matches);
+const ui = { tab: null, shapeKey: null };   // open dock tab (phones), last shape shown
 const els = {};
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -541,19 +550,85 @@ function render() {
   renderNeck(ch, sc);
   renderChordPanel(ch);
   renderScalePanel(sc, ch);
+  renderDock(ch, sc);
   saveState();
+  // Phones: when the shape changes, scroll the neck so it is in view
+  const key = ch && ch.shape ? [instrument().strings, capo(), ch.symbol, tabOf(ch.shape)].join('|') : null;
+  if (key && ui.shapeKey !== null && key !== ui.shapeKey) revealShape();
+  ui.shapeKey = key || '';
+}
+
+/* Scroll the page (phones only) so the selected shape sits in the part of
+   the screen that the dock and the open sheet do not cover. */
+function revealShape() {
+  if (isWide()) return;
+  const notes = [...els.neck.querySelectorAll('.note.chord')];
+  if (!notes.length) return;
+  const rects = notes.map((n) => n.getBoundingClientRect());
+  const top = Math.min(...rects.map((r) => r.top)) - 28;
+  const bottom = Math.max(...rects.map((r) => r.bottom)) + 12;
+  const covered = els.dockBar.offsetHeight + (els.sheet.classList.contains('open') ? els.sheet.offsetHeight : 0);
+  const viewTop = 8;
+  const viewBottom = window.innerHeight - covered - 8;
+  if (top >= viewTop && bottom <= viewBottom) return;
+  const room = viewBottom - viewTop;
+  const delta = bottom - top > room ? top - viewTop : (top + bottom) / 2 - (viewTop + viewBottom) / 2;
+  window.scrollTo({ top: window.scrollY + delta, behavior: 'smooth' });
+}
+
+/* Neck settings live in the neck's header on wide screens and in the dock's
+   "Neck" tab on phones. */
+function placeSettings() {
+  const slot = isWide() ? els.settingsWideSlot : els.settingsNarrowSlot;
+  if (els.settings.parentElement !== slot) slot.appendChild(els.settings);
+}
+
+/* Phones: the shape bar, the tab values and which sheet is open. */
+function renderDock(ch, sc) {
+  els.dockShapeBar.hidden = !ch;   // no chord: just the tabs
+  const many = Boolean(ch && ch.shapes.length > 1);
+  els.dockPrev.disabled = els.dockNext.disabled = !many;
+  els.dockStrum.disabled = !ch || !ch.shape;
+  els.dockSymbol.textContent = ch ? ch.symbol : '';
+  if (!ch) els.dockTab.innerHTML = '<span>No chord selected</span>';
+  else if (!ch.shape) els.dockTab.innerHTML = '<span>No playable shape</span>';
+  else els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}</span><span>${esc(shortTab(ch.shape))}</span>`;
+
+  els.tabChordValue.textContent = ch ? ch.symbol : 'None';
+  els.tabScaleValue.textContent = sc ? `${noteName(sc.root)} ${sc.def.name.replace(/ \(.*\)$/, '')}` : 'None';
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : instrument().short;
+
+  const open = !isWide() && ui.tab !== null;
+  for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
+  for (const panel of els.sheetPanels) panel.classList.toggle('active', panel.dataset.tab === ui.tab);
+  els.sheet.classList.toggle('open', open);
+  document.body.classList.toggle('sheet-open', open);   // extra scroll room under the neck
+  els.sheet.setAttribute('aria-hidden', String(!isWide() && !open));
+}
+
+function openTab(tab) {
+  ui.tab = ui.tab === tab ? null : tab;
+  const ch = currentChord();
+  renderDock(ch, currentScale());
+  if (ui.tab) els.sheet.scrollTop = 0;
+  // Once the sheet has slid up, make sure the shape is still visible above it
+  if (ui.tab) setTimeout(revealShape, 240);
+}
+
+/* The dock's height, used by the page padding and to place the sheet. */
+function measureDock() {
+  const h = isWide() ? 0 : els.dockBar.offsetHeight;
+  document.documentElement.style.setProperty('--dock-h', `${h}px`);
 }
 
 function renderHeader() {
   const inst = instrument();
   els.instrumentPicker.innerHTML = INSTRUMENTS.map((i) =>
-    `<button type="button" class="btn" role="radio" data-inst="${i.id}" aria-checked="${i.id === inst.id}">${esc(i.name)}</button>`
+    `<button type="button" class="btn" role="radio" data-inst="${i.id}" aria-checked="${i.id === inst.id}" title="${esc(i.name)}">` +
+    `<span class="inst-long">${esc(i.name)}</span><span class="inst-short">${esc(i.short)}</span></button>`
   ).join('');
-  const tuning = inst.strings.map((m) => noteName(m)).join(' ');
-  const extra = inst.note ? `, ${inst.note}` : '';
   const c = capo();
-  const capoText = c ? `, capo ${c}: ${inst.strings.map((m) => noteName(m + c)).join(' ')}` : '';
-  els.neckTitle.innerHTML = `${esc(inst.name)}<span class="muted h2-sub">${esc(tuning)}${esc(extra)}, ${inst.frets} frets${esc(capoText)}</span>`;
+  els.neckTitle.textContent = inst.name;   // tuning and capo are visible on the neck itself
   const maxCapo = Math.min(MAX_CAPO, inst.frets - SHAPE_SPAN);
   fillSelect(els.capoSelect, [{ items: Array.from({ length: maxCapo + 1 }, (_, i) => ({
     value: i, label: i ? `Capo ${i}` : 'No capo',
@@ -570,11 +645,29 @@ function renderNeck(ch, sc) {
   const n = inst.strings.length;
   const N = inst.frets;
   const c = capo();
-  // Columns: string number, open strings, frets 1..N. Row 1 is the ruler,
-  // then one row per string with the highest string on top (as in tab).
-  const place = (r, c) => `grid-row:${r};grid-column:${c + 1}`;
-  const row = (s) => n - s + 1;
-  els.neck.style.gridTemplateColumns = `var(--label-w) var(--open-w) repeat(${N}, minmax(var(--cell-w), 1fr))`;
+  // Phones: vertical neck. Row 1 holds the string numbers, then the open
+  // strings, then one row per fret; the lowest string is on the left.
+  // Wide screens: horizontal neck. Row 1 holds the fret numbers, then one row
+  // per string with the highest string on top (as in tab).
+  const vertical = !isWide();
+  let cellAt, rulerAt, labelAt, capoAt;
+  if (vertical) {
+    els.neck.style.gridTemplateColumns = `var(--label-w) repeat(${n}, minmax(0, 1fr))`;
+    cellAt = (s, f) => `grid-row:${f + 2};grid-column:${s + 2}`;
+    rulerAt = (f) => `grid-row:${f + 2};grid-column:1`;
+    labelAt = (s) => `grid-row:1;grid-column:${s + 2}`;
+    capoAt = `grid-row:${c + 2};grid-column:2 / span ${n}`;
+  } else {
+    els.neck.style.gridTemplateColumns = `var(--label-w) var(--open-w) repeat(${N}, minmax(var(--cell-w), 1fr))`;
+    cellAt = (s, f) => `grid-row:${n - s + 1};grid-column:${f + 2}`;
+    rulerAt = (f) => `grid-row:1;grid-column:${f + 2}`;
+    labelAt = (s) => `grid-row:${n - s + 1};grid-column:1`;
+    capoAt = `grid-row:2 / span ${n};grid-column:${c + 2}`;
+  }
+  els.neck.style.gridTemplateRows = 'var(--ruler-row)';
+  els.neck.style.gridAutoRows = 'var(--row-h)';
+  els.neck.classList.toggle('vertical', vertical);
+  els.neck.classList.toggle('horizontal', !vertical);
   els.neck.classList.toggle('octaves', state.octaves);
 
   // Shape frets count from the capo; place them at their real fret
@@ -586,19 +679,19 @@ function renderNeck(ch, sc) {
   }
   const ghosts = ch && (state.allTones || !ch.shape);
 
-  // One octave number per octave, on its bottom-left cell: the lowest row
-  // of the neck that reaches that octave, at its leftmost fret (open
-  // strings included). C4 = middle C, as on the piano.
+  // One octave number per octave, on its first cell: the lowest-listed
+  // string that reaches that octave, at its lowest fret (open strings
+  // included). That is the bottom-left of the band on the horizontal neck
+  // and its top-left on the vertical one. C4 = middle C, as on the piano.
   const octaveOf = (s, f) => Math.floor((inst.strings[s] + f) / 12) - 1;
   const octaveLabels = new Set();
   if (state.octaves) {
-    const best = new Map();   // octave → { s, f, r }
+    const best = new Map();   // octave → { s, f }
     inst.strings.forEach((open, s) => {
       for (let f = 0; f <= N; f++) {
         const o = octaveOf(s, f);
         const b = best.get(o);
-        const r = row(s);
-        if (!b || r > b.r || (r === b.r && f < b.f)) best.set(o, { s, f, r });
+        if (!b || s < b.s || (s === b.s && f < b.f)) best.set(o, { s, f });
       }
     });
     for (const b of best.values()) octaveLabels.add(`${b.s}:${b.f}`);
@@ -607,15 +700,15 @@ function renderNeck(ch, sc) {
   const html = [];
   for (let f = 1; f <= N; f++) {
     const dots = DOUBLE_DOTS.includes(f) ? 2 : SINGLE_DOTS.includes(f) ? 1 : 0;
-    const label = f === c ? 'Capo' : `${f}${'<i></i>'.repeat(dots)}`;
-    html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : ''}" style="${place(1, f + 1)}">${label}</div>`);
+    const label = f === c && !vertical ? 'Capo' : `${f}${'<i></i>'.repeat(dots)}`;
+    const title = f === c ? ` title="Capo on fret ${f}"` : '';
+    html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : ''}" style="${rulerAt(f)}"${title}>${label}</div>`);
   }
 
   inst.strings.forEach((open, s) => {
-    const r = row(s);
     const sw = Math.min(3.2, Math.max(1, (72 - open) / 10)).toFixed(1);
     const num = stringNumber(s);
-    html.push(`<div class="slabel" style="${place(r, 0)}" title="String ${num}">${num}</div>`);
+    html.push(`<div class="slabel" style="${labelAt(s)}" title="String ${num}">${num}</div>`);
     for (let f = 0; f <= N; f++) {
       const midi = open + f;
       const pc = mod12(midi);
@@ -624,6 +717,7 @@ function renderNeck(ch, sc) {
       const where = f === 0 ? `string ${num}, open` : `string ${num}, fret ${f}`;
       let cls = 'note';
       let text = noteName(pc);
+      let badge = '';   // chord notes: interval in a small corner badge, note name in the pill
       let title = `${pitchName(midi)}, ${where}`;
 
       if (f < c) {
@@ -637,12 +731,12 @@ function renderNeck(ch, sc) {
       } else if (shapeAt.has(key)) {
         const deg = shapeAt.get(key);
         cls += ` chord${deg === 'R' ? ' root' : ''}`;
-        text = fmtDeg(deg);
+        badge = fmtDeg(deg);
         title = `${pitchName(midi)} (${DEGREE_NAMES[deg]}), ${where}`;
       } else if (ghosts && ch.degOfPc.has(pc)) {
         const deg = ch.degOfPc.get(pc);
         cls += ` ghost${deg === 'R' ? ' root' : ''}`;
-        text = fmtDeg(deg);
+        badge = fmtDeg(deg);
         title = `${pitchName(midi)} (${DEGREE_NAMES[deg]}), ${where}`;
       } else if (sc && sc.set.has(pc)) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
@@ -654,14 +748,15 @@ function renderNeck(ch, sc) {
         `${f < c ? ' behind' : ''}${c && f === c ? ' capo' : ''}`;
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
       html.push(
-        `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${place(r, f + 1)};--sw:${sw}px">` +
-        `${octTag}<span class="${cls}" title="${esc(title)}">${esc(text)}</span></div>`
+        `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
+        `${octTag}<span class="${cls}" title="${esc(title)}">${esc(text)}` +
+        `${badge ? `<span class="deg-badge" aria-hidden="true">${esc(badge)}</span>` : ''}</span></div>`
       );
     }
   });
   // The capo clamps all strings just behind its fret wire
   if (c) {
-    html.push(`<div class="capo-bar" style="grid-row:2 / span ${n};grid-column:${c + 2}" ` +
+    html.push(`<div class="capo-bar" style="${capoAt}" ` +
       `title="Place the capo here, just behind fret ${c}" aria-hidden="true"></div>`);
   }
   els.neck.innerHTML = html.join('');
@@ -694,7 +789,7 @@ function renderChordPanel(ch) {
     els.chordSymbol.classList.remove('on');
     els.chordMode.textContent = '';
     els.chordName.textContent = 'No chord selected';
-    els.chordMeta.textContent = 'Pick a chord type, or click a triad in the scale below.';
+    els.chordMeta.textContent = 'Pick a chord type, or tap a triad in the Scale panel.';
     els.chordAlt.textContent = '';
     els.chordCapo.hidden = true;
     els.chordTones.innerHTML = '<li class="np-placeholder">The notes of the selected shape appear here.</li>';
@@ -851,9 +946,15 @@ function init() {
   for (const id of ['instrumentPicker', 'neckTitle', 'neck', 'tglLowG', 'tglOctaves', 'tglFlats', 'tglAllTones',
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordMode', 'chordName', 'chordMeta',
     'chordAlt', 'chordCapo', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
-    'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads']) {
+    'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
+    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'sheet', 'sheetClose',
+    'dockShapeBar', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
+    'tabChordValue', 'tabScaleValue', 'tabNeckValue']) {
     els[id] = document.getElementById(id);
   }
+  els.dockBar = document.querySelector('.dock-bar');
+  els.tabs = [...document.querySelectorAll('.tab')];
+  els.sheetPanels = [...els.sheet.querySelectorAll('.panel[data-tab]')];
   state = loadState();
 
   els.instrumentPicker.addEventListener('click', (e) => {
@@ -872,8 +973,7 @@ function init() {
     });
   }
 
-  // Clicking the neck jumps to a shape that uses that fret (or the nearest one)
-  // Click a note on the neck to hear it (not behind the capo)
+  // Tap a note on the neck to hear it (not behind the capo)
   els.neck.addEventListener('click', (e) => {
     const cell = e.target.closest('.cell');
     if (!cell || cell.classList.contains('behind')) return;
@@ -890,6 +990,25 @@ function init() {
   });
   els.chordStrum.addEventListener('click', strum);
 
+  // Dock (phones): shape bar, tabs and the sheet they open
+  els.dockStrum.addEventListener('click', strum);
+  els.dockPrev.addEventListener('click', () => selectShape(state.shape - 1));
+  els.dockNext.addEventListener('click', () => selectShape(state.shape + 1));
+  els.dockShape.addEventListener('click', () => openTab('chord'));
+  for (const tab of els.tabs) tab.addEventListener('click', () => openTab(tab.dataset.tab));
+  els.sheetClose.addEventListener('click', () => openTab(null));
+
+  // Switching between phone and wide layouts (rotating, resizing)
+  const relayout = () => {
+    placeSettings();
+    if (isWide()) ui.tab = null;
+    render();
+    measureDock();
+  };
+  if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
+  else wideMedia.addListener(relayout);
+  if (window.ResizeObserver) new ResizeObserver(measureDock).observe(els.dockBar);
+
   // Root alone never turns a chord or scale on: "None" in the type menu means off
   // Moving the capo keeps the chord and shows its first shape from the capo
   els.capoSelect.addEventListener('change', () => {
@@ -903,15 +1022,18 @@ function init() {
     if (state.chord.on) updateChord({ root });
     else { state.chord.root = root; render(); }
   });
+  // Clearing the chord or the scale also closes its panel on phones
+  const clearChord = () => { state.chord.on = false; ui.tab = null; render(); };
+  const clearScale = () => { state.scale.on = false; ui.tab = null; render(); };
   els.chordType.addEventListener('change', () => {
     if (els.chordType.value) updateChord({ type: els.chordType.value });
-    else { state.chord.on = false; render(); }
+    else clearChord();
   });
   els.chordVoicing.addEventListener('change', () => {
     state.voicing[state.instrument] = els.chordVoicing.value;
     updateChord({});
   });
-  els.chordClear.addEventListener('click', () => { state.chord.on = false; render(); });
+  els.chordClear.addEventListener('click', clearChord);
   els.shapePrev.addEventListener('click', () => selectShape(state.shape - 1));
   els.shapeNext.addEventListener('click', () => selectShape(state.shape + 1));
   els.shapeList.addEventListener('click', (e) => {
@@ -924,19 +1046,21 @@ function init() {
     render();
   });
   els.scaleType.addEventListener('change', () => {
-    if (els.scaleType.value) Object.assign(state.scale, { type: els.scaleType.value, on: true });
-    else state.scale.on = false;
+    if (!els.scaleType.value) { clearScale(); return; }
+    Object.assign(state.scale, { type: els.scaleType.value, on: true });
     render();
   });
-  els.scaleClear.addEventListener('click', () => { state.scale.on = false; render(); });
+  els.scaleClear.addEventListener('click', clearScale);
   els.scaleTriads.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-type]');
     if (chip) updateChord({ root: Number(chip.dataset.root), type: chip.dataset.type });
   });
 
-  // ← / → cycle through the shapes, Space strums (not while a control has focus)
+  // ← / → cycle through the shapes, Space strums (not while a control has
+  // focus), Escape closes the open sheet
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('select, input, textarea')) return;
     if (e.key === ' ' && !e.target.closest('button')) {
       e.preventDefault();
@@ -950,7 +1074,37 @@ function init() {
     selectShape(state.shape + (e.key === 'ArrowRight' ? 1 : -1));
   });
 
+  placeSettings();
   render();
+  measureDock();
+  keepScreenOn();
+  installable();
+}
+
+/* Keep the screen from dimming while Frettle is open (handy on a music
+   stand). The browser drops the lock when the page is hidden, so it is asked
+   for again when the page comes back, and on taps for browsers that only
+   allow it after a user gesture. */
+let wakeLock = null;
+async function keepScreenOn() {
+  if (!('wakeLock' in navigator) || wakeLock || document.visibilityState !== 'visible') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch {
+    /* refused (battery saver, unsupported context): the screen dims as usual */
+  }
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', keepScreenOn);
+  document.addEventListener('pointerdown', keepScreenOn);
+}
+
+/* Offline support and "Add to home screen": register the service worker
+   (only possible when the site is served over http(s), not from a file). */
+function installable() {
+  if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
+  navigator.serviceWorker.register('sw.js').catch(() => { /* offline use simply stays unavailable */ });
 }
 
 if (typeof document !== 'undefined') init();

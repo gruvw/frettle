@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Frettle | Fretboard Visualizer for Guitar, Bass &amp; Ukulele</title>
   <meta name="description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
   <meta name="robots" content="index, follow">
@@ -20,6 +20,14 @@
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b1d23'/%3E%3Cpath d='M7 11h18M7 16h18M7 21h18' stroke='%238f9198' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='18' cy='16' r='4.5' fill='%23ff4d86'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Installable app (home screen, full screen, works offline) -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Frettle">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
 
   <!-- Tells search engines what this page is (free music web app) -->
   <script type="application/ld+json">
@@ -46,130 +54,167 @@
   </script>
 </head>
 <body>
+  <!-- Mobile first: on phones the neck is vertical and the controls live in a
+       dock at the bottom (tabs open a sheet). On wide screens the neck is
+       horizontal and the panels sit below it. -->
   <header class="top">
     <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
-    <div id="instrumentPicker" class="segmented" role="radiogroup" aria-label="Instrument"></div>
     <a class="btn repo-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener" title="Star Frettle on GitHub">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linejoin="round">
         <path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2-4.6-4.4 6.3-.9z"/>
       </svg><span>Star<span class="repo-more"> on GitHub</span></span>
     </a>
+    <div id="instrumentPicker" class="segmented" role="radiogroup" aria-label="Instrument"></div>
   </header>
 
   <section class="panel neck-panel" aria-label="Fretboard">
-    <div class="panel-head">
+    <div class="panel-head neck-head">
       <h2 id="neckTitle"></h2>
-      <div class="toggles">
-        <select id="capoSelect" class="pill-select" aria-label="Capo position"
-                title="Fret where the capo sits. Chord shapes are then counted from the capo."></select>
-        <button type="button" id="tglLowG" class="pill-toggle" aria-pressed="false" hidden
-                title="Tune the 4th string to a low G (G3) instead of the usual high G (G4)">
-          <span class="pill-dot" aria-hidden="true"></span>Low G
-        </button>
-        <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
-                title="Shade every other octave and show each note's octave number (C4 = middle C)">
-          <span class="pill-dot" aria-hidden="true"></span>Octaves
-        </button>
-        <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
-                title="Name black-key notes with flats (B♭) instead of sharps (A♯)">
-          <span class="pill-dot" aria-hidden="true"></span>Flats
-        </button>
-        <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
-                title="Also mark every other place the chord's notes appear on the neck">
-          <span class="pill-dot" aria-hidden="true"></span>All chord tones
-        </button>
-      </div>
+      <div id="settingsWideSlot" class="settings-slot"></div>
     </div>
     <div class="neck-scroll">
       <div id="neck" class="neck" role="grid" aria-label="Fretboard notes"></div>
     </div>
   </section>
 
-  <main>
-    <section class="panel" aria-label="Chords">
-      <div class="panel-head">
-        <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i>Chords</h2>
-        <span id="shapeCount" class="status" hidden></span>
-      </div>
+  <!-- Neck settings: placed in the neck's header on wide screens and in the
+       "Neck" tab of the dock on phones (script.js moves it). -->
+  <div id="settings" class="settings">
+    <select id="capoSelect" class="pill-select" aria-label="Capo position"
+            title="Fret where the capo sits. Chord shapes are then counted from the capo."></select>
+    <button type="button" id="tglLowG" class="pill-toggle" aria-pressed="false" hidden
+            title="Tune the 4th string to a low G (G3) instead of the usual high G (G4)">
+      <span class="pill-dot" aria-hidden="true"></span>Low G
+    </button>
+    <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
+            title="Shade every other octave and show each octave's number (C4 = middle C)">
+      <span class="pill-dot" aria-hidden="true"></span>Octaves
+    </button>
+    <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
+            title="Name black-key notes with flats (B♭) instead of sharps (A♯)">
+      <span class="pill-dot" aria-hidden="true"></span>Flats
+    </button>
+    <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
+            title="Also mark every other place the chord's notes appear on the neck">
+      <span class="pill-dot" aria-hidden="true"></span>All chord tones
+    </button>
+  </div>
 
-      <div class="bar">
-        <label class="field root">
-          <span>Root</span>
-          <select id="chordRoot"></select>
-        </label>
-        <label class="field grow">
-          <span>Chord</span>
-          <select id="chordType"></select>
-        </label>
-        <label class="field grow">
-          <span>Voicing</span>
-          <select id="chordVoicing"></select>
-        </label>
-        <button type="button" id="chordStrum" class="btn primary" title="Strum the shape (Space)">▶ Strum</button>
-        <button type="button" id="chordClear" class="btn">✕ Deselect</button>
-      </div>
+  <div id="dock" class="dock">
+    <div id="sheet" class="sheet">
+      <button type="button" id="sheetClose" class="sheet-close" aria-label="Close panel">
+        <span aria-hidden="true"></span>
+      </button>
 
-      <div id="chordBody" class="np-body" aria-live="polite">
-        <div class="np-head">
-          <div id="chordSymbol" class="np-symbol"></div>
-          <div class="np-desc">
-            <div id="chordMode" class="label np-mode"></div>
-            <div id="chordName" class="np-title"></div>
-            <div id="chordMeta" class="np-meta"></div>
-            <div id="chordAlt" class="np-alt"></div>
-            <div id="chordCapo" class="np-meta np-capo" hidden></div>
+      <section class="panel" id="panelChord" data-tab="chord" aria-label="Chords">
+        <div class="panel-head">
+          <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i>Chords</h2>
+          <span id="shapeCount" class="status" hidden></span>
+        </div>
+
+        <div class="bar chord-bar">
+          <label class="field root">
+            <span>Root</span>
+            <select id="chordRoot"></select>
+          </label>
+          <label class="field grow">
+            <span>Chord</span>
+            <select id="chordType"></select>
+          </label>
+          <label class="field grow voicing">
+            <span>Voicing</span>
+            <select id="chordVoicing"></select>
+          </label>
+          <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)">▶ Strum</button>
+          <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord">✕<span class="btn-label">&nbsp;Deselect</span></button>
+        </div>
+
+        <div id="chordBody" class="np-body" aria-live="polite">
+          <div class="np-head">
+            <div id="chordSymbol" class="np-symbol"></div>
+            <div class="np-desc">
+              <div id="chordMode" class="label np-mode"></div>
+              <div id="chordName" class="np-title"></div>
+              <div id="chordMeta" class="np-meta"></div>
+              <div id="chordAlt" class="np-alt"></div>
+              <div id="chordCapo" class="np-meta np-capo" hidden></div>
+            </div>
+          </div>
+          <div class="np-tones">
+            <span id="tonesLabel" class="label">Shape notes, bass to top</span>
+            <ol id="chordTones" class="np-notes"></ol>
           </div>
         </div>
-        <div class="np-tones">
-          <span id="tonesLabel" class="label">Shape notes, bass to top</span>
-          <ol id="chordTones" class="np-notes"></ol>
+
+        <div class="line shapes-line">
+          <span class="label">Shapes</span>
+          <button type="button" id="shapePrev" class="btn small" title="Previous shape (←)" aria-label="Previous shape">←</button>
+          <ol id="shapeList" class="chip-list" aria-label="Chord shapes, from the nut up the neck"></ol>
+          <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape">→</button>
         </div>
-      </div>
+      </section>
 
-      <div class="line">
-        <span class="label">Shapes</span>
-        <button type="button" id="shapePrev" class="btn small" title="Previous shape (←)" aria-label="Previous shape">←</button>
-        <ol id="shapeList" class="chip-list" aria-label="Chord shapes, from the nut up the neck"></ol>
-        <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape">→</button>
-      </div>
-    </section>
+      <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
+        <div class="panel-head">
+          <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</h2>
+        </div>
+        <div class="bar">
+          <label class="field root">
+            <span>Root</span>
+            <select id="scaleRoot"></select>
+          </label>
+          <label class="field scale-type">
+            <span>Type</span>
+            <select id="scaleType"></select>
+          </label>
+          <button type="button" id="scaleClear" class="btn deselect push-right" title="Deselect the scale" aria-label="Deselect the scale">✕<span class="btn-label">&nbsp;Deselect</span></button>
+        </div>
+        <div class="line notes-line">
+          <span class="label">Notes</span>
+          <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
+        </div>
+        <div class="line">
+          <span class="label">Triads</span>
+          <div id="scaleTriads" class="chip-wrap"></div>
+        </div>
+      </section>
 
-    <section class="panel" aria-label="Scale">
-      <div class="panel-head">
-        <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</h2>
-      </div>
-      <div class="bar">
-        <label class="field root">
-          <span>Root</span>
-          <select id="scaleRoot"></select>
-        </label>
-        <label class="field scale-type">
-          <span>Type</span>
-          <select id="scaleType"></select>
-        </label>
-        <button type="button" id="scaleClear" class="btn push-right">✕ Deselect</button>
-      </div>
-      <div class="line notes-line">
-        <span class="label">Notes</span>
-        <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
-      </div>
-      <div class="line">
-        <span class="label">Triads</span>
-        <div id="scaleTriads" class="chip-wrap"></div>
-      </div>
-    </section>
-  </main>
+      <section class="panel narrow-only" id="panelNeck" data-tab="neck" aria-label="Neck settings">
+        <div class="panel-head">
+          <h2>Neck</h2>
+        </div>
+        <div id="settingsNarrowSlot" class="settings-slot"></div>
+      </section>
+    </div>
 
-  <footer class="foot">
-    <p>
-      Frettle is a free fretboard visualizer for guitar, bass, ukulele (high or low G) and baritone ukulele.
-      See every note on the neck, find chord shapes with their intervals in any key, highlight major, minor,
-      pentatonic and modal scales with their triads, place a capo, map the octaves and click any note to hear it.
-      Made for players learning the fretboard, especially those coming from the piano.
-    </p>
-    <p class="foot-link"><a href="https://github.com/gruvw/frettle" target="_blank" rel="noopener">Source code on GitHub</a></p>
-  </footer>
+    <!-- Phones only: always-visible shape controls and the tab bar -->
+    <div class="dock-bar narrow-only">
+      <div id="dockShapeBar" class="dock-shape">
+        <button type="button" id="dockPrev" class="btn icon" aria-label="Previous shape">←</button>
+        <button type="button" id="dockShape" class="dock-shape-info" aria-label="Open the chord panel">
+          <span id="dockSymbol" class="dock-symbol"></span>
+          <span id="dockTab" class="dock-tab mono"></span>
+        </button>
+        <button type="button" id="dockNext" class="btn icon" aria-label="Next shape">→</button>
+        <button type="button" id="dockStrum" class="btn primary" aria-label="Strum">▶<span class="strum-label">&nbsp;Strum</span></button>
+      </div>
+      <nav class="tabs" aria-label="Panels">
+        <button type="button" class="tab" data-tab="chord" aria-pressed="false">
+          <span class="tab-label"><i class="swatch swatch-chord" aria-hidden="true"></i>Chord</span>
+          <span id="tabChordValue" class="tab-value"></span>
+        </button>
+        <button type="button" class="tab" data-tab="scale" aria-pressed="false">
+          <span class="tab-label"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</span>
+          <span id="tabScaleValue" class="tab-value"></span>
+        </button>
+        <button type="button" class="tab" data-tab="neck" aria-pressed="false">
+          <span class="tab-label">Neck</span>
+          <span id="tabNeckValue" class="tab-value"></span>
+        </button>
+      </nav>
+    </div>
+  </div>
 
   <script src="script.js" defer></script>
 </body>
