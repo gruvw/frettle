@@ -10,7 +10,8 @@
    1. Music data
    ========================================================================== */
 const STORAGE_KEY = 'frettle.settings.v1';
-const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglAllTones', 'allTones']];   // [button id, state key]
+const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglAllTones', 'allTones'],
+  ['tglScaleOnly', 'scaleOnly'], ['tglScaleGroups', 'scaleGroups']];   // [button id, state key]
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 const FLAT_NAMES = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
 
@@ -300,6 +301,7 @@ const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape
 /* Node (tests) gets the pure part; the browser runs the app below. */
 if (typeof module !== 'undefined') {
   module.exports = { INSTRUMENTS, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf };
+  module.exports.groupsFor = (...args) => scaleGroups(...args);
 }
 
 /* ==========================================================================
@@ -312,6 +314,8 @@ function defaultState() {
     v: 2,
     flats: false,
     allTones: false,
+    scaleOnly: false,                 // hide the notes that are not in the scale
+    scaleGroups: false,               // outline the scale in groups of notes per string
     octaves: false,
     lowG: false,                      // standard ukulele tuned with a low G (G3)
     chord: { on: true, root: 0, type: 'maj' },
@@ -328,7 +332,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (!saved || typeof saved !== 'object') return s;
     if (findInstrument(saved.instrument)) s.instrument = saved.instrument;
-    for (const k of ['flats', 'allTones', 'octaves', 'lowG']) {
+    for (const k of ['flats', 'allTones', 'octaves', 'lowG', 'scaleOnly', 'scaleGroups']) {
       if (typeof saved[k] === 'boolean') s[k] = saved[k];
     }
     if (saved.chord && findChord(saved.chord.type)) {
@@ -345,8 +349,8 @@ function loadState() {
 }
 
 function saveState() {
-  const { instrument, flats, allTones, octaves, lowG, capo, chord, scale } = state;
-  const saved = { instrument, flats, allTones, octaves, lowG, capo, chord, scale };
+  const { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale } = state;
+  const saved = { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
@@ -461,16 +465,19 @@ function pluck(ctx, midi) {
   // Excitation: slightly smoothed noise without DC offset
   const loop = new Float32Array(n);
   let prev = 0;
-  for (let i = 0; i < n; i++) { prev = 0.6 * (Math.random() * 2 - 1) + 0.4 * prev; loop[i] = prev; }
+  // (smoothed a bit more than plain noise: a softer, less clicky pluck)
+  for (let i = 0; i < n; i++) { prev = 0.45 * (Math.random() * 2 - 1) + 0.55 * prev; loop[i] = prev; }
   const mean = loop.reduce((a, v) => a + v, 0) / n;
   for (let i = 0; i < n; i++) loop[i] -= mean;
 
   const damping = 0.997;              // extra loss per pass: shorter, less boomy low notes
   const fade = Math.floor(sr * 0.5);  // gentle fade over the last half second, never a click
+  const attack = Math.floor(sr * 0.006);   // 6 ms fade-in takes the edge off the attack
   let k = 0;
   for (let i = 0; i < len; i++) {
     const next = (k + 1) % n;
-    data[i] = loop[k] * (i > len - fade ? (len - i) / fade : 1);
+    const env = i < attack ? i / attack : i > len - fade ? (len - i) / fade : 1;
+    data[i] = loop[k] * env;
     loop[k] = damping * 0.5 * (loop[k] + loop[next]);
     k = next;
   }
@@ -529,7 +536,7 @@ function strum() {
 const WIDE_QUERY = '(min-width: 900px), (orientation: landscape) and (min-width: 640px)';
 const wideMedia = typeof window !== 'undefined' ? window.matchMedia(WIDE_QUERY) : null;
 const isWide = () => Boolean(wideMedia && wideMedia.matches);
-const ui = { tab: null, shapeKey: null };   // open dock tab (phones), last shape shown
+const ui = { tab: null, shapeKey: null, groups: [] };   // open dock tab (phones), last shape shown
 const els = {};
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -541,7 +548,6 @@ function fillSelect(select, groups, value) {
   select.value = String(value);
 }
 
-const rootOptions = () => [{ items: SHARP_NAMES.map((_, pc) => ({ value: pc, label: noteName(pc) })) }];
 
 function render() {
   const ch = currentChord();
@@ -584,6 +590,33 @@ function placeSettings() {
   if (els.settings.parentElement !== slot) slot.appendChild(els.settings);
 }
 
+/* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
+   [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick. */
+let pickerPick = null;
+function openPicker({ title, groups, value, layout = '', onPick }) {
+  els.pickerTitle.textContent = title;
+  els.pickerBody.innerHTML = groups.map((g) =>
+    (g.label ? `<div class="label picker-label">${esc(g.label)}</div>` : '') +
+    `<div class="picker-grid ${layout}">${g.items.map((it) => {
+      const sel = String(it.value) === String(value);
+      const cls = `pick${sel ? ' selected' : ''}${it.cls ? ` ${it.cls}` : ''}`;
+      return `<button type="button" class="${cls}" data-value="${esc(it.value)}" aria-pressed="${sel}"` +
+        `${it.style ? ` style="${it.style}"` : ''}>` +
+        `<span class="pick-name">${esc(it.label)}</span>` +
+        `${it.tag ? `<span class="pick-tag">${esc(it.tag)}</span>` : ''}` +
+        `${it.sub ? `<span class="pick-sub">${esc(it.sub)}</span>` : ''}</button>`;
+    }).join('')}</div>`
+  ).join('');
+  pickerPick = onPick;
+  if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', '');
+  const selected = els.pickerBody.querySelector('.pick.selected');
+  if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }); }
+}
+function closePicker() {
+  if (els.picker.close) els.picker.close(); else els.picker.removeAttribute('open');
+}
+const rootItems = () => [{ items: SHARP_NAMES.map((_, pc) => ({ value: pc, label: noteName(pc) })) }];
+
 /* Phones: the shape bar, the tab values and which sheet is open. */
 function renderDock(ch, sc) {
   els.dockShapeBar.hidden = !ch;   // no chord: just the tabs
@@ -605,6 +638,46 @@ function renderDock(ch, sc) {
   els.sheet.classList.toggle('open', open);
   document.body.classList.toggle('sheet-open', open);   // extra scroll room under the neck
   els.sheet.setAttribute('aria-hidden', String(!isWide() && !open));
+}
+
+/* Phones: drag the sheet down by its handle or its title to close it. A
+   short drag springs back; a tap on the handle still closes it. */
+function setupSheetDrag() {
+  let startY = null;
+  let dy = 0;
+  let t0 = 0;
+  let dragged = false;
+  const begin = (e) => {
+    if (isWide() || !els.sheet.classList.contains('open')) return;
+    if (e.target.closest('.panel-head button, .panel-head .status')) return;
+    if (e.currentTarget !== els.sheetClose && els.sheet.scrollTop > 0) return;   // title only at the top
+    startY = e.clientY; dy = 0; t0 = performance.now(); dragged = false;
+    els.sheet.style.transition = 'none';
+  };
+  const move = (e) => {
+    if (startY === null) return;
+    dy = Math.max(0, e.clientY - startY);
+    if (dy > 4) dragged = true;
+    els.sheet.style.transform = `translateY(${dy}px)`;
+  };
+  const end = () => {
+    if (startY === null) return;
+    const fast = dy / Math.max(1, performance.now() - t0) > 0.6;   // a quick flick also closes
+    startY = null;
+    els.sheet.style.transition = '';
+    els.sheet.style.transform = '';
+    if (dy > 80 || (fast && dy > 24)) openTab(null);
+  };
+  const handles = [els.sheetClose, ...els.sheet.querySelectorAll('.panel-head')];
+  for (const h of handles) h.addEventListener('pointerdown', begin);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  // A drag that springs back must not count as a tap on the handle
+  els.sheetClose.addEventListener('click', (e) => {
+    if (dragged) { dragged = false; return; }
+    openTab(null);
+  });
 }
 
 function openTab(tab) {
@@ -639,6 +712,64 @@ function renderHeader() {
     els[id].setAttribute('aria-pressed', String(state[key]));
   }
   els.tglLowG.hidden = inst.id !== 'ukulele';
+}
+
+const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
+  'stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+/* Scale groups, as players learn them: N notes per string (3 for 7- and
+   8-note scales, 2 for pentatonic and other small ones), continuing from
+   string to string. Every string's scale notes are split into
+   consecutive runs, so groups never share a note; group 0 starts on the
+   first root of the lowest string (for the minor pentatonic that is the
+   classic "box 1").
+   Only complete groups are returned: N notes on every string, all playable
+   (not cut off by the nut, the capo or the last fret). Each group is a list
+   of bars, one per string: the frets from its first to its last note.
+   Returns [{ id, bars: [{ s, a, b }] }]. */
+function scaleGroups(inst, sc, capo) {
+  const L = sc.def.steps.length;
+  if (L >= 12) return [];   // chromatic: nothing to group
+  const nps = L <= 6 ? 2 : 3;
+  const N = inst.frets;
+  const n = inst.strings.length;
+  const rankOf = (midi) => {
+    const rel = midi - sc.root;
+    const d = sc.def.steps.indexOf(mod12(rel));
+    return d < 0 ? null : Math.floor(rel / 12) * L + d;   // position in the scale, counted in steps
+  };
+  // Strings from the lowest to the highest. A re-entrant string (the high G
+  // of a standard ukulele) is grouped as if it were an octave lower: same
+  // note names on the same frets, and groups that follow the neck instead of
+  // jumping across it.
+  const pitches = inst.strings.slice();
+  for (let s = n - 2; s >= 0; s--) while (pitches[s] >= pitches[s + 1]) pitches[s] -= 12;
+  const order = pitches.map((m, s) => ({ m, s }));
+  const lowest = order[0];
+  let offset = 0;
+  for (let f = capo; f <= N; f++) {
+    if (mod12(lowest.m + f) === sc.root) { offset = rankOf(lowest.m + f); break; }
+  }
+  const groups = new Map();   // id → Map(string → { s, a, b, count })
+  order.forEach(({ m, s }, p) => {
+    for (let f = capo; f <= N; f++) {
+      const rank = rankOf(m + f);
+      if (rank === null) continue;
+      const id = Math.floor((rank - offset - p * nps) / nps);
+      if (!groups.has(id)) groups.set(id, new Map());
+      const bars = groups.get(id);
+      const bar = bars.get(s);
+      if (bar) { bar.b = f; bar.count++; } else bars.set(s, { s, a: f, b: f, count: 1 });
+    }
+  });
+  const out = [];
+  for (const [id, bars] of groups) {
+    const list = [...bars.values()];
+    if (list.length === n && list.every((bar) => bar.count === nps)) {
+      out.push({ id, bars: list.map(({ s, a, b }) => ({ s, a, b })) });
+    }
+  }
+  return out.sort((x, y) => x.id - y.id);
 }
 
 function renderNeck(ch, sc) {
@@ -679,6 +810,8 @@ function renderNeck(ch, sc) {
     });
   }
   const ghosts = ch && (state.allTones || !ch.shape);
+  const onlyScale = Boolean(sc && state.scaleOnly);
+  ui.groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
 
   // One octave number per octave, on its first cell: the lowest-listed
   // string that reaches that octave, at its lowest fret (open strings
@@ -727,7 +860,7 @@ function renderNeck(ch, sc) {
         title += ', behind the capo';
       } else if (f === c && ch && ch.shape && ch.shape.frets[s] < 0) {
         cls += ' mute';
-        text = '×';
+        text = '';
         title = `String ${num} not played`;
       } else if (shapeAt.has(key)) {
         const deg = shapeAt.get(key);
@@ -742,15 +875,17 @@ function renderNeck(ch, sc) {
       } else if (sc && sc.set.has(pc)) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
       } else {
-        cls += ' plain';
+        cls += onlyScale ? ' plain out' : ' plain';
       }
       const octave = octaveOf(s, f);
+      const empty = onlyScale && cls.includes(' out');
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
-        `${f < c ? ' behind' : ''}${c && f === c ? ' capo' : ''}`;
+        `${f < c ? ' behind' : ''}${c && f === c ? ' capo' : ''}${empty ? ' empty' : ''}`;
+      const inner = cls.includes(' mute') ? MUTE_ICON : esc(text);
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
       html.push(
         `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
-        `${octTag}<span class="${cls}" title="${esc(title)}">${esc(text)}` +
+        `${octTag}<span class="${cls}" title="${esc(title)}">${inner}` +
         `${badge ? `<span class="deg-badge" aria-hidden="true">${esc(badge)}</span>` : ''}</span></div>`
       );
     }
@@ -760,15 +895,92 @@ function renderNeck(ch, sc) {
     html.push(`<div class="capo-bar" style="${capoAt}" ` +
       `title="Place the capo here, just behind fret ${c}" aria-hidden="true"></div>`);
   }
+  html.push('<svg class="group-layer" aria-hidden="true"></svg>');
   els.neck.innerHTML = html.join('');
+  drawGroups();
+}
+
+/* Draw the scale groups (ui.groups) as one outline per group, measured from
+   the cells on screen: an SVG path that is inset a little from the cells (so
+   neighbouring groups never touch) and has every corner rounded, inner ones
+   included. Redrawn whenever the neck changes size. */
+const GROUP_INSET = 3.5;
+const GROUP_RADIUS = 9;
+function drawGroups() {
+  const layer = els.neck.querySelector('.group-layer');
+  if (!layer) return;
+  const groups = ui.groups || [];
+  const box = els.neck.getBoundingClientRect();
+  layer.setAttribute('width', box.width);
+  layer.setAttribute('height', box.height);
+  layer.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+  if (!groups.length) { layer.innerHTML = ''; return; }
+
+  const vertical = els.neck.classList.contains('vertical');
+  const rect = (s, f) => {
+    const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]`);
+    const r = cell.getBoundingClientRect();
+    return { left: r.left - box.left, right: r.right - box.left, top: r.top - box.top, bottom: r.bottom - box.top };
+  };
+  // Work in (u, v): u runs along the strings (towards the body), v across them
+  layer.innerHTML = groups.map((g) => {
+    const bars = g.bars.map(({ s, a, b }) => {
+      const first = rect(s, a);
+      const last = rect(s, b);
+      return vertical
+        ? { u0: first.top, u1: last.bottom, v0: first.left, v1: first.right }
+        : { u0: first.left, u1: last.right, v0: first.top, v1: first.bottom };
+    }).sort((p, q) => p.v0 - q.v0);
+    const points = staircase(bars, GROUP_INSET).map(([u, v]) => (vertical ? [v, u] : [u, v]));
+    return `<path class="${g.id % 2 ? 'g-b' : 'g-a'}" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
+  }).join('');
+}
+
+/* Outline of stacked bars (one per string, each covering a range along u),
+   moved inwards by d: walk down the far side, then back up the near side. */
+function staircase(bars, d) {
+  const same = (x, y) => Math.abs(x - y) < 0.5;
+  const last = bars[bars.length - 1];
+  const pts = [[bars[0].u0 + d, bars[0].v0 + d], [bars[0].u1 - d, bars[0].v0 + d]];
+  for (let i = 0; i + 1 < bars.length; i++) {
+    const y = (bars[i].v1 + bars[i + 1].v0) / 2;
+    if (same(bars[i].u1, bars[i + 1].u1)) continue;
+    const k = bars[i + 1].u1 > bars[i].u1 ? 1 : -1;   // the step's edge belongs to the wider bar
+    pts.push([bars[i].u1 - d, y + k * d], [bars[i + 1].u1 - d, y + k * d]);
+  }
+  pts.push([last.u1 - d, last.v1 - d], [last.u0 + d, last.v1 - d]);
+  for (let i = bars.length - 2; i >= 0; i--) {
+    const y = (bars[i].v1 + bars[i + 1].v0) / 2;
+    if (same(bars[i].u0, bars[i + 1].u0)) continue;
+    const k = bars[i + 1].u0 < bars[i].u0 ? 1 : -1;
+    pts.push([bars[i + 1].u0 + d, y + k * d], [bars[i].u0 + d, y + k * d]);
+  }
+  return pts;
+}
+
+/* Closed path through the points with every corner rounded (radius r, or
+   less where an edge is too short). */
+function roundedPath(pts, r) {
+  const n = pts.length;
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const [px, py] = pts[i];
+    const [ax, ay] = pts[(i + n - 1) % n];
+    const [bx, by] = pts[(i + 1) % n];
+    const la = Math.hypot(ax - px, ay - py);
+    const lb = Math.hypot(bx - px, by - py);
+    const rr = Math.min(r, la / 2, lb / 2);
+    const p1 = [px + ((ax - px) / la) * rr, py + ((ay - py) / la) * rr];
+    const p2 = [px + ((bx - px) / lb) * rr, py + ((by - py) / lb) * rr];
+    parts.push(`${i ? 'L' : 'M'}${p1[0].toFixed(1)} ${p1[1].toFixed(1)}`,
+      `Q${px.toFixed(1)} ${py.toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`);
+  }
+  return `${parts.join(' ')}Z`;
 }
 
 function renderChordPanel(ch) {
-  fillSelect(els.chordRoot, rootOptions(), state.chord.root);
-  fillSelect(els.chordType, [{ items: [{ value: '', label: 'None' }] }, ...CHORDS.map((g) => ({
-    group: g.group,
-    items: g.items.map((c) => ({ value: c.id, label: c.name })),
-  }))], ch ? state.chord.type : '');
+  els.chordRoot.textContent = noteName(state.chord.root);
+  els.chordType.textContent = ch ? ch.def.name : 'None';
 
   const def = findChord(state.chord.type);
   const tones = chordTones(state.chord.root, def);
@@ -869,12 +1081,11 @@ function keepChipVisible() {
 }
 
 function renderScalePanel(sc, ch) {
-  fillSelect(els.scaleRoot, rootOptions(), state.scale.root);
-  fillSelect(els.scaleType, [{ items: [{ value: '', label: 'None' }] }, ...SCALES.map((g) => ({
-    group: g.group,
-    items: g.items.map((s) => ({ value: s.id, label: s.name })),
-  }))], sc ? state.scale.type : '');
+  els.scaleRoot.textContent = noteName(state.scale.root);
+  els.scaleType.textContent = sc ? sc.def.name : 'None';
   els.scaleClear.disabled = !sc;
+  els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc;
+  els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
 
   if (!sc) {
     els.scaleNotes.innerHTML = '<li class="empty-text" style="grid-row:1">No scale selected</li>';
@@ -949,7 +1160,7 @@ function init() {
     'chordAlt', 'chordCapo', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'sheet', 'sheetClose',
-    'dockShapeBar', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
+    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue']) {
     els[id] = document.getElementById(id);
   }
@@ -977,7 +1188,7 @@ function init() {
   // Tap a note on the neck to hear it (not behind the capo)
   els.neck.addEventListener('click', (e) => {
     const cell = e.target.closest('.cell');
-    if (!cell || cell.classList.contains('behind')) return;
+    if (!cell || cell.classList.contains('behind') || cell.classList.contains('empty')) return;
     const s = Number(cell.dataset.s);
     const f = Number(cell.dataset.f);
     playNote(instrument().strings[s] + f);
@@ -997,7 +1208,7 @@ function init() {
   els.dockNext.addEventListener('click', () => selectShape(state.shape + 1));
   els.dockShape.addEventListener('click', () => openTab('chord'));
   for (const tab of els.tabs) tab.addEventListener('click', () => openTab(tab.dataset.tab));
-  els.sheetClose.addEventListener('click', () => openTab(null));
+  setupSheetDrag();
 
   // Switching between phone and wide layouts (rotating, resizing)
   const relayout = () => {
@@ -1008,7 +1219,10 @@ function init() {
   };
   if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
   else wideMedia.addListener(relayout);
-  if (window.ResizeObserver) new ResizeObserver(measureDock).observe(els.dockBar);
+  if (window.ResizeObserver) {
+    new ResizeObserver(measureDock).observe(els.dockBar);
+    new ResizeObserver(() => drawGroups()).observe(els.neck);   // keep group outlines on their cells
+  }
 
   // Root alone never turns a chord or scale on: "None" in the type menu means off
   // Moving the capo keeps the chord and shows its first shape from the capo
@@ -1018,18 +1232,64 @@ function init() {
     render();
   });
 
-  els.chordRoot.addEventListener('change', () => {
-    const root = Number(els.chordRoot.value);
-    if (state.chord.on) updateChord({ root });
-    else { state.chord.root = root; render(); }
-  });
   // Clearing the chord or the scale also closes its panel on phones
   const clearChord = () => { state.chord.on = false; ui.tab = null; render(); };
   const clearScale = () => { state.scale.on = false; ui.tab = null; render(); };
-  els.chordType.addEventListener('change', () => {
-    if (els.chordType.value) updateChord({ type: els.chordType.value });
-    else clearChord();
+
+  // Root and type buttons open the picker popup
+  els.chordRoot.addEventListener('click', () => openPicker({
+    title: 'Chord root', layout: 'roots', groups: rootItems(), value: state.chord.root,
+    onPick: (v) => {
+      const root = Number(v);
+      if (state.chord.on) updateChord({ root });
+      else { state.chord.root = root; render(); }
+    },
+  }));
+  els.chordType.addEventListener('click', () => openPicker({
+    title: 'Chord type',
+    groups: [{ items: [{ value: '', label: 'None', sub: 'Hide the chord', cls: 'none' }] }, ...CHORDS.map((g) => ({
+      label: g.group,
+      items: g.items.map((c) => ({
+        value: c.id,
+        label: c.name,
+        tag: noteName(state.chord.root) + c.symbol,
+        sub: chordTones(state.chord.root, c).map((t) => noteName(t.pc)).join(' '),
+      })),
+    }))],
+    value: state.chord.on ? state.chord.type : '',
+    onPick: (v) => (v ? updateChord({ type: v }) : clearChord()),
+  }));
+  els.scaleRoot.addEventListener('click', () => openPicker({
+    title: 'Scale root', layout: 'roots', groups: rootItems(), value: state.scale.root,
+    onPick: (v) => { state.scale.root = Number(v); render(); },
+  }));
+  els.scaleType.addEventListener('click', () => openPicker({
+    title: 'Scale type',
+    groups: [{ items: [{ value: '', label: 'None', sub: 'Hide the scale', cls: 'none' }] }, ...SCALES.map((g) => ({
+      label: g.group,
+      items: g.items.map((sc) => ({
+        value: sc.id,
+        label: sc.name,
+        sub: sc.steps.length >= 12 ? 'All 12 notes' : sc.steps.map((st) => noteName(state.scale.root + st)).join(' '),
+      })),
+    }))],
+    value: state.scale.on ? state.scale.type : '',
+    onPick: (v) => {
+      if (!v) { clearScale(); return; }
+      Object.assign(state.scale, { type: v, on: true });
+      render();
+    },
+  }));
+  els.pickerBody.addEventListener('click', (e) => {
+    const pick = e.target.closest('.pick');
+    if (!pick) return;
+    const handler = pickerPick;
+    closePicker();
+    if (handler) handler(pick.dataset.value);
   });
+  els.pickerClose.addEventListener('click', closePicker);
+  // A tap on the dimmed backdrop (outside the card) closes the popup
+  els.picker.addEventListener('click', (e) => { if (e.target === els.picker) closePicker(); });
   els.chordVoicing.addEventListener('change', () => {
     state.voicing[state.instrument] = els.chordVoicing.value;
     updateChord({});
@@ -1042,15 +1302,6 @@ function init() {
     if (chip) selectShape(Number(chip.dataset.shape));
   });
 
-  els.scaleRoot.addEventListener('change', () => {
-    state.scale.root = Number(els.scaleRoot.value);
-    render();
-  });
-  els.scaleType.addEventListener('change', () => {
-    if (!els.scaleType.value) { clearScale(); return; }
-    Object.assign(state.scale, { type: els.scaleType.value, on: true });
-    render();
-  });
   els.scaleClear.addEventListener('click', clearScale);
   els.scaleTriads.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-type]');
@@ -1061,6 +1312,7 @@ function init() {
   // focus), Escape closes the open sheet
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (els.picker.open) return;   // the popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('select, input, textarea')) return;
     if (e.key === ' ' && !e.target.closest('button')) {

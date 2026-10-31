@@ -114,14 +114,14 @@
         </div>
 
         <div class="bar chord-bar">
-          <label class="field root">
+          <div class="field root">
             <span>Root</span>
-            <select id="chordRoot"></select>
-          </label>
-          <label class="field grow">
+            <button type="button" id="chordRoot" class="select-btn" aria-haspopup="dialog" aria-label="Chord root"></button>
+          </div>
+          <div class="field grow">
             <span>Chord</span>
-            <select id="chordType"></select>
-          </label>
+            <button type="button" id="chordType" class="select-btn" aria-haspopup="dialog" aria-label="Chord type"></button>
+          </div>
           <label class="field grow voicing">
             <span>Voicing</span>
             <select id="chordVoicing"></select>
@@ -159,15 +159,25 @@
         <div class="panel-head">
           <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</h2>
         </div>
-        <div class="bar">
-          <label class="field root">
+        <div class="bar scale-bar">
+          <div class="field root">
             <span>Root</span>
-            <select id="scaleRoot"></select>
-          </label>
-          <label class="field scale-type">
+            <button type="button" id="scaleRoot" class="select-btn" aria-haspopup="dialog" aria-label="Scale root"></button>
+          </div>
+          <div class="field scale-type">
             <span>Type</span>
-            <select id="scaleType"></select>
-          </label>
+            <button type="button" id="scaleType" class="select-btn" aria-haspopup="dialog" aria-label="Scale type"></button>
+          </div>
+          <div class="switch-row">
+            <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
+                    title="Hide the notes that are not in the scale">
+              <span class="pill-dot" aria-hidden="true"></span>Only scale notes
+            </button>
+            <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
+                    title="Outline the scale in hand-sized groups: 3 notes per string (2 for pentatonic scales)">
+              <span class="pill-dot" aria-hidden="true"></span>Groups
+            </button>
+          </div>
           <button type="button" id="scaleClear" class="btn deselect push-right" title="Deselect the scale" aria-label="Deselect the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
         </div>
         <div class="line notes-line">
@@ -215,6 +225,17 @@
       </nav>
     </div>
   </div>
+
+  <!-- Picker popup for roots, chord types and scale types -->
+  <dialog id="picker" class="picker" aria-labelledby="pickerTitle">
+    <div class="picker-head">
+      <h2 id="pickerTitle"></h2>
+      <button type="button" id="pickerClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div id="pickerBody" class="picker-body"></div>
+  </dialog>
 
   <script src="script.js" defer></script>
 </body>
