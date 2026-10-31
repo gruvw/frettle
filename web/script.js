@@ -10,10 +10,10 @@
    1. Music data
    ========================================================================== */
 const STORAGE_KEY = 'frettle.settings.v1';
+const SAVE_VERSION = 2;   // raised when a default changes for people with saved settings
 const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglAllTones', 'allTones'],
   ['tglScaleOnly', 'scaleOnly'], ['tglScaleGroups', 'scaleGroups']];   // [button id, state key]
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
-const FLAT_NAMES = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
 
 /* Open strings as MIDI notes (C4 = 60), from the string nearest your face
    when you hold the instrument to the one nearest the floor. The standard
@@ -129,27 +129,148 @@ function chordTones(rootPc, def) {
 }
 
 /* ==========================================================================
+   Note spelling
+   Notes are named the way a key is written. Each note of a scale or chord
+   gets its letter from its degree (a 7-note scale uses each letter once, a
+   chord's 3rd is two letters above its root...), and its sharp or flat from
+   its pitch: F major has B♭ (not A♯), G♯ harmonic minor has F♯♯, Cdim7 is
+   C E♭ G♭ B♭♭. A black-key root is spelled like the major or minor key with
+   fewer accidentals (D♭ major, C♯ minor); when both are equal (F♯/G♭ major,
+   D♯/E♭ minor) the Flats switch decides. Notes outside the key follow the
+   key's direction (sharps in sharp keys, flats in flat keys).
+   ========================================================================== */
+const LETTERS = 'CDEFGAB';
+const LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
+const ACCIDENTALS = { '-2': '♭♭', '-1': '♭', 0: '', 1: '♯', 2: '♯♯' };
+const KEY_STEPS = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
+// Letter (degree number) of each note, for scales that do not use 7 letters once
+const SCALE_LETTERS = {
+  'major-pentatonic': [1, 2, 3, 5, 6], 'minor-pentatonic': [1, 3, 4, 5, 7], blues: [1, 3, 4, 5, 5, 7],
+  'whole-tone': [1, 2, 3, 4, 5, 7], 'dim-wh': [1, 2, 3, 4, 5, 6, 6, 7], 'dim-hw': [1, 2, 3, 3, 4, 5, 6, 7],
+};
+
+/* A pitch class written with a given letter: { pc, letter, acc }. */
+function spellAs(pc, letter) {
+  let acc = mod12(pc - LETTER_PC[letter]);
+  if (acc > 6) acc -= 12;
+  return { pc: mod12(pc), letter, acc };
+}
+const noteText = (n) => LETTERS[n.letter] + ACCIDENTALS[n.acc];
+/* Octave numbers follow the letter: B♯3 sounds like C4, C♭4 like B3. */
+const pitchText = (midi, n) => noteText(n) + (Math.floor((midi - n.acc) / 12) - 1);
+/* A note with no key to follow: natural, or sharp / flat as asked. */
+function plainNote(pc, flats) {
+  pc = mod12(pc);
+  if (LETTER_PC.includes(pc)) return spellAs(pc, LETTER_PC.indexOf(pc));
+  return spellAs(pc, LETTER_PC.indexOf(mod12(pc + (flats ? 1 : -1))));
+}
+
+/* Spell a scale or chord from its root. offsets: letter offset of each note
+   from the root (null: no letters, e.g. chromatic). */
+function spellNotes(root, steps, offsets, flats) {
+  return steps.map((step, i) => {
+    const n = offsets ? spellAs(root.pc + step, (root.letter + offsets[i]) % 7) : plainNote(root.pc + step, flats);
+    return Math.abs(n.acc) > 2 ? plainNote(root.pc + step, flats) : n;
+  });
+}
+function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null) {
+  const minor = steps.some((x) => mod12(x) === 3) && !steps.some((x) => mod12(x) === 4);
+  const keySteps = KEY_STEPS[minor ? 'minor' : 'major'];
+  const keyNotes = (root) => keySteps.map((st, i) => spellAs(root.pc + st, (root.letter + i) % 7));
+  const cost = (root) => keyNotes(root).reduce((sum, n) => sum + Math.abs(n.acc) + (Math.abs(n.acc) > 1 ? 10 : 0), 0);
+  const doubles = (root) => spellNotes(root, steps, offsets, preferFlats).filter((n) => Math.abs(n.acc) > 1).length;
+  let root = forcedRoot;
+  if (!root) {
+    const pc = mod12(rootPc);
+    const choices = LETTER_PC.includes(pc) || !offsets
+      ? [plainNote(pc, preferFlats)]
+      : [plainNote(pc, false), plainNote(pc, true)];
+    root = choices.sort((x, y) => cost(x) - cost(y) || doubles(x) - doubles(y)
+      || (preferFlats ? x.acc - y.acc : y.acc - x.acc))[0];
+  }
+  const lean = keyNotes(root).reduce((sum, n) => sum + n.acc, 0);
+  const flats = lean < 0 || (lean === 0 && preferFlats);
+  const notes = spellNotes(root, steps, offsets, flats);
+  const names = new Map();
+  for (const n of notes) if (!names.has(n.pc)) names.set(n.pc, n);
+  return { root, notes, names, flats };
+}
+function spellScale(rootPc, def, preferFlats) {
+  const offsets = def.steps.length >= 12 ? null : (SCALE_LETTERS[def.id] || [1, 2, 3, 4, 5, 6, 7]).map((d) => d - 1);
+  return spellKey(rootPc, def.steps, offsets, preferFlats);
+}
+const degreeOffset = (deg) => (deg === 'R' ? 0 : (Number(deg.replace(/\D/g, '')) - 1) % 7);
+function spellChord(rootPc, def, preferFlats, forcedRoot = null) {
+  return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), preferFlats, forcedRoot);
+}
+
+/* ==========================================================================
    2. Chord shape finder
-   Slides a 4-fret window up the neck. In each window every string may be
-   muted, open (near the nut only) or fretted on a chord tone. A combination
-   is kept when it is playable:
-   - it sounds every required tone (the 5th is optional in 4+ note chords),
-   - the lowest sounding note matches the chosen voicing,
-   - at most 4 fingers, where one finger may barre the lowest fret,
-   - muted strings sit at the edges (one inner mute allowed on 6 strings).
-   Each shape gets a score (fuller, simpler, complete chords score higher)
-   and the best one or two per neck position are kept, sorted nut → body.
+   1) Every playable shape is generated: within a 4-fret window, each string
+      is muted, open (near the nut) or fretted on a chord tone, and the shape
+      must sound every required tone (the 5th may be left out of 4+ note
+      chords, the 9th out of 11th and 13th chords), have the chosen bass
+      note, need at most 4 fingers and keep muted strings sensible.
+   2) Each shape is described by a few measured features (strings sounding,
+      muted strings, fingers, barre, stretch, open strings, position...).
+   3) Its score is the weighted sum of those features. The weights (below)
+      were tuned so the first shape matches standard chord charts for guitar,
+      ukulele and baritone ukulele, and so the listed shapes match a large
+      reference chord database.
+   The best shape comes first, then the others from the nut up the neck.
    ========================================================================== */
 const SHAPE_SPAN = 4;      // frets covered by the hand
 const MAX_FINGERS = 4;
-const OPEN_MAX_POS = 4;    // open strings only combine with shapes that start at fret ≤ 4
+const OPEN_MAX_POS = 5;    // open strings only combine with shapes that start at fret ≤ 5
+const SHAPE_WEIGHTS = {
+  sound: 0.25,        // per sounding string
+  opt: 2.75,          // optional tone (5th, or 9th of 11/13 chords) present
+  lead: -0.4,         // muted string below the bass (6 strings)
+  leadSmall: -4,      // muted string below the bass (4 strings)
+  inner: -3.75,       // muted string between sounding ones
+  trail: -4.5,        // muted string above the top note
+  fingers: -0.12,     // per finger
+  barre: 0.25,        // index finger barre
+  span: -0.6,         // per fret of stretch
+  bigspan: -2.8,      // stretch of 3+ frets
+  openLow: 0,         // open string in an open-position chord
+  openHigh: -4,       // per open string in a shape that reaches fret 5 or higher
+  sandwich: -2.25,    // open string ringing between fretted notes up the neck
+  barreOpen: -0.5,    // open string beside a barre that holds the bass
+  unison: -0.25,      // same pitch twice
+  rootBass: 3,        // root is the lowest note (6 strings)
+  rootBassSmall: 1,   // root is the lowest note (4 strings)
+  pos: -0.5,          // per fret of position (only used to pick the first shape)
+};
 
-function findShapes(inst, rootPc, def, voicing) {
+/* Fingers needed: the index finger may barre the lowest fret (if no open
+   string lies under the barre), and one more finger may barre adjacent
+   strings at the highest fret (as in an A-shape barre chord). */
+function fingersFor(frets) {
+  const fretted = [];
+  frets.forEach((f, s) => { if (f > 0) fretted.push({ s, f }); });
+  if (!fretted.length) return { fingers: 0, barre: false, barreFrom: -1 };
+  const low = Math.min(...fretted.map((x) => x.f));
+  const high = Math.max(...fretted.map((x) => x.f));
+  const atLow = fretted.filter((x) => x.f === low).map((x) => x.s);
+  const lo = Math.min(...atLow);
+  const hi = Math.max(...atLow);
+  const barre = atLow.length >= 2 && !frets.some((f, s) => s > lo && s < hi && f === 0);
+  let fingers = barre ? 1 : atLow.length;
+  const rest = fretted.filter((x) => x.f > low);
+  if (high > low) {
+    const top = rest.filter((x) => x.f === high).map((x) => x.s).sort((x, y) => x - y);
+    const adjacent = top.length >= 2 && top[top.length - 1] - top[0] === top.length - 1;
+    fingers += adjacent ? rest.length - top.length + 1 : rest.length;
+  }
+  return { fingers, barre, barreFrom: barre ? lo : -1 };
+}
+
+function shapeCandidates(inst, rootPc, def, voicing) {
   const tones = chordTones(rootPc, def);
   const n = inst.strings.length;
   const chordPcs = new Set(tones.map((t) => t.pc));
   const bassPc = voicing === 'any' ? null : tones[Number(voicing)].pc;
-  // The 5th may be left out of 4+ note chords, the 9th out of 11th and 13th chords
   const hasUpper = def.degrees.includes('11') || def.degrees.includes('13');
   const optional = tones
     .filter((t) => ((t.deg === '5' && tones.length >= 4) || (t.deg === '9' && hasUpper)) && t.pc !== bassPc)
@@ -171,63 +292,55 @@ function findShapes(inst, rootPc, def, voicing) {
     const minFret = fretted.length ? Math.min(...fretted.map((x) => x.f)) : 0;
     if (fretted.length ? minFret !== pos : pos !== 1) return null;
 
-    // Muted strings: any number on the low side, one on the high side, few inside
     const first = sound[0].s;
     const last = sound[sound.length - 1].s;
-    const leading = first;
-    const trailing = n - 1 - last;
+    const trail = n - 1 - last;
     const inner = last - first + 1 - sound.length;
-    if (inner > maxInner || trailing > 1) return null;
+    if (inner > maxInner || trail > 1) return null;
 
     const pcs = new Set(sound.map((x) => mod12(x.midi)));
     if (required.some((pc) => !pcs.has(pc))) return null;
 
-    const lowest = sound.reduce((a, b) => (b.midi < a.midi ? b : a));
+    const lowest = sound.reduce((x, y) => (y.midi < x.midi ? y : x));
     const bass = mod12(lowest.midi);
     if (bassPc !== null && bass !== bassPc) return null;
 
-    // Fingers: one per fretted note, but one finger may barre several strings
-    // on the same fret if no open or lower-fretted string lies in between
-    let fingers = fretted.length;
-    for (const v of new Set(fretted.map((x) => x.f))) {
-      const at = fretted.filter((x) => x.f === v).map((x) => x.s);
-      if (at.length < 2) continue;
-      const lo = Math.min(...at);
-      const hi = Math.max(...at);
-      const blocked = frets.some((f, s) => s > lo && s < hi && f >= 0 && f < v);
-      if (!blocked) fingers = Math.min(fingers, fretted.length - at.length + 1);
-    }
+    const { fingers, barre, barreFrom } = fingersFor(frets);
     if (fingers > MAX_FINGERS) return null;
 
     // Open strings ringing between fretted notes high up are awkward to keep clear
-    let awkwardOpens = 0;
+    let sandwich = 0;
     sound.forEach((x, i) => {
       if (x.f !== 0 || i === 0 || i === sound.length - 1) return;
-      if (sound[i - 1].f > 0 && sound[i + 1].f > 0 && Math.max(sound[i - 1].f, sound[i + 1].f) >= 3) awkwardOpens++;
+      if (sound[i - 1].f > 0 && sound[i + 1].f > 0 && Math.max(sound[i - 1].f, sound[i + 1].f) >= 3) sandwich++;
     });
-
     const midis = sound.map((x) => x.midi);
-    const unisons = midis.length - new Set(midis).size;
     const span = fretted.length ? Math.max(...fretted.map((x) => x.f)) - minFret : 0;
     const opens = sound.length - fretted.length;
-    const optionalHit = optional.filter((pc) => pcs.has(pc)).length;
-
     const maxFret = minFret + span;
-    let score = optionalHit * 2 + sound.length * 1.2;
-    score -= inner * 2.5 + trailing * 2 + leading * (n >= 6 ? 0.4 : 2);
-    score -= fingers * 0.5 + span * 0.6 + (span >= 3 ? 0.8 : 0) + unisons * 0.5 + awkwardOpens * 1.5;
-    if (opens && maxFret <= 4) score += 0.5 * opens;      // classic open chords
-    if (opens && maxFret > 4) score -= 1.5;               // open strings far from the hand
-    if (bassPc === null && bass === rootPc && !reentrant) score += n >= 6 ? 3 : 1.5;   // root lowest
-
-    const center = fretted.length ? fretted.reduce((a, x) => a + x.f, 0) / fretted.length : 0;
-    return {
-      frets: frets.slice(),
+    const small = n < 6;
+    const feat = {
+      sound: sound.length,
+      opt: optional.filter((pc) => pcs.has(pc)).length,
+      lead: small ? 0 : first,
+      leadSmall: small ? first : 0,
+      inner,
+      trail,
+      fingers,
+      barre: barre ? 1 : 0,
+      span,
+      bigspan: span >= 3 ? 1 : 0,
+      openLow: opens && maxFret <= 4 ? opens : 0,
+      openHigh: maxFret >= 5 ? opens : 0,
+      sandwich,
+      barreOpen: barre && barreFrom === first && opens ? 1 : 0,
+      unison: midis.length - new Set(midis).size,
+      rootBass: !small && bassPc === null && bass === rootPc && !reentrant ? 1 : 0,
+      rootBassSmall: small && bassPc === null && bass === rootPc && !reentrant ? 1 : 0,
       pos: minFret,
-      center,
-      score,
-      sig: midis.slice().sort((a, b) => a - b).join(','),
     };
+    const center = fretted.length ? fretted.reduce((acc, x) => acc + x.f, 0) / fretted.length : 0;
+    return { frets: frets.slice(), pos: minFret, center, feat, sig: midis.slice().sort((x, y) => x - y).join(',') };
   }
 
   for (let pos = 1; pos <= inst.frets; pos++) {
@@ -249,18 +362,27 @@ function findShapes(inst, rootPc, def, voicing) {
     };
     walk(0);
   }
-  return pickShapes(found);
+  return found;
+}
+
+function findShapes(inst, rootPc, def, voicing, weights = SHAPE_WEIGHTS) {
+  return pickShapes(shapeCandidates(inst, rootPc, def, voicing), weights, chartShape(inst, rootPc, def));
 }
 
 /* Two shapes are variants of each other when one is the other with strings
    muted, or when a single fret differs and at most one string is muted.
-   Swapping an open string for a fretted note counts as a different shape,
-   since both versions are usually worth knowing (G: 3 2 0 0 0 3 / 3 2 0 0 3 3). */
+   Near the nut, swapping an open string for a fretted note counts as a
+   different shape, since both versions are worth knowing (G: 3 2 0 0 0 3 /
+   3 2 0 0 3 3); higher up, an open string in a fretted shape is a variant.
+   A fret that moves more than 2 frets means another hand position, so the
+   shapes are different. */
+const openPosition = (frets) => Math.max(...frets) <= 4;
 function isVariant(a, b) {
   let shared = 0;
   let frets = 0;
   let mutes = 0;
   let openSwap = false;
+  let far = false;
   a.frets.forEach((f, s) => {
     const g = b.frets[s];
     if (f < 0 && g < 0) return;
@@ -269,38 +391,90 @@ function isVariant(a, b) {
     if (f !== g) {
       frets++;
       if (f === 0 || g === 0) openSwap = true;
+      else if (Math.abs(f - g) > 2) far = true;   // a different hand position
     }
   });
-  if (openSwap || shared - frets < 2) return false;
+  if (far || (openSwap && openPosition(a.frets) && openPosition(b.frets)) || shared - frets < 2) return false;
   return frets === 0 || (frets === 1 && mutes <= 1);
 }
 
-/* Best shapes first; skip variants of a better shape and shapes much worse
-   than the best one. The list starts with the best shape near the nut (the
-   one chord charts show), then the others from the nut up the neck. */
-function pickShapes(found) {
-  if (!found.length) return [];
-  found.sort((a, b) => b.score - a.score);
-  const floor = found[0].score - 7;
-  const out = [];
-  for (const shape of found) {
-    if (shape.score < floor) break;
-    if (out.some((o) => o.sig === shape.sig || isVariant(o, shape))) continue;
-    out.push(shape);
+/* Standard chord-chart shapes for the most used chords, strings low to high,
+   roots C C♯ D E♭ E F F♯ G A♭ A B♭ B. When the chart shape is playable on
+   the current neck (and fits the chosen voicing) it comes first, since that
+   is the shape players expect. A table also serves any tuning with the same
+   note names (low-G ukulele), the same tuning shifted (a capo), or shifted
+   by a fixed interval (baritone ukulele = ukulele a fourth lower). */
+const CHART_SHAPES = [
+  { strings: [40, 45, 50, 55, 59, 64], types: {
+    maj: 'x32010 x46664 xx0232 x68886 022100 133211 244322 320003 466544 x02220 x13331 x24442',
+    min: 'x35543 x46654 xx0231 x68876 022000 133111 244222 355333 466444 x02210 x13321 x24432',
+    7: 'x32310 x46464 xx0212 x68686 020100 131211 242322 320001 464544 x02020 x13131 x21202',
+    m7: 'x35343 x46454 xx0211 x68676 020000 131111 242222 353333 464444 x02010 x13121 x20202',
+    maj7: 'x32000 x46564 xx0222 x68786 021100 xx3210 xx4321 320002 4x554x x02120 x13231 x24342',
+  } },
+  { strings: [67, 60, 64, 69], types: {
+    maj: '0003 1114 2220 0331 4442 2010 3121 0232 5343 2100 3211 4322',
+    min: '0333 1444 2210 3321 0432 1013 2120 0231 1342 2000 3111 4222',
+    7: '0001 1112 2223 3334 1202 2313 3424 0212 1323 0100 1211 2322',
+    m7: '3333 1102 2213 3324 0202 1313 2424 0211 1322 0000 1111 2222',
+    maj7: '0002 1113 2224 3335 1302 2413 3524 0222 1333 1100 3210 3322',
+  } },
+];
+function chartShape(inst, rootPc, def) {
+  for (const chart of CHART_SHAPES) {
+    if (chart.strings.length !== inst.strings.length || !chart.types[def.id]) continue;
+    const shift = mod12(inst.strings[0] - chart.strings[0]);
+    if (!inst.strings.every((m, i) => mod12(m - chart.strings[i]) === shift)) continue;
+    const shape = chart.types[def.id].split(' ')[mod12(rootPc - shift)];
+    return [...shape].map((c) => (c === 'x' ? -1 : Number(c)));
   }
-  out.sort((a, b) => a.pos - b.pos || b.score - a.score);
-  const near = out.filter((x) => x.pos <= OPEN_MAX_POS);
-  const first = (near.length ? near : out).reduce((a, b) => (b.score > a.score ? b : a));
-  return [first, ...out.filter((x) => x !== first)];
+  return null;
+}
+
+/* Score every candidate and keep the good ones: shapes much worse than the
+   best are dropped, and so are variants of a better shape. Position on the
+   neck only matters for choosing the first shape (the chart shape when there
+   is one, else the best scoring one); the others follow from the nut up. */
+const SHAPE_FLOOR = 7;     // keep shapes within this much of the best (ignoring position)
+function pickShapes(found, weights, chart = null) {
+  if (!found.length) return [];
+  for (const shape of found) {
+    let score = 0;
+    for (const k in shape.feat) score += (weights[k] || 0) * shape.feat[k];
+    shape.score = score;
+    shape.quality = score - (weights.pos || 0) * shape.feat.pos;
+  }
+  found.sort((x, y) => y.quality - x.quality || x.pos - y.pos);
+  const floor = found[0].quality - SHAPE_FLOOR;
+  const chartKey = chart && chart.join(',');
+  const pinned = chartKey ? found.find((x) => x.frets.join(',') === chartKey) : null;
+  const out = pinned ? [pinned] : [];
+  for (const shape of found) {
+    if (shape === pinned || shape.quality < floor) continue;
+    const i = out.findIndex((o) => o.sig === shape.sig || isVariant(o, shape));
+    if (i < 0) { out.push(shape); continue; }
+    // Of two near-equal variants, keep the one that does not mute an inner string
+    const o = out[i];
+    if (o !== pinned && shape.feat.inner < o.feat.inner && shape.quality >= o.quality - 2) out[i] = shape;
+  }
+  const first = pinned || out.reduce((x, y) => (y.score > x.score || (y.score === x.score && y.pos < x.pos) ? y : x));
+  return [first, ...out.filter((x) => x !== first).sort((x, y) => x.pos - y.pos || y.score - x.score)];
 }
 
 const tabOf = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(' ');
 /* Compact tab for tight spaces: "x32010", spaced only when a fret has two digits */
+/* Where a shape sits, as players say it: "open" for an open-position shape
+   (open strings, nothing above fret 4), else "fret N", its lowest fretted
+   fret (counted from the capo, like the tab). */
+const shapePlace = (shape) => (shape.pos === 0 || (shape.frets.includes(0) && openPosition(shape.frets))
+  ? 'open' : `fret ${shape.pos}`);
 const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape.frets.some((f) => f > 9) ? ' ' : '');
 
 /* Node (tests) gets the pure part; the browser runs the app below. */
 if (typeof module !== 'undefined') {
-  module.exports = { INSTRUMENTS, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf };
+  module.exports = { INSTRUMENTS, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf,
+    shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
+    ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote };
   module.exports.groupsFor = (...args) => scaleGroups(...args);
 }
 
@@ -311,11 +485,10 @@ if (typeof module !== 'undefined') {
 function defaultState() {
   return {
     instrument: 'guitar',
-    v: 2,
     flats: false,
     allTones: false,
     scaleOnly: false,                 // hide the notes that are not in the scale
-    scaleGroups: false,               // outline the scale in groups of notes per string
+    scaleGroups: true,                // outline the scale in groups of notes per string
     octaves: false,
     lowG: false,                      // standard ukulele tuned with a low G (G3)
     chord: { on: true, root: 0, type: 'maj' },
@@ -335,6 +508,8 @@ function loadState() {
     for (const k of ['flats', 'allTones', 'octaves', 'lowG', 'scaleOnly', 'scaleGroups']) {
       if (typeof saved[k] === 'boolean') s[k] = saved[k];
     }
+    // Settings saved before version 2 had groups off by default: start them on once
+    if (!(saved.v >= SAVE_VERSION)) s.scaleGroups = true;
     if (saved.chord && findChord(saved.chord.type)) {
       s.chord = { on: saved.chord.on !== false, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
     }
@@ -350,7 +525,7 @@ function loadState() {
 
 function saveState() {
   const { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale } = state;
-  const saved = { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale };
+  const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
@@ -373,8 +548,16 @@ function cappedInstrument() {
   const c = capo();
   return { ...inst, strings: inst.strings.map((m) => m + c), frets: inst.frets - c };
 }
-const noteName = (pc) => (state.flats ? FLAT_NAMES : SHARP_NAMES)[mod12(pc)];
-const pitchName = (midi) => noteName(midi) + (Math.floor(midi / 12) - 1);
+/* Spelling of the selected chord / scale (or, for pickers, of any root and
+   type). A chord inside the selected scale borrows the scale's spelling of
+   its root, so the ii chord of D♭ major is E♭m, not D♯m. */
+function scaleSpelling(rootPc, def) {
+  return spellScale(rootPc, def, state.flats);
+}
+function chordSpelling(rootPc, def) {
+  const sc = state.scale.on ? scaleSpelling(state.scale.root, findScale(state.scale.type)) : null;
+  return spellChord(rootPc, def, state.flats, (sc && sc.names.get(mod12(rootPc))) || null);
+}
 const stringNumber = (s) => instrument().strings.length - s;   // 1 = string nearest the floor
 
 function voicingFor(def) {
@@ -389,6 +572,7 @@ function currentChord() {
   const root = state.chord.root;
   const voicing = voicingFor(def);
   const tones = chordTones(root, def);
+  const spell = chordSpelling(root, def);
   const key = [instrument().strings.join(','), capo(), root, def.id, voicing].join('|');
   if (shapeCache.key !== key) shapeCache = { key, shapes: findShapes(cappedInstrument(), root, def, voicing) };
   const shapes = shapeCache.shapes;
@@ -397,7 +581,9 @@ function currentChord() {
     def, root, voicing, tones, shapes, index,
     shape: shapes[index] || null,
     degOfPc: new Map(tones.map((t) => [t.pc, t.deg])),
-    symbol: noteName(root) + def.symbol,
+    spell,
+    rootName: noteText(spell.root),
+    symbol: noteText(spell.root) + def.symbol,
   };
 }
 
@@ -405,7 +591,8 @@ function currentScale() {
   if (!state.scale.on) return null;
   const def = findScale(state.scale.type);
   const pcs = def.steps.map((s) => mod12(state.scale.root + s));
-  return { def, root: state.scale.root, pcs, set: new Set(pcs) };
+  const spell = scaleSpelling(state.scale.root, def);
+  return { def, root: state.scale.root, pcs, set: new Set(pcs), spell, rootName: noteText(spell.root) };
 }
 
 /* Change the chord and show its first shape. */
@@ -512,6 +699,62 @@ function flashCell(s, f, delay = 0) {
   }, delay * 1000);
 }
 
+/* Tap a note on the neck to hear it (not behind the capo, not a hidden note).
+   With a mouse or a pen it sounds on press. On a touch screen it sounds once
+   the finger has rested TAP_DELAY ms without moving (or on release, if that
+   comes first), so swiping to scroll the neck never plays notes. Each finger
+   is followed on its own, so two quick taps both sound. */
+const TAP_DELAY = 40;   // ms
+const TAP_SLOP = 8;     // px a finger may move and still count as a tap
+function setupNeckTaps() {
+  const taps = new Map();   // pointerId → { cell, x, y, timer, done }
+  const playable = (target) => {
+    const cell = target.closest('.cell');
+    return cell && !cell.classList.contains('behind') && !cell.classList.contains('empty') ? cell : null;
+  };
+  const play = (cell) => {
+    const s = Number(cell.dataset.s);
+    const f = Number(cell.dataset.f);
+    playNote(instrument().strings[s] + f);
+    flashCell(s, f);
+  };
+  const cancel = (e) => {
+    const tap = taps.get(e.pointerId);
+    if (tap) { clearTimeout(tap.timer); taps.delete(e.pointerId); }
+  };
+  els.neck.addEventListener('pointerdown', (e) => {
+    if (e.button > 0) return;   // main button only
+    const cell = playable(e.target);
+    if (!cell) return;
+    if (e.pointerType !== 'touch') { play(cell); return; }
+    const tap = { cell, x: e.clientX, y: e.clientY, done: false };
+    tap.timer = setTimeout(() => { tap.done = true; play(cell); }, TAP_DELAY);
+    taps.set(e.pointerId, tap);
+  });
+  els.neck.addEventListener('pointermove', (e) => {
+    const tap = taps.get(e.pointerId);
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > TAP_SLOP) cancel(e);
+  });
+  els.neck.addEventListener('pointerup', (e) => {
+    const tap = taps.get(e.pointerId);
+    if (!tap) return;
+    clearTimeout(tap.timer);
+    if (!tap.done) play(tap.cell);
+    taps.delete(e.pointerId);
+  });
+  els.neck.addEventListener('pointercancel', cancel);   // the browser started scrolling
+  els.neck.addEventListener('contextmenu', (e) => e.preventDefault());   // no long-press menu
+}
+
+/* Browsers only let sound start after a tap or a key press, and some only
+   count the end of a tap. Waking the audio on those events means the very
+   first note of a visit is not lost. */
+if (typeof document !== 'undefined') {
+  for (const type of ['pointerup', 'touchend', 'keydown']) {
+    document.addEventListener(type, () => { if (audio && audio.ctx.state === 'suspended') audio.ctx.resume(); }, { passive: true });
+  }
+}
+
 /* Strum the current shape from the top string down, skipping muted ones. */
 function strum() {
   const ch = currentChord();
@@ -539,15 +782,6 @@ const isWide = () => Boolean(wideMedia && wideMedia.matches);
 const ui = { tab: null, shapeKey: null, groups: [] };   // open dock tab (phones), last shape shown
 const els = {};
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-function fillSelect(select, groups, value) {
-  select.innerHTML = groups.map((g) => {
-    const opts = g.items.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
-    return g.group ? `<optgroup label="${esc(g.group)}">${opts}</optgroup>` : opts;
-  }).join('');
-  select.value = String(value);
-}
-
 
 function render() {
   const ch = currentChord();
@@ -615,7 +849,8 @@ function openPicker({ title, groups, value, layout = '', onPick }) {
 function closePicker() {
   if (els.picker.close) els.picker.close(); else els.picker.removeAttribute('open');
 }
-const rootItems = () => [{ items: SHARP_NAMES.map((_, pc) => ({ value: pc, label: noteName(pc) })) }];
+/* The 12 roots, each spelled as it would be for the given chord or scale type */
+const rootItems = (spellRoot) => [{ items: SHARP_NAMES.map((_, pc) => ({ value: pc, label: noteText(spellRoot(pc)) })) }];
 
 /* Phones: the shape bar, the tab values and which sheet is open. */
 function renderDock(ch, sc) {
@@ -626,10 +861,13 @@ function renderDock(ch, sc) {
   els.dockSymbol.textContent = ch ? ch.symbol : '';
   if (!ch) els.dockTab.innerHTML = '<span>No chord selected</span>';
   else if (!ch.shape) els.dockTab.innerHTML = '<span>No playable shape</span>';
-  else els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}</span><span>${esc(shortTab(ch.shape))}</span>`;
+  else {
+    els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapePlace(ch.shape)}</span>` +
+      `<span>${esc(shortTab(ch.shape))}</span>`;
+  }
 
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
-  els.tabScaleValue.textContent = sc ? `${noteName(sc.root)} ${sc.def.short}` : 'None';
+  els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
   els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : instrument().short;
 
   const open = !isWide() && ui.tab !== null;
@@ -703,10 +941,7 @@ function renderHeader() {
   ).join('');
   const c = capo();
   els.neckTitle.textContent = inst.name;   // tuning and capo are visible on the neck itself
-  const maxCapo = Math.min(MAX_CAPO, inst.frets - SHAPE_SPAN);
-  fillSelect(els.capoSelect, [{ items: Array.from({ length: maxCapo + 1 }, (_, i) => ({
-    value: i, label: i ? `Capo ${i}` : 'No capo',
-  })) }], c);
+  els.capoSelect.textContent = c ? `Capo ${c}` : 'No capo';
   els.capoSelect.classList.toggle('on', c > 0);
   for (const [id, key] of TOGGLES) {
     els[id].setAttribute('aria-pressed', String(state[key]));
@@ -796,7 +1031,9 @@ function renderNeck(ch, sc) {
     labelAt = (s) => `grid-row:${n - s + 1};grid-column:1`;
     capoAt = `grid-row:2 / span ${n};grid-column:${c + 2}`;
   }
-  els.neck.style.gridTemplateRows = 'var(--ruler-row)';
+  // Vertical: the open-string row is 3px taller, since the nut is 3px thicker
+  // than a fret wire; its notes get as much room as any other
+  els.neck.style.gridTemplateRows = vertical ? 'var(--ruler-row) calc(var(--row-h) + 3px)' : 'var(--ruler-row)';
   els.neck.style.gridAutoRows = 'var(--row-h)';
   els.neck.classList.toggle('vertical', vertical);
   els.neck.classList.toggle('horizontal', !vertical);
@@ -810,6 +1047,7 @@ function renderNeck(ch, sc) {
     });
   }
   const ghosts = ch && (state.allTones || !ch.shape);
+  const keyFlats = sc ? sc.spell.flats : ch ? ch.spell.flats : state.flats;   // notes outside the key
   const onlyScale = Boolean(sc && state.scaleOnly);
   ui.groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
 
@@ -849,34 +1087,32 @@ function renderNeck(ch, sc) {
       const key = `${s}:${f}`;
       const mark = SINGLE_DOTS.includes(f) || DOUBLE_DOTS.includes(f);
       const where = f === 0 ? `string ${num}, open` : `string ${num}, fret ${f}`;
+      // Each pill is spelled by its role: chord notes as in the chord, scale
+      // notes as in the scale, other notes in the key's direction
       let cls = 'note';
-      let text = noteName(pc);
+      let n = plainNote(pc, keyFlats);
+      let deg = null;
       let badge = '';   // chord notes: interval in a small corner badge, note name in the pill
-      let title = `${pitchName(midi)}, ${where}`;
 
       if (f < c) {
-        // Behind the capo: shown for reference, but cannot be played
-        cls += ' plain';
-        title += ', behind the capo';
+        cls += ' plain';   // behind the capo: shown for reference, but cannot be played
       } else if (f === c && ch && ch.shape && ch.shape.frets[s] < 0) {
         cls += ' mute';
-        text = '';
-        title = `String ${num} not played`;
-      } else if (shapeAt.has(key)) {
-        const deg = shapeAt.get(key);
-        cls += ` chord${deg === 'R' ? ' root' : ''}`;
+      } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
+        deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
+        cls += `${shapeAt.has(key) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}`;
         badge = fmtDeg(deg);
-        title = `${pitchName(midi)} (${DEGREE_NAMES[deg]}), ${where}`;
-      } else if (ghosts && ch.degOfPc.has(pc)) {
-        const deg = ch.degOfPc.get(pc);
-        cls += ` ghost${deg === 'R' ? ' root' : ''}`;
-        badge = fmtDeg(deg);
-        title = `${pitchName(midi)} (${DEGREE_NAMES[deg]}), ${where}`;
+        n = ch.spell.names.get(pc) || n;
       } else if (sc && sc.set.has(pc)) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
+        n = sc.spell.names.get(pc) || n;
       } else {
         cls += onlyScale ? ' plain out' : ' plain';
       }
+      const text = noteText(n);
+      let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
+      if (f < c) title += ', behind the capo';
+      if (cls.includes(' mute')) title = `String ${num} not played`;
       const octave = octaveOf(s, f);
       const empty = onlyScale && cls.includes(' out');
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
@@ -904,7 +1140,7 @@ function renderNeck(ch, sc) {
    the cells on screen: an SVG path that is inset a little from the cells (so
    neighbouring groups never touch) and has every corner rounded, inner ones
    included. Redrawn whenever the neck changes size. */
-const GROUP_INSET = 3.5;
+const GROUP_INSET = 2;   // keeps the line clear of a root note's ring
 const GROUP_RADIUS = 9;
 function drawGroups() {
   const layer = els.neck.querySelector('.group-layer');
@@ -917,19 +1153,28 @@ function drawGroups() {
   if (!groups.length) { layer.innerHTML = ''; return; }
 
   const vertical = els.neck.classList.contains('vertical');
-  const rect = (s, f) => {
+  // Work in (u, v): u runs along the strings (towards the body), v across them.
+  // Along u, a cell is measured without its fret wire or nut (a border) and
+  // the capo's padding: the note sits in the middle of what is left, so a
+  // group gets the same room before its first note as after its last.
+  const cellBox = (s, f) => {
     const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]`);
     const r = cell.getBoundingClientRect();
-    return { left: r.left - box.left, right: r.right - box.left, top: r.top - box.top, bottom: r.bottom - box.top };
+    const cs = getComputedStyle(cell);
+    const px = (prop) => parseFloat(cs[prop]) || 0;
+    return vertical
+      ? { u0: r.top - box.top + px('borderTopWidth') + px('paddingTop'),
+        u1: r.bottom - box.top - px('borderBottomWidth') - px('paddingBottom'),
+        v0: r.left - box.left, v1: r.right - box.left }
+      : { u0: r.left - box.left + px('borderLeftWidth') + px('paddingLeft'),
+        u1: r.right - box.left - px('borderRightWidth') - px('paddingRight'),
+        v0: r.top - box.top, v1: r.bottom - box.top };
   };
-  // Work in (u, v): u runs along the strings (towards the body), v across them
   layer.innerHTML = groups.map((g) => {
     const bars = g.bars.map(({ s, a, b }) => {
-      const first = rect(s, a);
-      const last = rect(s, b);
-      return vertical
-        ? { u0: first.top, u1: last.bottom, v0: first.left, v1: first.right }
-        : { u0: first.left, u1: last.right, v0: first.top, v1: first.bottom };
+      const first = cellBox(s, a);
+      const last = cellBox(s, b);
+      return { u0: first.u0, u1: last.u1, v0: first.v0, v1: first.v1 };
     }).sort((p, q) => p.v0 - q.v0);
     const points = staircase(bars, GROUP_INSET).map(([u, v]) => (vertical ? [v, u] : [u, v]));
     return `<path class="${g.id % 2 ? 'g-b' : 'g-a'}" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
@@ -979,18 +1224,14 @@ function roundedPath(pts, r) {
 }
 
 function renderChordPanel(ch) {
-  els.chordRoot.textContent = noteName(state.chord.root);
+  const def = findChord(state.chord.type);
+  const spell = ch ? ch.spell : chordSpelling(state.chord.root, def);
+  els.chordRoot.textContent = noteText(spell.root);
   els.chordType.textContent = ch ? ch.def.name : 'None';
 
-  const def = findChord(state.chord.type);
-  const tones = chordTones(state.chord.root, def);
-  fillSelect(els.chordVoicing, [{ items: [
-    ...tones.map((t, i) => ({
-      value: String(i),
-      label: i === 0 ? `Root position, ${noteName(t.pc)} in bass` : `${INVERSION_NAMES[i]}, ${noteName(t.pc)} (${fmtDeg(t.deg)}) in bass`,
-    })),
-    { value: 'any', label: 'Any bass note' },
-  ] }], voicingFor(def));
+  const voicing = voicingFor(def);
+  els.chordVoicing.textContent = voicing === 'any' ? 'Any bass note'
+    : `${INVERSION_NAMES[Number(voicing)]}, ${noteText(spell.notes[Number(voicing)])} in bass`;
 
   els.chordClear.disabled = !ch;
   els.chordVoicing.disabled = !ch;
@@ -1012,7 +1253,7 @@ function renderChordPanel(ch) {
     return;
   }
 
-  const rootName = noteName(ch.root);
+  const rootName = ch.rootName;
   els.chordSymbol.textContent = ch.symbol;
   els.chordSymbol.classList.add('on');
   els.chordMode.textContent = 'Selected';
@@ -1025,7 +1266,8 @@ function renderChordPanel(ch) {
   // With a capo, name the shape to play: the chord moved down by the capo
   const c = capo();
   els.chordCapo.hidden = !c;
-  els.chordCapo.textContent = c ? `With capo ${c}, play the ${noteName(ch.root - c)}${ch.def.symbol} shape` : '';
+  const shapeName = c ? noteText(spellChord(ch.root - c, ch.def, state.flats).root) : '';
+  els.chordCapo.textContent = c ? `With capo ${c}, play the ${shapeName}${ch.def.symbol} shape` : '';
   els.tonesLabel.textContent = c ? 'Shape notes, bass to top, frets from the capo' : 'Shape notes, bass to top';
 
   els.shapeCount.hidden = false;
@@ -1047,19 +1289,19 @@ function renderChordPanel(ch) {
     .sort((a, b) => a.midi - b.midi || a.s - b.s);
   els.chordTones.innerHTML = notes.map((x) => {
     const deg = ch.degOfPc.get(mod12(x.midi));
+    const name = pitchText(x.midi, ch.spell.names.get(mod12(x.midi)));
     const open = c ? 'capo' : 'open';
     const loc = x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
     return `<li class="np-note${deg === 'R' ? ' root' : ''}" data-midi="${x.midi}" data-s="${x.s}" ` +
-      `data-f="${x.f + c}" title="Click to hear ${esc(pitchName(x.midi))}">` +
-      `<span class="np-note-name">${esc(pitchName(x.midi))}</span>` +
+      `data-f="${x.f + c}" title="Click to hear ${esc(name)}">` +
+      `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${esc(fmtDeg(deg))}</span>` +
       `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
       `<span class="np-loc"><kbd>${loc}</kbd></span></li>`;
   }).join('');
 
   els.shapeList.innerHTML = ch.shapes.map((shape, i) => {
-    const hasOpen = shape.frets.includes(0);
-    const where = shape.pos === 0 || (hasOpen && shape.pos <= OPEN_MAX_POS) ? 'open' : `fr ${shape.pos}`;
+    const where = shapePlace(shape);
     const sel = i === ch.index;
     return `<li><button type="button" class="chip${sel ? ' selected' : ''}" data-shape="${i}" aria-pressed="${sel}" ` +
       `title="Strings low to high${c ? ', frets from the capo' : ''}: ${tabOf(shape)}"><span class="chip-num">${where}</span>` +
@@ -1081,7 +1323,7 @@ function keepChipVisible() {
 }
 
 function renderScalePanel(sc, ch) {
-  els.scaleRoot.textContent = noteName(state.scale.root);
+  els.scaleRoot.textContent = sc ? sc.rootName : noteText(scaleSpelling(state.scale.root, findScale(state.scale.type)).root);
   els.scaleType.textContent = sc ? sc.def.name : 'None';
   els.scaleClear.disabled = !sc;
   els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc;
@@ -1094,13 +1336,13 @@ function renderScalePanel(sc, ch) {
   }
 
   const parts = [];
-  sc.pcs.forEach((pc, i) => {
-    parts.push(`<li class="scale-note${i === 0 ? ' root' : ''}">${esc(noteName(pc))}</li>`);
+  sc.spell.notes.forEach((n, i) => {
+    parts.push(`<li class="scale-note${i === 0 ? ' root' : ''}">${esc(noteText(n))}</li>`);
     const next = i + 1 < sc.def.steps.length ? sc.def.steps[i + 1] : 12;
     const gap = next - sc.def.steps[i];
     parts.push(`<li class="scale-gap" aria-label="${gap} semitones"><span>${STEP_NAMES[gap] || gap}</span></li>`);
   });
-  parts.push(`<li class="scale-note octave">${esc(noteName(sc.root))}</li>`);
+  parts.push(`<li class="scale-note octave">${esc(sc.rootName)}</li>`);
   els.scaleNotes.innerHTML = parts.join('');
 
   const triads = scaleTriads(sc);
@@ -1116,39 +1358,49 @@ function renderScalePanel(sc, ch) {
     const def = findChord(t.type);
     const sel = ch && ch.root === t.root && ch.def.id === t.type;
     return `<button type="button" class="chip${sel ? ' selected' : ''}" data-root="${t.root}" data-type="${t.type}" ` +
-      `title="Select ${esc(noteName(t.root))} ${def.name.toLowerCase()}"><span class="chip-num">${esc(t.num)}</span>` +
-      `${esc(noteName(t.root) + def.symbol)}</button>`;
+      `title="Select ${esc(t.name)} ${def.name.toLowerCase()}"><span class="chip-num">${esc(t.num)}</span>` +
+      `${esc(t.name + def.symbol)}</button>`;
   }).join('');
 }
 
-/* Seven-note scales: stack thirds on each degree (roman numerals).
-   Other scales: every major/minor/dim/aug triad whose notes are all in it. */
+/* Triads of the scale, in scale order. In a 7-note scale each degree gets
+   the triad built from the scale's own thirds (degrees 1-3-5 from it); in
+   other scales, every major, minor, diminished or augmented triad whose
+   notes are all in the scale. Each gets a roman numeral from its root's
+   degree (letter distance from the scale root), with ♭ or ♯ when that degree
+   differs from the major scale's (A minor: i ii° ♭III iv v ♭VI ♭VII), lower
+   case for minor and diminished, ° for diminished, + for augmented. */
+const MAJOR_STEPS = [0, 2, 4, 5, 7, 9, 11];
+const triadType = (third, fifth) => (third === 4 && fifth === 7 ? 'maj' : third === 3 && fifth === 7 ? 'min'
+  : third === 3 && fifth === 6 ? 'dim' : third === 4 && fifth === 8 ? 'aug' : null);
 function scaleTriads(sc) {
-  const st = sc.def.steps;
-  if (st.length === 12) return null;
-  const out = [];
-  if (st.length === 7) {
-    st.forEach((step, i) => {
-      const third = mod12(st[(i + 2) % 7] - step);
-      const fifth = mod12(st[(i + 4) % 7] - step);
-      const type = third === 4 && fifth === 7 ? 'maj'
-        : third === 3 && fifth === 7 ? 'min'
-        : third === 3 && fifth === 6 ? 'dim'
-        : third === 4 && fifth === 8 ? 'aug' : null;
-      if (!type) return;
-      const upper = type === 'maj' || type === 'aug';
-      const num = (upper ? ROMAN[i] : ROMAN[i].toLowerCase()) + (type === 'dim' ? '°' : type === 'aug' ? '+' : '');
-      out.push({ root: mod12(sc.root + step), type, num });
+  const notes = sc.spell.notes;
+  if (notes.length >= 12) return null;
+  const found = [];
+  if (notes.length === 7) {
+    notes.forEach((n, i) => {
+      const type = triadType(mod12(notes[(i + 2) % 7].pc - n.pc), mod12(notes[(i + 4) % 7].pc - n.pc));
+      if (type) found.push({ n, type });
     });
-    return out;
-  }
-  st.forEach((step, i) => {
-    const root = mod12(sc.root + step);
-    for (const type of TRIAD_TYPES) {
-      if (findChord(type).steps.every((s) => sc.set.has(mod12(root + s)))) out.push({ root, type, num: String(i + 1) });
+  } else {
+    const seen = new Set();
+    for (const n of notes) {
+      if (seen.has(n.pc)) continue;
+      seen.add(n.pc);
+      for (const type of TRIAD_TYPES) {
+        if (findChord(type).steps.every((st) => sc.set.has(mod12(n.pc + st)))) found.push({ n, type });
+      }
     }
+  }
+  return found.map(({ n, type }) => {
+    const degree = (n.letter - sc.spell.root.letter + 7) % 7;   // 0 = I
+    let shift = mod12(n.pc - sc.root) - MAJOR_STEPS[degree];
+    if (shift > 6) shift -= 12;
+    if (shift < -6) shift += 12;
+    const accidental = shift < 0 ? '♭'.repeat(-shift) : '♯'.repeat(shift);
+    const numeral = type === 'maj' || type === 'aug' ? ROMAN[degree] : ROMAN[degree].toLowerCase();
+    return { root: n.pc, type, name: noteText(n), num: accidental + numeral + (type === 'dim' ? '°' : type === 'aug' ? '+' : '') };
   });
-  return out;
 }
 
 /* ==========================================================================
@@ -1185,25 +1437,21 @@ function init() {
     });
   }
 
-  // Tap a note on the neck to hear it (not behind the capo)
-  els.neck.addEventListener('click', (e) => {
-    const cell = e.target.closest('.cell');
-    if (!cell || cell.classList.contains('behind') || cell.classList.contains('empty')) return;
-    const s = Number(cell.dataset.s);
-    const f = Number(cell.dataset.f);
-    playNote(instrument().strings[s] + f);
-    flashCell(s, f);
-  });
+  setupNeckTaps();
   els.chordTones.addEventListener('click', (e) => {
     const card = e.target.closest('[data-midi]');
     if (!card) return;
     playNote(Number(card.dataset.midi));
     flashCell(card.dataset.s, card.dataset.f);
   });
-  els.chordStrum.addEventListener('click', strum);
+  // Strum buttons sound on press, like a plucked string. A click from the
+  // keyboard (Enter, or Space on a button reached with Tab) still strums.
+  for (const btn of [els.chordStrum, els.dockStrum]) {
+    btn.addEventListener('pointerdown', (e) => { if (e.button === 0 && !btn.disabled) strum(); });
+    btn.addEventListener('click', (e) => { if (e.detail === 0) strum(); });
+  }
 
   // Dock (phones): shape bar, tabs and the sheet they open
-  els.dockStrum.addEventListener('click', strum);
   els.dockPrev.addEventListener('click', () => selectShape(state.shape - 1));
   els.dockNext.addEventListener('click', () => selectShape(state.shape + 1));
   els.dockShape.addEventListener('click', () => openTab('chord'));
@@ -1226,11 +1474,16 @@ function init() {
 
   // Root alone never turns a chord or scale on: "None" in the type menu means off
   // Moving the capo keeps the chord and shows its first shape from the capo
-  els.capoSelect.addEventListener('change', () => {
-    state.capo = Number(els.capoSelect.value);
-    state.shape = 0;
-    render();
-  });
+  els.capoSelect.addEventListener('click', () => openPicker({
+    title: 'Capo', layout: 'roots', value: capo(),
+    groups: [
+      { items: [{ value: 0, label: 'No capo', cls: 'none', style: 'grid-column: 1 / -1' }] },
+      { label: 'Fret where the capo sits', items: Array.from(
+        { length: Math.min(MAX_CAPO, instrument().frets - SHAPE_SPAN) },
+        (_, i) => ({ value: i + 1, label: String(i + 1) })) },
+    ],
+    onPick: (v) => { state.capo = Number(v); state.shape = 0; render(); },
+  }));
 
   // Clearing the chord or the scale also closes its panel on phones
   const clearChord = () => { state.chord.on = false; ui.tab = null; render(); };
@@ -1238,7 +1491,8 @@ function init() {
 
   // Root and type buttons open the picker popup
   els.chordRoot.addEventListener('click', () => openPicker({
-    title: 'Chord root', layout: 'roots', groups: rootItems(), value: state.chord.root,
+    title: 'Chord root', layout: 'roots', value: state.chord.root,
+    groups: rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root),
     onPick: (v) => {
       const root = Number(v);
       if (state.chord.on) updateChord({ root });
@@ -1252,15 +1506,16 @@ function init() {
       items: g.items.map((c) => ({
         value: c.id,
         label: c.name,
-        tag: noteName(state.chord.root) + c.symbol,
-        sub: chordTones(state.chord.root, c).map((t) => noteName(t.pc)).join(' '),
+        tag: noteText(chordSpelling(state.chord.root, c).root) + c.symbol,
+        sub: chordSpelling(state.chord.root, c).notes.map(noteText).join(' '),
       })),
     }))],
     value: state.chord.on ? state.chord.type : '',
     onPick: (v) => (v ? updateChord({ type: v }) : clearChord()),
   }));
   els.scaleRoot.addEventListener('click', () => openPicker({
-    title: 'Scale root', layout: 'roots', groups: rootItems(), value: state.scale.root,
+    title: 'Scale root', layout: 'roots', value: state.scale.root,
+    groups: rootItems((pc) => scaleSpelling(pc, findScale(state.scale.type)).root),
     onPick: (v) => { state.scale.root = Number(v); render(); },
   }));
   els.scaleType.addEventListener('click', () => openPicker({
@@ -1270,7 +1525,7 @@ function init() {
       items: g.items.map((sc) => ({
         value: sc.id,
         label: sc.name,
-        sub: sc.steps.length >= 12 ? 'All 12 notes' : sc.steps.map((st) => noteName(state.scale.root + st)).join(' '),
+        sub: sc.steps.length >= 12 ? 'All 12 notes' : scaleSpelling(state.scale.root, sc).notes.map(noteText).join(' '),
       })),
     }))],
     value: state.scale.on ? state.scale.type : '',
@@ -1290,9 +1545,22 @@ function init() {
   els.pickerClose.addEventListener('click', closePicker);
   // A tap on the dimmed backdrop (outside the card) closes the popup
   els.picker.addEventListener('click', (e) => { if (e.target === els.picker) closePicker(); });
-  els.chordVoicing.addEventListener('change', () => {
-    state.voicing[state.instrument] = els.chordVoicing.value;
-    updateChord({});
+  els.chordVoicing.addEventListener('click', () => {
+    const def = findChord(state.chord.type);
+    const spell = chordSpelling(state.chord.root, def);
+    openPicker({
+      title: 'Voicing', value: voicingFor(def),
+      groups: [{ label: 'Bass note, the lowest one played', items: [
+        ...chordTones(state.chord.root, def).map((t, i) => ({
+          value: String(i),
+          label: INVERSION_NAMES[i],
+          tag: noteText(spell.notes[i]),
+          sub: i === 0 ? 'Root in the bass' : `${fmtDeg(t.deg)} in the bass`,
+        })),
+        { value: 'any', label: 'Any bass note', sub: 'Any inversion' },
+      ] }],
+      onPick: (v) => { state.voicing[state.instrument] = v; updateChord({}); },
+    });
   });
   els.chordClear.addEventListener('click', clearChord);
   els.shapePrev.addEventListener('click', () => selectShape(state.shape - 1));
@@ -1308,16 +1576,24 @@ function init() {
     if (chip) updateChord({ root: Number(chip.dataset.root), type: chip.dataset.type });
   });
 
-  // ← / → cycle through the shapes, Space strums (not while a control has
-  // focus), Escape closes the open sheet
+  // ← / → cycle through the shapes, Space strums, Escape closes the open
+  // sheet. Space strums as soon as it is pressed, once per press. It is left
+  // to a focused button only when that button was reached with the keyboard
+  // (Tab): a button that just kept the focus after a click (Strum, a switch)
+  // would otherwise take Space and act on its release.
+  let clicked = null;   // the button last pressed with a mouse or a finger
+  document.addEventListener('pointerdown', (e) => { clicked = e.target.closest('button'); }, true);
+  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
+    !e.target.closest('input, textarea') && !(e.target.closest('button') && e.target.closest('button') !== clicked);
+  document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     if (els.picker.open) return;   // the popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
-    if (e.target.closest('select, input, textarea')) return;
-    if (e.key === ' ' && !e.target.closest('button')) {
+    if (e.target.closest('input, textarea')) return;
+    if (spaceStrums(e)) {
       e.preventDefault();
-      strum();
+      if (!e.repeat) strum();   // holding Space strums once: release it to strum again
       return;
     }
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
