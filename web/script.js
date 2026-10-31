@@ -1556,7 +1556,7 @@ function init() {
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'sheet', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
-    'tabChordValue', 'tabScaleValue', 'tabNeckValue']) {
+    'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose']) {
     els[id] = document.getElementById(id);
   }
   els.dockBar = document.querySelector('.dock-bar');
@@ -1686,6 +1686,11 @@ function init() {
     if (handler) handler(pick.dataset.value);
   });
   els.pickerClose.addEventListener('click', closePicker);
+  // About popup: opened from the header, closed like the picker
+  els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
+  const closeAbout = () => { if (els.about.close) els.about.close(); else els.about.removeAttribute('open'); };
+  els.aboutClose.addEventListener('click', closeAbout);
+  els.about.addEventListener('click', (e) => { if (e.target === els.about) closeAbout(); });
   // A tap on the dimmed backdrop (outside the card) closes the popup
   els.picker.addEventListener('click', (e) => { if (e.target === els.picker) closePicker(); });
   els.chordVoicing.addEventListener('click', () => {
@@ -1726,12 +1731,12 @@ function init() {
   // would otherwise take Space and act on its release.
   let clicked = null;   // the button last pressed with a mouse or a finger
   document.addEventListener('pointerdown', (e) => { clicked = e.target.closest('button'); }, true);
-  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
+  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && e.target.closest('button') !== clicked);
   document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (els.picker.open) return;   // the popup handles its own keys (Escape closes it)
+    if (els.picker.open || els.about.open) return;   // a popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('input, textarea')) return;
     if (spaceStrums(e)) {
