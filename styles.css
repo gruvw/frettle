@@ -208,6 +208,7 @@ kbd {
 .scale-bar .field.scale-type { order: 2; }
 .scale-bar .deselect { order: 3; }
 .switch-row { order: 4; flex: 1 0 100%; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.chord-bar .switch-row { grid-template-columns: 1fr; }   /* phones: one switch, full width */
 .switch-row .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
 /* Buttons that open a picker popup, styled as menus */
@@ -573,6 +574,12 @@ kbd {
 .np-meta { font-size: var(--fs-sm); }
 .np-alt { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
 .np-capo { color: var(--accent); font-weight: 600; }
+/* Whether the chord fits the shown scale: teal dot if it does, amber if not */
+.np-key { display: flex; align-items: center; gap: 7px; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.np-key[hidden] { display: none; }
+.np-key::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--scale); }
+.np-key.out { color: var(--warn); }
+.np-key.out::before { background: var(--warn); }
 
 .np-tones { display: grid; gap: var(--sp-2); min-width: 0; }
 .np-notes {
@@ -872,6 +879,8 @@ kbd {
   overflow-y: auto;
 }
 /* Section heading with a thin line running to the right */
+.picker-note { display: flex; align-items: center; gap: 7px; margin: 0 0 var(--sp-1); font-size: var(--fs-sm); color: var(--muted); }
+.picker-note::before { flex: none; }
 .picker-label { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
 .picker-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-2); }
@@ -934,6 +943,18 @@ kbd {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
+/* Chords whose notes are all in the shown scale: a small teal dot in the
+   corner, the same dot as in the chord panel's "Every note is in" line */
+.pick.fits { position: relative; }
+.pick.fits::after, .picker-note::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--scale);
+}
+.pick.fits::after { position: absolute; top: 7px; right: 7px; }
+.picker-grid:not(.roots) .pick.fits .pick-name { padding-right: 12px; }   /* long names stay clear of the dot */
 .pick.selected .pick-sub { color: color-mix(in srgb, var(--text) 75%, transparent); }
 .pick:active { filter: brightness(1.15); }
 
@@ -1018,6 +1039,7 @@ kbd {
   .switch-row .pill-toggle { padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); }
   .scale-bar .deselect { order: 4; }
   .scale-bar .push-right { margin-left: 0; }
+  .chord-bar .switch-row { order: 0; margin-left: 0; }   /* after Voicing, before Strum */
   .pill-toggle { height: 32px; padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); font-size: var(--fs-sm); }
   .pill-select {
     width: auto;
