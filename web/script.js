@@ -789,7 +789,7 @@ function render() {
   if (ch && ch.shapes.length) state.shape = ch.index;
   renderHeader();
   renderNeck(ch, sc);
-  renderChordPanel(ch);
+  renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
   renderDock(ch, sc);
   saveState();
@@ -825,11 +825,12 @@ function placeSettings() {
 }
 
 /* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
-   [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick. */
+   [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick.
+   An optional `note` is a line of help above the tiles. */
 let pickerPick = null;
-function openPicker({ title, groups, value, layout = '', onPick }) {
+function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
   els.pickerTitle.textContent = title;
-  els.pickerBody.innerHTML = groups.map((g) =>
+  els.pickerBody.innerHTML = (note ? `<p class="picker-note">${esc(note)}</p>` : '') + groups.map((g) =>
     (g.label ? `<div class="label picker-label">${esc(g.label)}</div>` : '') +
     `<div class="picker-grid ${layout}">${g.items.map((it) => {
       const sel = String(it.value) === String(value);
@@ -849,8 +850,21 @@ function openPicker({ title, groups, value, layout = '', onPick }) {
 function closePicker() {
   if (els.picker.close) els.picker.close(); else els.picker.removeAttribute('open');
 }
-/* The 12 roots, each spelled as it would be for the given chord or scale type */
-const rootItems = (spellRoot) => [{ items: SHARP_NAMES.map((_, pc) => ({ value: pc, label: noteText(spellRoot(pc)) })) }];
+/* The 12 roots, each spelled as it would be for the given chord or scale type;
+   `fits(pc)` marks the roots whose chord fits the scale */
+const rootItems = (spellRoot, fits = () => false) => [{ items: SHARP_NAMES.map((_, pc) => ({
+  value: pc, label: noteText(spellRoot(pc)), cls: fits(pc) ? 'fits' : '',
+})) }];
+
+/* The chord's notes that are outside the shown scale: [] when it fits, null
+   when there is no scale to compare with (none, or the chromatic scale). */
+function outsideScale(rootPc, def, sc) {
+  if (!sc || sc.def.steps.length >= 12) return null;
+  return chordTones(rootPc, def).filter((t) => !sc.set.has(t.pc));
+}
+const fitsScale = (rootPc, def, sc) => { const out = outsideScale(rootPc, def, sc); return Boolean(out && !out.length); };
+/* Help line for the chord pickers when a scale is shown */
+const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${sc.rootName} ${sc.def.short}` : '');
 
 /* Phones: the shape bar, the tab values and which sheet is open. */
 function renderDock(ch, sc) {
@@ -1223,7 +1237,7 @@ function roundedPath(pts, r) {
   return `${parts.join(' ')}Z`;
 }
 
-function renderChordPanel(ch) {
+function renderChordPanel(ch, sc) {
   const def = findChord(state.chord.type);
   const spell = ch ? ch.spell : chordSpelling(state.chord.root, def);
   els.chordRoot.textContent = noteText(spell.root);
@@ -1235,6 +1249,7 @@ function renderChordPanel(ch) {
 
   els.chordClear.disabled = !ch;
   els.chordVoicing.disabled = !ch;
+  els.tglAllTones.disabled = !ch;
   els.shapePrev.disabled = els.shapeNext.disabled = !ch || ch.shapes.length < 2;
   els.chordStrum.disabled = !ch || !ch.shape;
 
@@ -1246,6 +1261,7 @@ function renderChordPanel(ch) {
     els.chordMeta.textContent = 'Pick a chord type, or tap a triad in the Scale panel.';
     els.chordAlt.textContent = '';
     els.chordCapo.hidden = true;
+    els.chordKey.hidden = true;
     els.chordTones.innerHTML = '<li class="np-placeholder">The notes of the selected shape appear here.</li>';
     els.shapeCount.hidden = true;
     els.shapeList.innerHTML = '';
@@ -1269,6 +1285,17 @@ function renderChordPanel(ch) {
   const shapeName = c ? noteText(spellChord(ch.root - c, ch.def, state.flats).root) : '';
   els.chordCapo.textContent = c ? `With capo ${c}, play the ${shapeName}${ch.def.symbol} shape` : '';
   els.tonesLabel.textContent = c ? 'Shape notes, bass to top, frets from the capo' : 'Shape notes, bass to top';
+
+  // With a scale shown: does the chord fit it, and if not, which notes do not
+  const outside = outsideScale(ch.root, ch.def, sc);
+  els.chordKey.hidden = !outside;
+  if (outside) {
+    const key = `${sc.rootName} ${sc.def.short}`;
+    els.chordKey.classList.toggle('out', outside.length > 0);
+    els.chordKey.textContent = outside.length
+      ? `Outside ${key}: ${outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', ')}`
+      : `Every note is in ${key}`;
+  }
 
   els.shapeCount.hidden = false;
   els.shapeCount.classList.toggle('warn', !ch.shapes.length);
@@ -1409,7 +1436,7 @@ function scaleTriads(sc) {
 function init() {
   for (const id of ['instrumentPicker', 'neckTitle', 'neck', 'tglLowG', 'tglOctaves', 'tglFlats', 'tglAllTones',
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordMode', 'chordName', 'chordMeta',
-    'chordAlt', 'chordCapo', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
+    'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'sheet', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
@@ -1491,8 +1518,9 @@ function init() {
 
   // Root and type buttons open the picker popup
   els.chordRoot.addEventListener('click', () => openPicker({
-    title: 'Chord root', layout: 'roots', value: state.chord.root,
-    groups: rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root),
+    title: 'Chord root', layout: 'roots', value: state.chord.root, note: fitsNote(currentScale()),
+    groups: rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root,
+      (pc) => fitsScale(pc, findChord(state.chord.type), currentScale())),
     onPick: (v) => {
       const root = Number(v);
       if (state.chord.on) updateChord({ root });
@@ -1500,7 +1528,7 @@ function init() {
     },
   }));
   els.chordType.addEventListener('click', () => openPicker({
-    title: 'Chord type',
+    title: 'Chord type', note: fitsNote(currentScale()),
     groups: [{ items: [{ value: '', label: 'None', sub: 'Hide the chord', cls: 'none' }] }, ...CHORDS.map((g) => ({
       label: g.group,
       items: g.items.map((c) => ({
@@ -1508,6 +1536,7 @@ function init() {
         label: c.name,
         tag: noteText(chordSpelling(state.chord.root, c).root) + c.symbol,
         sub: chordSpelling(state.chord.root, c).notes.map(noteText).join(' '),
+        cls: fitsScale(state.chord.root, c, currentScale()) ? 'fits' : '',
       })),
     }))],
     value: state.chord.on ? state.chord.type : '',

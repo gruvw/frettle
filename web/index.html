@@ -95,10 +95,6 @@
             title="Use flats for notes outside the key, and for keys that can be written either way (F♯ / G♭)">
       <span class="pill-dot" aria-hidden="true"></span>Flats
     </button>
-    <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
-            title="Also mark every other place the chord's notes appear on the neck">
-      <span class="pill-dot" aria-hidden="true"></span>All chord tones
-    </button>
   </div>
 
   <div id="dock" class="dock">
@@ -126,6 +122,12 @@
             <span>Voicing</span>
             <button type="button" id="chordVoicing" class="select-btn" aria-haspopup="dialog" aria-label="Chord voicing"></button>
           </div>
+          <div class="switch-row">
+            <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
+                    title="Also mark every other place the chord's notes appear on the neck">
+              <span class="pill-dot" aria-hidden="true"></span>All chord tones
+            </button>
+          </div>
           <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>Strum</button>
           <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
         </div>
@@ -139,6 +141,7 @@
               <div id="chordMeta" class="np-meta"></div>
               <div id="chordAlt" class="np-alt"></div>
               <div id="chordCapo" class="np-meta np-capo" hidden></div>
+              <div id="chordKey" class="np-key" hidden></div>
             </div>
           </div>
           <div class="np-tones">
