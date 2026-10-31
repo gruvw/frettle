@@ -59,12 +59,7 @@
        horizontal and the panels sit below it. -->
   <header class="top">
     <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
-    <a class="btn repo-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener" title="Star Frettle on GitHub">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linejoin="round">
-        <path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2-4.6-4.4 6.3-.9z"/>
-      </svg><span>Star<span class="repo-more"> on GitHub</span></span>
-    </a>
+    <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog">About</button>
     <div id="instrumentPicker" class="segmented" role="radiogroup" aria-label="Instrument"></div>
   </header>
 
@@ -230,6 +225,20 @@
   </div>
 
   <!-- Picker popup for every menu: roots, chord and scale types, voicing, capo -->
+  <!-- About: one line on the app and the link to its code -->
+  <dialog id="about" class="picker about" aria-labelledby="aboutTitle">
+    <div class="picker-head">
+      <h2 id="aboutTitle">About</h2>
+      <button type="button" id="aboutClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="picker-body about-body">
+      <p>Frettle shows every note, chord shape and scale on the neck of a guitar, bass or ukulele.</p>
+      <a class="btn about-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener">Source code on GitHub</a>
+    </div>
+  </dialog>
+
   <dialog id="picker" class="picker" aria-labelledby="pickerTitle">
     <div class="picker-head">
       <h2 id="pickerTitle"></h2>
