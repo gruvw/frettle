@@ -3,13 +3,58 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Frettle · Fretboard trainer</title>
+  <title>Frettle | Fretboard Visualizer for Guitar, Bass &amp; Ukulele</title>
+  <meta name="description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
+  <meta name="robots" content="index, follow">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#121317">
+
+  <!-- Link previews (Facebook, Slack, Discord, X…) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Frettle">
+  <meta property="og:title" content="Frettle | Fretboard Visualizer for Guitar, Bass &amp; Ukulele">
+  <meta property="og:description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Frettle | Fretboard Visualizer">
+  <meta name="twitter:description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b1d23'/%3E%3Cpath d='M7 11h18M7 16h18M7 21h18' stroke='%238f9198' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='18' cy='16' r='4.5' fill='%23ff4d86'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Tells search engines what this page is (free music web app) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Frettle",
+    "alternateName": "Frettle Fretboard Visualizer",
+    "description": "Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.",
+    "applicationCategory": "MusicApplication",
+    "operatingSystem": "Any",
+    "browserRequirements": "Requires JavaScript",
+    "isAccessibleForFree": true,
+    "sameAs": "https://github.com/gruvw/frettle",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "featureList": [
+      "Every note on the fretboard, open strings included",
+      "Chord shapes with intervals for any root and chord type",
+      "Scales with their notes, steps and triads",
+      "Capo, octave map and click-to-hear notes",
+      "Guitar, bass, ukulele (high or low G) and baritone ukulele"
+    ]
+  }
+  </script>
 </head>
 <body>
   <header class="top">
-    <h1>Frettle <span class="h1-sub">Fretboard trainer</span></h1>
+    <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
     <div id="instrumentPicker" class="segmented" role="radiogroup" aria-label="Instrument"></div>
+    <a class="btn repo-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener" title="Star Frettle on GitHub">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linejoin="round">
+        <path d="M12 2.8l2.8 5.7 6.3.9-4.6 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2-4.6-4.4 6.3-.9z"/>
+      </svg><span>Star<span class="repo-more"> on GitHub</span></span>
+    </a>
   </header>
 
   <section class="panel neck-panel" aria-label="Fretboard">
@@ -67,7 +112,7 @@
 
       <div id="chordBody" class="np-body" aria-live="polite">
         <div class="np-head">
-          <div id="chordSymbol" class="np-symbol">—</div>
+          <div id="chordSymbol" class="np-symbol"></div>
           <div class="np-desc">
             <div id="chordMode" class="label np-mode"></div>
             <div id="chordName" class="np-title"></div>
@@ -77,7 +122,7 @@
           </div>
         </div>
         <div class="np-tones">
-          <span id="tonesLabel" class="label">Shape notes · bass to top</span>
+          <span id="tonesLabel" class="label">Shape notes, bass to top</span>
           <ol id="chordTones" class="np-notes"></ol>
         </div>
       </div>
@@ -116,6 +161,16 @@
     </section>
   </main>
 
-  <script src="script.js"></script>
+  <footer class="foot">
+    <p>
+      Frettle is a free fretboard visualizer for guitar, bass, ukulele (high or low G) and baritone ukulele.
+      See every note on the neck, find chord shapes with their intervals in any key, highlight major, minor,
+      pentatonic and modal scales with their triads, place a capo, map the octaves and click any note to hear it.
+      Made for players learning the fretboard, especially those coming from the piano.
+    </p>
+    <p class="foot-link"><a href="https://github.com/gruvw/frettle" target="_blank" rel="noopener">Source code on GitHub</a></p>
+  </footer>
+
+  <script src="script.js" defer></script>
 </body>
 </html>

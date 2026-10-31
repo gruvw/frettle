@@ -1,7 +1,7 @@
 'use strict';
 
 /* ==========================================================================
-   Frettle — fretboard trainer
+   Frettle: fretboard visualizer
    1. Music data      2. Chord shape finder (pure, no DOM)
    3. State           4. Sound          5. Rendering      6. Events
    ========================================================================== */
@@ -52,8 +52,8 @@ const SCALES = [
   ] },
   { group: 'Symmetric', items: [
     { id: 'whole-tone', name: 'Whole tone', steps: [0, 2, 4, 6, 8, 10] },
-    { id: 'dim-wh', name: 'Diminished (whole–half)', steps: [0, 2, 3, 5, 6, 8, 9, 11] },
-    { id: 'dim-hw', name: 'Diminished (half–whole)', steps: [0, 1, 3, 4, 6, 7, 9, 10] },
+    { id: 'dim-wh', name: 'Diminished (whole-half)', steps: [0, 2, 3, 5, 6, 8, 9, 11] },
+    { id: 'dim-hw', name: 'Diminished (half-whole)', steps: [0, 1, 3, 4, 6, 7, 9, 10] },
     { id: 'chromatic', name: 'Chromatic', steps: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
   ] },
 ];
@@ -417,7 +417,7 @@ function selectShape(index) {
 
 /* ==========================================================================
    4. Sound
-   Plucked strings synthesised in the browser (Karplus–Strong): a short burst
+   Plucked strings synthesised in the browser (Karplus-Strong): a short burst
    of noise circulates in a delay line one period long and is softened a
    little on every pass, which sounds like a plucked string. Each pitch is
    computed once, on first use, and kept.
@@ -550,10 +550,10 @@ function renderHeader() {
     `<button type="button" class="btn" role="radio" data-inst="${i.id}" aria-checked="${i.id === inst.id}">${esc(i.name)}</button>`
   ).join('');
   const tuning = inst.strings.map((m) => noteName(m)).join(' ');
-  const extra = inst.note ? ` · ${inst.note}` : '';
+  const extra = inst.note ? `, ${inst.note}` : '';
   const c = capo();
-  const capoText = c ? ` · capo ${c}: ${inst.strings.map((m) => noteName(m + c)).join(' ')}` : '';
-  els.neckTitle.innerHTML = `${esc(inst.name)}<span class="muted h2-sub">${esc(tuning)}${esc(extra)} · ${inst.frets} frets${esc(capoText)}</span>`;
+  const capoText = c ? `, capo ${c}: ${inst.strings.map((m) => noteName(m + c)).join(' ')}` : '';
+  els.neckTitle.innerHTML = `${esc(inst.name)}<span class="muted h2-sub">${esc(tuning)}${esc(extra)}, ${inst.frets} frets${esc(capoText)}</span>`;
   const maxCapo = Math.min(MAX_CAPO, inst.frets - SHAPE_SPAN);
   fillSelect(els.capoSelect, [{ items: Array.from({ length: maxCapo + 1 }, (_, i) => ({
     value: i, label: i ? `Capo ${i}` : 'No capo',
@@ -624,12 +624,12 @@ function renderNeck(ch, sc) {
       const where = f === 0 ? `string ${num}, open` : `string ${num}, fret ${f}`;
       let cls = 'note';
       let text = noteName(pc);
-      let title = `${pitchName(midi)} · ${where}`;
+      let title = `${pitchName(midi)}, ${where}`;
 
       if (f < c) {
         // Behind the capo: shown for reference, but cannot be played
         cls += ' plain';
-        title += ' · behind the capo';
+        title += ', behind the capo';
       } else if (f === c && ch && ch.shape && ch.shape.frets[s] < 0) {
         cls += ' mute';
         text = '×';
@@ -638,12 +638,12 @@ function renderNeck(ch, sc) {
         const deg = shapeAt.get(key);
         cls += ` chord${deg === 'R' ? ' root' : ''}`;
         text = fmtDeg(deg);
-        title = `${pitchName(midi)} · ${DEGREE_NAMES[deg]} · ${where}`;
+        title = `${pitchName(midi)} (${DEGREE_NAMES[deg]}), ${where}`;
       } else if (ghosts && ch.degOfPc.has(pc)) {
         const deg = ch.degOfPc.get(pc);
         cls += ` ghost${deg === 'R' ? ' root' : ''}`;
         text = fmtDeg(deg);
-        title = `${pitchName(midi)} · ${DEGREE_NAMES[deg]} · ${where}`;
+        title = `${pitchName(midi)} (${DEGREE_NAMES[deg]}), ${where}`;
       } else if (sc && sc.set.has(pc)) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
       } else {
@@ -679,7 +679,7 @@ function renderChordPanel(ch) {
   fillSelect(els.chordVoicing, [{ items: [
     ...tones.map((t, i) => ({
       value: String(i),
-      label: i === 0 ? `Root position · ${noteName(t.pc)} in bass` : `${INVERSION_NAMES[i]} · ${noteName(t.pc)} (${fmtDeg(t.deg)}) in bass`,
+      label: i === 0 ? `Root position, ${noteName(t.pc)} in bass` : `${INVERSION_NAMES[i]}, ${noteName(t.pc)} (${fmtDeg(t.deg)}) in bass`,
     })),
     { value: 'any', label: 'Any bass note' },
   ] }], voicingFor(def));
@@ -690,7 +690,7 @@ function renderChordPanel(ch) {
   els.chordStrum.disabled = !ch || !ch.shape;
 
   if (!ch) {
-    els.chordSymbol.textContent = '—';
+    els.chordSymbol.textContent = '';
     els.chordSymbol.classList.remove('on');
     els.chordMode.textContent = '';
     els.chordName.textContent = 'No chord selected';
@@ -711,14 +711,14 @@ function renderChordPanel(ch) {
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
   const voicingLabel = ch.voicing === 'any' ? 'Any bass note' : INVERSION_NAMES[Number(ch.voicing)];
   const formula = ch.def.degrees.map((d) => fmtDeg(d === 'R' ? '1' : d)).join(' ');
-  els.chordMeta.textContent = `${voicingLabel} · Formula ${formula}`;
+  els.chordMeta.textContent = `${voicingLabel}, formula ${formula}`;
   const aliases = (CHORD_ALIASES[ch.def.id] || []).map((a) => rootName + a);
   els.chordAlt.textContent = aliases.length ? `= ${aliases.join(', ')}` : '';
   // With a capo, name the shape to play: the chord moved down by the capo
   const c = capo();
   els.chordCapo.hidden = !c;
   els.chordCapo.textContent = c ? `With capo ${c}, play the ${noteName(ch.root - c)}${ch.def.symbol} shape` : '';
-  els.tonesLabel.textContent = c ? 'Shape notes · bass to top · frets from the capo' : 'Shape notes · bass to top';
+  els.tonesLabel.textContent = c ? 'Shape notes, bass to top, frets from the capo' : 'Shape notes, bass to top';
 
   els.shapeCount.hidden = false;
   els.shapeCount.classList.toggle('warn', !ch.shapes.length);
@@ -740,7 +740,7 @@ function renderChordPanel(ch) {
   els.chordTones.innerHTML = notes.map((x) => {
     const deg = ch.degOfPc.get(mod12(x.midi));
     const open = c ? 'capo' : 'open';
-    const loc = x.f === 0 ? `str ${stringNumber(x.s)} · ${open}` : `str ${stringNumber(x.s)} · fr ${x.f}`;
+    const loc = x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
     return `<li class="np-note${deg === 'R' ? ' root' : ''}" data-midi="${x.midi}" data-s="${x.s}" ` +
       `data-f="${x.f + c}" title="Click to hear ${esc(pitchName(x.midi))}">` +
       `<span class="np-note-name">${esc(pitchName(x.midi))}</span>` +
