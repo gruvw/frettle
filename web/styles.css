@@ -378,6 +378,12 @@ kbd {
 .neck-head { display: none; }   /* phones: the instrument picker above already names it */
 .neck-panel h2 { font-size: var(--fs-md); }
 .neck-scroll { overflow-x: auto; overflow-y: hidden; }
+/* Left-handed: the neck's grid is laid out right to left, which mirrors it
+   (and starts the scroll at the nut). Sides that depend on direction (fret
+   wires, the capo, labels) use start / end rather than left / right below,
+   so they follow. Note names stay left to right. */
+.neck-scroll.lefty { direction: rtl; }
+.note { direction: ltr; }
 
 .neck {
   position: relative;   /* for the scale group outlines */
@@ -431,14 +437,14 @@ kbd {
 .neck.vertical .cell::before { top: 0; bottom: 0; left: 50%; width: var(--sw, 1px); transform: translateX(-50%); }
 .neck.vertical .cell.fret { border-bottom: 2px solid var(--fret-wire); }
 .neck.vertical .cell.open { border-bottom: 5px solid var(--nut); }
-.neck.vertical .ruler { justify-content: flex-end; padding-right: 6px; }
+.neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 6px; }
 .neck.vertical .ruler i { display: none; }   /* bright numbers mark the inlays */
 .neck.vertical .slabel { align-self: end; padding-bottom: 2px; }
 
 /* Horizontal: strings go across, fret wires and the nut run down */
 .neck.horizontal .cell::before { left: 0; right: 0; top: 50%; height: var(--sw, 1px); transform: translateY(-50%); }
-.neck.horizontal .cell.fret { border-right: 2px solid var(--fret-wire); }
-.neck.horizontal .cell.open { border-right: 5px solid var(--nut); }
+.neck.horizontal .cell.fret { border-inline-end: 2px solid var(--fret-wire); }
+.neck.horizontal .cell.open { border-inline-end: 5px solid var(--nut); }
 .neck.horizontal .ruler { align-self: start; height: 24px; }
 
 /* Octaves: alternate octaves are shaded, open strings included (replacing
@@ -450,7 +456,7 @@ kbd {
   position: absolute;
   z-index: 3;
   top: 2px;
-  left: 2px;
+  inset-inline-start: 2px;
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
@@ -468,7 +474,7 @@ kbd {
 .barre i { display: block; border-radius: var(--r-pill); background: var(--chord); }
 .neck.vertical .barre { padding-bottom: 2px; }    /* the fret wire: centre on the notes */
 .neck.vertical .barre i { width: calc(100% * (var(--k) - 1) / var(--k)); height: 10px; }
-.neck.horizontal .barre { padding-right: 2px; }
+.neck.horizontal .barre { padding-inline-end: 2px; }
 .neck.horizontal .barre i { width: 10px; height: calc(100% * (var(--k) - 1) / var(--k)); }
 
 /* Capo: a bar in the fret space just behind its wire; frets behind it fade */
@@ -479,9 +485,9 @@ kbd {
   pointer-events: none;
 }
 .neck.vertical .capo-bar { align-self: end; height: 8px; margin: 0 3px 6px; }
-.neck.horizontal .capo-bar { justify-self: end; width: 8px; margin: 3px 6px 3px 0; }
+.neck.horizontal .capo-bar { justify-self: end; width: 8px; margin-block: 3px; margin-inline: 0 6px; }
 .neck.vertical .cell.capo { padding-bottom: 14px; }    /* keep the notes clear of the capo */
-.neck.horizontal .cell.capo { padding-right: 14px; }
+.neck.horizontal .cell.capo { padding-inline-end: 14px; }
 .cell.behind { cursor: default; }
 .cell.behind .note, .cell.behind::before, .cell.behind .oct { opacity: 0.3; }
 

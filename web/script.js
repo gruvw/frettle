@@ -11,7 +11,7 @@
    ========================================================================== */
 const STORAGE_KEY = 'frettle.settings.v1';
 const SAVE_VERSION = 3;   // raised when a default changes for people with saved settings
-const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglAllTones', 'allTones'],
+const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglLefty', 'leftHanded'], ['tglAllTones', 'allTones'],
   ['tglScaleOnly', 'scaleOnly'], ['tglScaleGroups', 'scaleGroups']];   // [button id, state key]
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
@@ -520,6 +520,7 @@ function defaultState() {
     allTones: false,
     scaleOnly: true,                  // hide the notes that are not in the scale
     scaleGroups: true,                // outline the scale in groups of notes per string
+    leftHanded: false,                // mirror the neck
     octaves: false,
     lowG: false,                      // standard ukulele tuned with a low G (G3)
     chord: { on: true, root: 0, type: 'maj' },
@@ -536,7 +537,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (!saved || typeof saved !== 'object') return s;
     if (findInstrument(saved.instrument)) s.instrument = saved.instrument;
-    for (const k of ['flats', 'allTones', 'octaves', 'lowG', 'scaleOnly', 'scaleGroups']) {
+    for (const k of ['flats', 'allTones', 'octaves', 'lowG', 'scaleOnly', 'scaleGroups', 'leftHanded']) {
       if (typeof saved[k] === 'boolean') s[k] = saved[k];
     }
     // A default that changed is applied once to settings saved before it:
@@ -557,8 +558,8 @@ function loadState() {
 }
 
 function saveState() {
-  const { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale } = state;
-  const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale };
+  const { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, leftHanded, capo, chord, scale } = state;
+  const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, leftHanded, capo, chord, scale };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
@@ -1160,6 +1161,9 @@ function renderNeck(ch, sc) {
   els.neck.classList.toggle('vertical', vertical);
   els.neck.classList.toggle('horizontal', !vertical);
   els.neck.classList.toggle('octaves', state.octaves);
+  // Left-handed: the neck is mirrored by laying its grid out right to left
+  // (styles.css), so nothing here changes; the scroller starts at the nut
+  els.neck.parentElement.classList.toggle('lefty', state.leftHanded);
 
   // Shape frets count from the capo; place them at their real fret
   const shapeAt = new Map();
@@ -1304,7 +1308,8 @@ function drawGroups() {
     const bars = g.bars.map(({ s, a, b }) => {
       const first = cellBox(s, a);
       const last = cellBox(s, b);
-      return { u0: first.u0, u1: last.u1, v0: first.v0, v1: first.v1 };
+      // min / max: on a mirrored (left-handed) neck the frets run leftwards
+      return { u0: Math.min(first.u0, last.u0), u1: Math.max(first.u1, last.u1), v0: first.v0, v1: first.v1 };
     }).sort((p, q) => p.v0 - q.v0);
     const points = staircase(bars, GROUP_INSET).map(([u, v]) => (vertical ? [v, u] : [u, v]));
     return `<path class="${g.id % 2 ? 'g-b' : 'g-a'}" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
@@ -1550,7 +1555,7 @@ function scaleTriads(sc) {
    6. Events
    ========================================================================== */
 function init() {
-  for (const id of ['instrumentPicker', 'neckTitle', 'neck', 'tglLowG', 'tglOctaves', 'tglFlats', 'tglAllTones',
+  for (const id of ['instrumentPicker', 'neckTitle', 'neck', 'tglLowG', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordMode', 'chordName', 'chordMeta',
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
