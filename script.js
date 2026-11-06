@@ -11,22 +11,65 @@
    ========================================================================== */
 const STORAGE_KEY = 'frettle.settings.v1';
 const SAVE_VERSION = 3;   // raised when a default changes for people with saved settings
-const TOGGLES = [['tglLowG', 'lowG'], ['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglAllTones', 'allTones'],
+const TOGGLES = [['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglLefty', 'leftHanded'], ['tglAllTones', 'allTones'],
   ['tglScaleOnly', 'scaleOnly'], ['tglScaleGroups', 'scaleGroups']];   // [button id, state key]
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
 
 /* Open strings as MIDI notes (C4 = 60), from the string nearest your face
    when you hold the instrument to the one nearest the floor. The standard
-   ukulele is re-entrant: its first-listed string is a high G. */
+   ukulele is re-entrant: its first-listed string is a high G. A mandolin's
+   strings come in pairs tuned alike: each pair is one string here, as on
+   mandolin charts. `span` is how many frets a hand covers (small mandolin
+   frets: one more); `fifths`: tuned in fifths, which changes scale groups. */
 const INSTRUMENTS = [
-  { id: 'guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
-  { id: 'bass', name: 'Bass', short: 'Bass', strings: [28, 33, 38, 43], frets: 20 },
-  { id: 'ukulele', name: 'Standard Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18, note: 'high G' },
-  { id: 'baritone', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18 },
+  { id: 'guitar', family: 'Guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
+  { id: 'guitar7', family: 'Guitar', name: '7-string Guitar', short: '7-string', strings: [35, 40, 45, 50, 55, 59, 64], frets: 24 },
+  { id: 'bass', family: 'Bass', name: 'Bass', short: 'Bass', strings: [28, 33, 38, 43], frets: 20 },
+  { id: 'bass5', family: 'Bass', name: '5-string Bass', short: '5-string', strings: [23, 28, 33, 38, 43], frets: 24 },
+  { id: 'ukulele', family: 'Ukulele', name: 'Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18 },
+  { id: 'baritone', family: 'Ukulele', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18 },
+  { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 20, span: 5, fifths: true },
 ];
+/* Other tunings, for the instruments that have common ones; the first is the
+   standard tuning. `flats`: write its notes with flats (E♭ standard). */
+const TUNINGS = {
+  guitar7: [
+    { id: 'standard', name: 'Standard', strings: [35, 40, 45, 50, 55, 59, 64] },
+    { id: 'drop-a', name: 'Drop A', strings: [33, 40, 45, 50, 55, 59, 64] },
+  ],
+  bass: [
+    { id: 'standard', name: 'Standard', strings: [28, 33, 38, 43] },
+    { id: 'drop-d', name: 'Drop D', strings: [26, 33, 38, 43] },
+  ],
+  guitar: [
+    { id: 'standard', name: 'Standard', strings: [40, 45, 50, 55, 59, 64] },
+    { id: 'drop-d', name: 'Drop D', strings: [38, 45, 50, 55, 59, 64] },
+    { id: 'half-down', name: 'Half step down', strings: [39, 44, 49, 54, 58, 63], flats: true },
+    { id: 'whole-down', name: 'Whole step down', strings: [38, 43, 48, 53, 57, 62] },
+    { id: 'drop-c', name: 'Drop C', strings: [36, 43, 48, 53, 57, 62] },
+    { id: 'dadgad', name: 'DADGAD', strings: [38, 45, 50, 55, 57, 62] },
+    { id: 'open-g', name: 'Open G', strings: [38, 43, 50, 55, 59, 62] },
+    { id: 'open-d', name: 'Open D', strings: [38, 45, 50, 54, 57, 62] },
+    { id: 'open-e', name: 'Open E', strings: [40, 47, 52, 56, 59, 64] },
+    { id: 'open-c', name: 'Open C', strings: [36, 43, 48, 55, 60, 64] },
+  ],
+  ukulele: [
+    { id: 'standard', name: 'Standard (high G)', strings: [67, 60, 64, 69] },
+    { id: 'low-g', name: 'Low G', strings: [55, 60, 64, 69] },
+  ],
+};
+/* An instrument in one of its tunings (the standard one if none or unknown) */
+function tunedInstrument(id, tuningId = 'standard') {
+  const inst = findInstrument(id);
+  const list = TUNINGS[id];
+  if (!list) return inst;
+  const tuning = list.find((t) => t.id === tuningId) || list[0];
+  return { ...inst, strings: tuning.strings, tuning };
+}
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
-   Ukulele chords (re-entrant G) and baritone chords often have another note lowest. */
-const DEFAULT_VOICING = { guitar: '0', bass: '0', ukulele: 'any', baritone: 'any' };
+   Ukulele chords (re-entrant G), baritone and mandolin chords often have
+   another note lowest. */
+const DEFAULT_VOICING = { guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any' };
 const MAX_CAPO = 12;
 const SINGLE_DOTS = [3, 5, 7, 9, 15, 17, 19, 21];
 const DOUBLE_DOTS = [12, 24];
@@ -348,7 +391,7 @@ function shapeCandidates(inst, rootPc, def, voicing) {
     const span = fretted.length ? Math.max(...fretted.map((x) => x.f)) - minFret : 0;
     const opens = sound.length - fretted.length;
     const maxFret = minFret + span;
-    const small = n < 6;
+    const small = n < 5;   // 4 strings: ukulele, bass, mandolin
     const feat = {
       sound: sound.length,
       opt: optional.filter((pc) => pcs.has(pc)).length,
@@ -374,7 +417,7 @@ function shapeCandidates(inst, rootPc, def, voicing) {
   }
 
   for (let pos = 1; pos <= inst.frets; pos++) {
-    const top = Math.min(inst.frets, pos + SHAPE_SPAN - 1);
+    const top = Math.min(inst.frets, pos + (inst.span || SHAPE_SPAN) - 1);
     const options = inst.strings.map((open) => {
       const list = [-1];
       if (pos <= OPEN_MAX_POS && chordPcs.has(mod12(open))) list.push(0);
@@ -451,6 +494,11 @@ const CHART_SHAPES = [
   } },
 ];
 function chartShape(inst, rootPc, def) {
+  // A 7-string guitar plays the 6-string chart shapes, its low string muted
+  if (inst.strings.length === 7) {
+    const six = chartShape({ ...inst, strings: inst.strings.slice(1) }, rootPc, def);
+    return six && [-1, ...six];
+  }
   for (const chart of CHART_SHAPES) {
     if (chart.strings.length !== inst.strings.length || !chart.types[def.id]) continue;
     const shift = mod12(inst.strings[0] - chart.strings[0]);
@@ -503,7 +551,7 @@ const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape
 /* Node (tests) gets the pure part; the browser runs the app below. */
 if (typeof module !== 'undefined') {
   module.exports = {
-    barresFor, fingersFor, INSTRUMENTS, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf,
+    barresFor, fingersFor, INSTRUMENTS, TUNINGS, tunedInstrument, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf,
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
     ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote };
   module.exports.groupsFor = (...args) => scaleGroups(...args);
@@ -520,8 +568,9 @@ function defaultState() {
     allTones: false,
     scaleOnly: true,                  // hide the notes that are not in the scale
     scaleGroups: true,                // outline the scale in groups of notes per string
+    leftHanded: false,                // mirror the neck
     octaves: false,
-    lowG: false,                      // standard ukulele tuned with a low G (G3)
+    tuning: {},                       // tuning id per instrument that has several
     chord: { on: true, root: 0, type: 'maj' },
     capo: 0,                          // fret of the capo, 0 = none (all instruments)
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
@@ -536,7 +585,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (!saved || typeof saved !== 'object') return s;
     if (findInstrument(saved.instrument)) s.instrument = saved.instrument;
-    for (const k of ['flats', 'allTones', 'octaves', 'lowG', 'scaleOnly', 'scaleGroups']) {
+    for (const k of ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded']) {
       if (typeof saved[k] === 'boolean') s[k] = saved[k];
     }
     // A default that changed is applied once to settings saved before it:
@@ -550,6 +599,11 @@ function loadState() {
       s.scale = { on: saved.scale.on === true, root: mod12(Number(saved.scale.root) || 0), type: saved.scale.type };
     }
     if (Number.isInteger(saved.capo) && saved.capo >= 0 && saved.capo <= MAX_CAPO) s.capo = saved.capo;
+    for (const id of Object.keys(TUNINGS)) {
+      const t = saved.tuning && saved.tuning[id];
+      if (TUNINGS[id].some((x) => x.id === t)) s.tuning[id] = t;
+    }
+    if (saved.lowG === true && !s.tuning.ukulele) s.tuning.ukulele = 'low-g';   // the old "Low G" switch
   } catch {
     /* storage unavailable or corrupt: keep defaults */
   }
@@ -557,20 +611,16 @@ function loadState() {
 }
 
 function saveState() {
-  const { instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale } = state;
-  const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, lowG, scaleOnly, scaleGroups, capo, chord, scale };
+  const { instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale } = state;
+  const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
 let state = null;
 let shapeCache = { key: '', shapes: [] };
 
-/* The selected instrument; the standard ukulele can swap its high G for a low G. */
-function instrument() {
-  const inst = findInstrument(state.instrument);
-  if (inst.id !== 'ukulele' || !state.lowG) return inst;
-  return { ...inst, strings: [55, ...inst.strings.slice(1)], note: 'low G' };
-}
+/* The selected instrument, in its selected tuning */
+const instrument = () => tunedInstrument(state.instrument, state.tuning[state.instrument]);
 const capo = () => state.capo;
 
 /* The instrument as it sounds with the capo on: every open string raised,
@@ -932,19 +982,23 @@ function revealShape() {
 }
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
-   "Neck" tab on phones. */
+   "Neck" tab on phones; the instrument menu in the neck's header, or above
+   the neck on phones. */
 function placeSettings() {
   const slot = isWide() ? els.settingsWideSlot : els.settingsNarrowSlot;
   if (els.settings.parentElement !== slot) slot.appendChild(els.settings);
+  // The instrument menu: the neck's title on wide screens, above the neck on phones
+  const instSlot = isWide() ? els.instWideSlot : els.instNarrowSlot;
+  if (els.instrumentPicker.parentElement !== instSlot) instSlot.appendChild(els.instrumentPicker);
 }
 
 /* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
    [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick.
-   An optional `note` is a line of help above the tiles. */
+   An optional `note` is a line of help under the tiles. */
 let pickerPick = null;
 function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
   els.pickerTitle.textContent = title;
-  els.pickerBody.innerHTML = (note ? `<p class="picker-note">${esc(note)}</p>` : '') + groups.map((g) =>
+  els.pickerBody.innerHTML = groups.map((g) =>
     (g.label ? `<div class="label picker-label">${esc(g.label)}</div>` : '') +
     `<div class="picker-grid ${layout}">${g.items.map((it) => {
       const sel = String(it.value) === String(value);
@@ -955,7 +1009,7 @@ function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
         `${it.tag ? `<span class="pick-tag">${esc(it.tag)}</span>` : ''}` +
         `${it.sub ? `<span class="pick-sub">${esc(it.sub)}</span>` : ''}</button>`;
     }).join('')}</div>`
-  ).join('');
+  ).join('') + (note ? `<p class="picker-note">${esc(note)}</p>` : '');
   pickerPick = onPick;
   if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', '');
   const selected = els.pickerBody.querySelector('.pick.selected');
@@ -996,7 +1050,7 @@ function renderDock(ch, sc) {
 
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
-  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : instrument().short;
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) || instrument().short;
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
@@ -1057,26 +1111,32 @@ function openTab(tab) {
 
 function renderHeader() {
   const inst = instrument();
-  els.instrumentPicker.innerHTML = INSTRUMENTS.map((i) =>
-    `<button type="button" class="btn" role="radio" data-inst="${i.id}" aria-checked="${i.id === inst.id}" title="${esc(i.name)}">` +
-    `<span class="inst-long">${esc(i.name)}</span><span class="inst-short">${esc(i.short)}</span></button>`
-  ).join('');
+  const tuned = tuningName(inst);
+  els.instrumentPicker.innerHTML = `<span class="inst-name">${esc(inst.name)}</span>` +
+    (tuned ? `<span class="inst-tuning">${esc(tuned)}</span>` : '');
+  els.instrumentPicker.setAttribute('aria-label', `Instrument: ${inst.name}${tuned ? `, ${tuned}` : ''}`);
   const c = capo();
-  els.neckTitle.textContent = inst.name;   // tuning and capo are visible on the neck itself
+  els.tuningSelect.hidden = !inst.tuning;
+  els.tuningSelect.textContent = tuned || 'Standard tuning';
+  els.tuningSelect.classList.toggle('on', Boolean(tuned));
   els.capoSelect.textContent = c ? `Capo ${c}` : 'No capo';
   els.capoSelect.classList.toggle('on', c > 0);
   for (const [id, key] of TOGGLES) {
     els[id].setAttribute('aria-pressed', String(state[key]));
   }
-  els.tglLowG.hidden = inst.id !== 'ukulele';
 }
+
+/* "Drop D", or '' for the standard tuning (and instruments with only one) */
+const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? inst.tuning.name : '');
+/* Open string names, low to high: "D A D G B E" */
+const tuningNotes = (strings, flats = false) => strings.map((m) => noteText(plainNote(m, flats))).join(' ');
 
 const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
   'stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 /* Scale groups, as players learn them: N notes per string (3 for 7- and
-   8-note scales, 2 for pentatonic and other small ones), continuing from
-   string to string. Every string's scale notes are split into
+   8-note scales, 2 for pentatonic and other small ones, one more on a
+   mandolin), continuing from string to string. Every string's scale notes are split into
    consecutive runs, so groups never share a note; group 0 starts on the
    first root of the lowest string (for the minor pentatonic that is the
    classic "box 1").
@@ -1087,7 +1147,9 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
 function scaleGroups(inst, sc, capo) {
   const L = sc.def.steps.length;
   if (L >= 12) return [];   // chromatic: nothing to group
-  const nps = L <= 6 ? 2 : 3;
+  // One more note per string on an instrument tuned in fifths (mandolin):
+  // its strings are further apart, so each holds a longer run of the scale
+  const nps = (L <= 6 ? 2 : 3) + (inst.fifths ? 1 : 0);
   const N = inst.frets;
   const n = inst.strings.length;
   const rankOf = (midi) => {
@@ -1160,6 +1222,9 @@ function renderNeck(ch, sc) {
   els.neck.classList.toggle('vertical', vertical);
   els.neck.classList.toggle('horizontal', !vertical);
   els.neck.classList.toggle('octaves', state.octaves);
+  // Left-handed: the neck is mirrored by laying its grid out right to left
+  // (styles.css), so nothing here changes; the scroller starts at the nut
+  els.neck.parentElement.classList.toggle('lefty', state.leftHanded);
 
   // Shape frets count from the capo; place them at their real fret
   const shapeAt = new Map();
@@ -1169,7 +1234,9 @@ function renderNeck(ch, sc) {
     });
   }
   const ghosts = ch && (state.allTones || !ch.shape);
-  const keyFlats = sc ? sc.spell.flats : ch ? ch.spell.flats : state.flats;   // notes outside the key
+  // Notes outside the key: as the key writes them, else flats if asked for or
+  // if the tuning is written in flats (E♭ standard)
+  const keyFlats = sc ? sc.spell.flats : ch ? ch.spell.flats : state.flats || Boolean(inst.tuning && inst.tuning.flats);
   const onlyScale = Boolean(sc && state.scaleOnly);
   ui.groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
 
@@ -1304,7 +1371,8 @@ function drawGroups() {
     const bars = g.bars.map(({ s, a, b }) => {
       const first = cellBox(s, a);
       const last = cellBox(s, b);
-      return { u0: first.u0, u1: last.u1, v0: first.v0, v1: first.v1 };
+      // min / max: on a mirrored (left-handed) neck the frets run leftwards
+      return { u0: Math.min(first.u0, last.u0), u1: Math.max(first.u1, last.u1), v0: first.v0, v1: first.v1 };
     }).sort((p, q) => p.v0 - q.v0);
     const points = staircase(bars, GROUP_INSET).map(([u, v]) => (vertical ? [v, u] : [u, v]));
     return `<path class="${g.id % 2 ? 'g-b' : 'g-a'}" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
@@ -1550,11 +1618,11 @@ function scaleTriads(sc) {
    6. Events
    ========================================================================== */
 function init() {
-  for (const id of ['instrumentPicker', 'neckTitle', 'neck', 'tglLowG', 'tglOctaves', 'tglFlats', 'tglAllTones',
+  for (const id of ['instrumentPicker', 'tuningSelect', 'neck', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordMode', 'chordName', 'chordMeta',
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
-    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'sheet', 'sheetClose',
+    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose']) {
     els[id] = document.getElementById(id);
@@ -1564,18 +1632,36 @@ function init() {
   els.sheetPanels = [...els.sheet.querySelectorAll('.panel[data-tab]')];
   state = loadState();
 
-  els.instrumentPicker.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-inst]');
-    if (!btn || btn.dataset.inst === state.instrument) return;
-    state.instrument = btn.dataset.inst;
-    state.shape = 0;
-    render();
+  // Instrument and tuning: popups, each tile showing the open strings
+  els.instrumentPicker.addEventListener('click', () => openPicker({
+    title: 'Instrument', value: state.instrument,
+    groups: [...new Set(INSTRUMENTS.map((i) => i.family))].map((family) => ({   // one group per family
+      label: family,
+      items: INSTRUMENTS.filter((i) => i.family === family).map((i) => {
+        const t = tunedInstrument(i.id, state.tuning[i.id]);
+        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, t.tuning && t.tuning.flats) };
+      }),
+    })),
+    onPick: (v) => {
+      if (v === state.instrument) return;
+      state.instrument = v;
+      state.shape = 0;
+      render();
+    },
+  }));
+  els.tuningSelect.addEventListener('click', () => {
+    const list = TUNINGS[state.instrument];
+    if (!list) return;
+    openPicker({
+      title: 'Tuning', value: instrument().tuning.id,
+      groups: [{ items: list.map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, t.flats) })) }],
+      onPick: (v) => { state.tuning[state.instrument] = v; state.shape = 0; render(); },
+    });
   });
 
   for (const [id, key] of TOGGLES) {
     els[id].addEventListener('click', () => {
       state[key] = !state[key];
-      if (key === 'lowG') state.shape = 0;   // new tuning, new shapes: start from the first
       render();
     });
   }

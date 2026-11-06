@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Frettle | Fretboard Visualizer for Guitar, Bass &amp; Ukulele</title>
-  <meta name="description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
+  <title>Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele &amp; Mandolin</title>
+  <meta name="description" content="Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
   <meta name="robots" content="index, follow">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#121317">
@@ -12,11 +12,11 @@
   <!-- Link previews (Facebook, Slack, Discord, X…) -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Frettle">
-  <meta property="og:title" content="Frettle | Fretboard Visualizer for Guitar, Bass &amp; Ukulele">
-  <meta property="og:description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
+  <meta property="og:title" content="Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele &amp; Mandolin">
+  <meta property="og:description" content="Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Frettle | Fretboard Visualizer">
-  <meta name="twitter:description" content="Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.">
+  <meta name="twitter:description" content="Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
 
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b1d23'/%3E%3Cpath d='M7 11h18M7 16h18M7 21h18' stroke='%238f9198' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='18' cy='16' r='4.5' fill='%23ff4d86'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
@@ -36,7 +36,7 @@
     "@type": "WebApplication",
     "name": "Frettle",
     "alternateName": "Frettle Fretboard Visualizer",
-    "description": "Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.",
+    "description": "Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.",
     "applicationCategory": "MusicApplication",
     "operatingSystem": "Any",
     "browserRequirements": "Requires JavaScript",
@@ -60,12 +60,17 @@
   <header class="top">
     <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
     <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog">About</button>
-    <div id="instrumentPicker" class="segmented" role="radiogroup" aria-label="Instrument"></div>
+    <!-- Phones: the instrument menu sits here, centred above the neck -->
+    <div id="instNarrowSlot" class="inst-slot"></div>
   </header>
 
   <section class="panel neck-panel" aria-label="Fretboard">
     <div class="panel-head neck-head">
-      <h2 id="neckTitle"></h2>
+      <!-- Wide screens: the neck's title is the instrument menu (script.js
+           moves it to the header on phones) -->
+      <h2 id="instWideSlot" class="neck-title">
+        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
+      </h2>
       <div id="settingsWideSlot" class="settings-slot"></div>
     </div>
     <div class="neck-scroll">
@@ -76,12 +81,10 @@
   <!-- Neck settings: placed in the neck's header on wide screens and in the
        "Neck" tab of the dock on phones (script.js moves it). -->
   <div id="settings" class="settings">
+    <button type="button" id="tuningSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Tuning" hidden
+            title="How the strings are tuned"></button>
     <button type="button" id="capoSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Capo position"
             title="Fret where the capo sits. Chord shapes are then counted from the capo."></button>
-    <button type="button" id="tglLowG" class="pill-toggle" aria-pressed="false" hidden
-            title="Tune the 4th string to a low G (G3) instead of the usual high G (G4)">
-      <span class="pill-dot" aria-hidden="true"></span>Low G
-    </button>
     <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
             title="Shade every other octave and show each octave's number (C4 = middle C)">
       <span class="pill-dot" aria-hidden="true"></span>Octaves
@@ -89,6 +92,10 @@
     <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
             title="Use flats for notes outside the key, and for keys that can be written either way (F♯ / G♭)">
       <span class="pill-dot" aria-hidden="true"></span>Flats
+    </button>
+    <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false"
+            title="Mirror the neck for left-handed players">
+      <span class="pill-dot" aria-hidden="true"></span>Left-handed
     </button>
   </div>
 
@@ -234,7 +241,7 @@
       </button>
     </div>
     <div class="picker-body about-body">
-      <p>Frettle shows every note, chord shape and scale on the neck of a guitar, bass or ukulele.</p>
+      <p>Frettle shows every note, chord shape and scale on the neck of a guitar, bass, ukulele or mandolin.</p>
       <a class="btn about-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener">Source code on GitHub</a>
     </div>
   </dialog>
