@@ -59,6 +59,7 @@
   --r-xl: 18px;
   --r-pill: 999px;
   --control-h: 42px;     /* touch-sized on phones */
+  --root-w: 84px;        /* the Root menus */
   --chip-h: 32px;
   --pill-h: 22px;
   --tab-h: 54px;
@@ -88,9 +89,12 @@ html { -webkit-text-size-adjust: 100%; }
 
 body {
   /* Height of the phone dock, worked out from its fixed rows rather than
-     measured: top border and padding, the shape bar (only with a chord), the
-     tabs, the bottom padding, and the phone's safe area, which the browser
-     keeps up to date by itself */
+     measured (measuring lagged behind and left a gap on some phones): top
+     border and padding, the recent chords and the shape bar (each only when
+     shown), the tabs, the bottom padding, and the phone's safe area, which
+     the browser keeps up to date by itself. It holds as long as these rows
+     are sized with the same variables: a new row or a fixed size in the dock
+     must be added here. */
   --dock-shape-h: calc(var(--control-h) + var(--sp-1));
   --dock-recent-h: calc(var(--recent-h) + var(--sp-2));
   --dock-h: calc(1px + var(--sp-2) + var(--dock-recent-h) + var(--dock-shape-h) + var(--sp-1) + var(--tab-h) + var(--sp-2)
@@ -232,7 +236,7 @@ kbd {
 .field { display: grid; gap: 7px; min-width: 0; }
 .field > span { margin-left: -2px; } /* optical alignment with the rounded box */
 .field.root { flex: none; }
-.field.root .select-btn { width: 84px; min-width: 0; }
+.field.root .select-btn { width: var(--root-w); min-width: 0; }
 .field.grow { flex: 1 1 150px; }
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
@@ -1223,14 +1227,17 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 
   /* When a bar is too narrow for one row (landscape phones, small windows),
      it breaks into two clean rows instead of leaving Deselect alone on the
-     second: the menus first, then the switches and buttons */
+     second: the menus first, then the switches and buttons.
+     The two widths are each bar's one-row width with today's labels (CSS
+     cannot take them from variables): renaming a switch or a button, or
+     adding one, means measuring them again. */
   .chord-bar, .scale-bar { container-type: inline-size; }
   @container (max-width: 930px) {
-    .chord-bar .field.grow { flex: 1 1 calc((100% - 84px) / 2 - 2 * var(--sp-3)); }
+    .chord-bar .field.grow { flex: 1 1 calc((100% - var(--root-w) - 2 * var(--sp-3)) / 2 - 1px); }
     .chord-bar .switch-row { margin-left: auto; }   /* the second row sits right, like the scale's */
   }
   @container (max-width: 755px) {
-    .scale-bar .field.scale-type { flex: 1 1 calc(100% - 84px - var(--sp-3) - 1px); }
+    .scale-bar .field.scale-type { flex: 1 1 calc(100% - var(--root-w) - var(--sp-3) - 1px); }
     .scale-bar .field.scale-type .select-btn { width: 100%; }
     .scale-bar .switch-row { flex: 1 1 auto; justify-content: flex-end; }
   }

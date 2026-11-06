@@ -740,7 +740,12 @@ function rememberShape(entry = recentEntry()) {
   for (const k of keys.slice(0, Math.max(0, keys.length - 4))) delete entry.shapes[k];
 }
 
-function trackChord() {   // on every render
+/* Called on every render: what you did is worked out from what changed on
+   screen since the last render (the chord, and how it was picked: menuPick,
+   chipPick), not reported by each control. Anything that changes the chord
+   must go through updateChord (menus), playRecent (chips) or set those flags,
+   or it will count as a plain new chord. */
+function trackChord() {
   const list = recentList();
   const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
   const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
@@ -1299,12 +1304,19 @@ function setupSheetDrag() {
 }
 
 function openTab(tab) {
+  const wasOpen = ui.tab !== null;
   ui.tab = ui.tab === tab ? null : tab;
   const ch = currentChord();
   renderDock(ch, currentScale());
-  if (ui.tab) els.sheet.scrollTop = 0;
-  // Once the sheet has slid up, make sure the shape is still visible above it
-  if (ui.tab) setTimeout(revealShape, 240);
+  if (ui.tab) {
+    els.sheet.scrollTop = 0;
+    // Once the sheet has slid up, make sure the shape is still visible above
+    // it: wait for its own slide animation (or not at all, if it has none)
+    const sliding = els.sheet.getAnimations ? els.sheet.getAnimations() : [];
+    Promise.all(sliding.map((a) => a.finished)).then(() => { if (ui.tab) revealShape(); }, () => {});
+  } else if (wasOpen) {
+    revealShape();   // closed: centre the shape again in the now taller view
+  }
 }
 
 function renderHeader() {
@@ -1931,7 +1943,13 @@ function init() {
 
   // Clearing the chord or the scale also closes its panel on phones
   const clearChord = () => { state.chord.on = false; ui.tab = null; render(); };
-  const clearScale = () => { state.scale.on = false; ui.tab = null; render(); };
+  const clearScale = () => {   // closes the sheet: centre the shape again, as on closing it
+    const wasOpen = ui.tab !== null;
+    state.scale.on = false;
+    ui.tab = null;
+    render();
+    if (wasOpen) revealShape();
+  };
 
   // Root and type buttons open the picker popup
   els.chordRoot.addEventListener('click', () => openPicker({
