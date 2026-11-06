@@ -1,7 +1,7 @@
 {
   "name": "Frettle: Fretboard Visualizer",
   "short_name": "Frettle",
-  "description": "Free fretboard visualizer for guitar, bass and ukulele. See every note on the neck, chord shapes in any key, scales, a capo, and hear each note.",
+  "description": "Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
