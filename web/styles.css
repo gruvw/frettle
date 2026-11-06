@@ -1271,6 +1271,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .sheet .panel { display: block; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); padding: 20px; }
   .sheet .panel.narrow-only { display: none; }
   .sheet-close { display: none; }
+  .sheet .panel-head { touch-action: auto; }   /* no sheet to drag: touch screens scroll the page from the titles too */
 
   /* Chords panel: description and notes side by side */
   .np-body { grid-template-columns: minmax(0, 400px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }

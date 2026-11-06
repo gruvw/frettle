@@ -723,7 +723,7 @@ function syncLink() {
 function linkSummary() {
   const ch = currentChord();
   const sc = currentScale();
-  const what = [ch && ch.symbol, sc && `${sc.rootName} ${sc.def.name.replace(/ \(.*\)$/, '').toLowerCase()}`].filter(Boolean).join(' over ');
+  const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
   const inst = instrument();
   const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
   return `${what || 'The neck'}, on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}`;
@@ -1273,6 +1273,10 @@ function render() {
   // chord's root changes.
   if (!state.scale.on && state.chord.root !== ui.chordRoot) state.scale.root = state.chord.root;
   ui.chordRoot = state.chord.root;
+  // A bass note the chord does not have (a 3rd inversion on a triad) is root
+  // position, as the Voicing menu says: kept as is, the next 7th chord would
+  // come back in that old inversion (and links would carry it)
+  if (state.chord.on) state.voicing[state.instrument] = voicingFor(findChord(state.chord.type));
   const ch = currentChord();
   const sc = currentScale();
   if (ch && ch.shapes.length) state.shape = ch.index;
@@ -2312,6 +2316,7 @@ function init() {
   // finger (so swiping the row to scroll it plays nothing), and with Enter
   let pressedNote = null;
   els.scaleNotes.addEventListener('pointerdown', (e) => {
+    pressedNote = null;
     const note = e.target.closest('.scale-note');
     if (!note || e.pointerType === 'touch' || e.button > 0) return;
     pressedNote = note;
@@ -2320,7 +2325,9 @@ function init() {
   els.scaleNotes.addEventListener('click', (e) => {
     const note = e.target.closest('.scale-note');
     if (!note) return;
-    if (note === pressedNote) { pressedNote = null; return; }   // heard on press already
+    const pressed = pressedNote;
+    pressedNote = null;
+    if (note === pressed && e.detail > 0) return;   // heard on press already (a key press is not)
     playScaleNote(Number(note.dataset.i));
   });
   els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
