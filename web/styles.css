@@ -65,9 +65,9 @@
   --recent-h: 30px;      /* the dock's row of recent chords (phones): slim, a fixed height */         /* dock tabs (phones): a fixed height, see --dock-h */
 
   /* Neck geometry (vertical on phones) */
-  --label-w: 26px;       /* fret numbers column */
+  --label-w: 28px;       /* fret numbers column */
   --row-h: 42px;         /* one fret: room for a root's ring inside a group outline */
-  --ruler-row: 22px;     /* string numbers row */
+  --ruler-row: 24px;     /* string numbers row */
   --cell-w: 46px;        /* horizontal neck only */
   --open-w: 54px;
   --scroll-gap: 10px;    /* space between scrolling content and its scrollbar */
@@ -462,15 +462,16 @@ kbd {
 .neck.vertical .cell::before { top: 0; bottom: 0; left: 50%; width: var(--sw, 1px); transform: translateX(-50%); }
 .neck.vertical .cell.fret { border-bottom: 2px solid var(--fret-wire); }
 .neck.vertical .cell.open { border-bottom: 5px solid var(--nut); }
-.neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 6px; }
+.neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 8px; }
 .neck.vertical .ruler i { display: none; }   /* bright numbers mark the inlays */
-.neck.vertical .slabel { align-self: end; padding-bottom: 2px; }
+.neck.vertical .slabel { align-self: end; padding-bottom: 4px; }
 
 /* Horizontal: strings go across, fret wires and the nut run down */
 .neck.horizontal .cell::before { left: 0; right: 0; top: 50%; height: var(--sw, 1px); transform: translateY(-50%); }
 .neck.horizontal .cell.fret { border-inline-end: 2px solid var(--fret-wire); }
 .neck.horizontal .cell.open { border-inline-end: 5px solid var(--nut); }
 .neck.horizontal .ruler { align-self: start; height: 24px; }
+.neck.horizontal .slabel { padding-inline-end: 2px; }   /* a little clear of the open strings */
 
 /* Octaves: alternate octaves are shaded, open strings included (replacing
    the inlay tint), and each octave's first cell shows its number in a small
@@ -1126,9 +1127,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     --fs-input: var(--fs-md);
     --fs-xl: 1.5rem;
     --fs-display: 1.9rem;
-    --label-w: 28px;
+    --label-w: 30px;
     --row-h: 40px;         /* one string */
-    --ruler-row: 26px;
+    --ruler-row: 28px;
   }
   body { padding-bottom: 0; }
   .wide-only { display: revert !important; }
