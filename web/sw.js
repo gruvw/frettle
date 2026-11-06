@@ -5,13 +5,14 @@
    updates show up right away) and the saved copy is refreshed; when offline,
    the saved copy is used. */
 
-const CACHE = 'frettle-v1';
+const CACHE = 'frettle-v2';
 const FILES = [
   './',
   'index.html',
   'styles.css',
   'script.js',
   'manifest.json',
+  'favicon.svg',
   'icon-192.png',
   'icon-512.png',
 ];

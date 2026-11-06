@@ -20,7 +20,7 @@ A fretboard visualizer for guitar, bass, ukulele and mandolin. Pick a chord or a
 - Common alternate tunings: guitar Drop D, DADGAD, open G, half step down and a few more, ukulele high or low G
 - Chords: pick a root and a type, then flip through the shapes up the neck. Each note shows its interval (R, 3, 5...) and barres are drawn in
 - Recent chords stay in a row, so you can jump between the chords of a song. Each one keeps the shape you picked
-- Scales: the modes, minors, pentatonics, blues and a few more, with the triads that fit. You can split the scale into hand-sized groups or hide the notes outside it
+- Scales: the modes, minors, pentatonics, blues and a few more, with their formula, the scales that share their notes and the triads that fit. You can split the scale into hand-sized groups or hide the notes outside it
 - Capo, octave shading, a left-handed mode, and tap any note to hear it or strum the whole chord
 - Tells you when a chord fits the scale you picked
 - Spells notes for the key, so you get F♯ in D major and B♭ in F major

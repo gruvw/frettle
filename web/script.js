@@ -1484,7 +1484,7 @@ function renderDock(ch, sc) {
 }
 
 /* Phones: drag the sheet down by its handle or its title to close it. A
-   short drag springs back; a tap on the handle still closes it. */
+   short drag springs back; a tap on the handle or the title closes it too. */
 function setupSheetDrag() {
   let startY = null;
   let dy = 0;
@@ -1492,6 +1492,7 @@ function setupSheetDrag() {
   let dragged = false;
   const begin = (e) => {
     if (isWide() || !els.sheet.classList.contains('open')) return;
+    dragged = false;
     if (e.target.closest('.panel-head button, .panel-head .status')) return;
     if (e.currentTarget !== els.sheetClose && els.sheet.scrollTop > 0) return;   // title only at the top
     startY = e.clientY; dy = 0; t0 = performance.now(); dragged = false;
@@ -1517,10 +1518,18 @@ function setupSheetDrag() {
   window.addEventListener('pointerup', end);
   window.addEventListener('pointercancel', end);
   // A drag that springs back must not count as a tap on the handle
-  els.sheetClose.addEventListener('click', (e) => {
+  els.sheetClose.addEventListener('click', () => {
     if (dragged) { dragged = false; return; }
     openTab(null);
   });
+  // The titles are not buttons: keyboards and screen readers use the handle
+  for (const head of els.sheet.querySelectorAll('.panel-head')) {
+    head.addEventListener('click', (e) => {
+      if (isWide() || ui.tab === null || e.target.closest('button, .status')) return;
+      if (dragged) { dragged = false; return; }
+      openTab(null);
+    });
+  }
 }
 
 function openTab(tab) {
@@ -1976,19 +1985,39 @@ function renderScalePanel(sc, ch) {
   if (scaleRun && scaleRun.key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
   els.scalePlay.disabled = !sc;
   if (!sc) {
-    els.scaleNotes.innerHTML = '<li class="empty-text" style="grid-row:1">No scale selected</li>';
-    els.scaleTriads.innerHTML = '<span class="empty-text">Pick a scale type</span>';
+    els.scaleSymbol.textContent = '';
+    els.scaleSymbol.classList.remove('on');
+    els.scaleName.textContent = 'No scale selected';
+    els.scaleMeta.textContent = 'Pick a scale type to see its notes on the neck.';
+    els.scaleAlt.textContent = '';
+    els.scaleNotes.innerHTML = '<li class="empty-text" style="grid-row:1">The notes of the scale appear here.</li>';
+    els.scaleTriads.innerHTML = '<span class="empty-text">The triads that fit the scale appear here.</span>';
     return;
   }
 
+  // Description, like the Chord panel's: name, formula and the common
+  // scales with the same notes
+  const degrees = scaleDegrees(sc.def);
+  els.scaleSymbol.textContent = sc.rootName;
+  els.scaleSymbol.classList.add('on');
+  fitText(els.scaleSymbol);
+  els.scaleName.textContent = `${sc.rootName} ${scaleTitle(sc.def)}`;
+  els.scaleMeta.textContent = `Formula ${degrees.join(' ')}`;
+  const relatives = relativeScales(sc);
+  els.scaleAlt.textContent = relatives.length ? `Same notes as ${relatives.join(', ')}` : '';
+
+  // Notes with their interval on top, and the step to the next note below
+  const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${deg === '1' ? 'R' : deg}</span>`;
   const parts = [];
   sc.spell.notes.forEach((n, i) => {
-    parts.push(`<li><button type="button" class="scale-note${i === 0 ? ' root' : ''}" data-i="${i}" title="Hear ${esc(noteText(n))}">${tx(noteText(n))}</button></li>`);
+    parts.push(`<li><button type="button" class="scale-note${i === 0 ? ' root' : ''}" data-i="${i}" ` +
+      `title="Hear ${esc(noteText(n))}, ${i === 0 ? 'the root' : degrees[i]}">${tx(noteText(n))}${pill(degrees[i])}</button></li>`);
     const next = i + 1 < sc.def.steps.length ? sc.def.steps[i + 1] : 12;
     const gap = next - sc.def.steps[i];
     parts.push(`<li class="scale-gap" aria-label="${gap} semitones"><span>${STEP_NAMES[gap] || gap}</span></li>`);
   });
-  parts.push(`<li><button type="button" class="scale-note octave" data-i="${sc.def.steps.length}" title="Hear ${esc(sc.rootName)}, an octave up">${tx(sc.rootName)}</button></li>`);
+  parts.push(`<li><button type="button" class="scale-note octave" data-i="${sc.def.steps.length}" ` +
+    `title="Hear ${esc(sc.rootName)}, an octave up">${tx(sc.rootName)}${pill('1')}</button></li>`);
   els.scaleNotes.innerHTML = parts.join('');
 
   const triads = scaleTriads(sc);
@@ -2049,6 +2078,47 @@ function scaleTriads(sc) {
   });
 }
 
+/* The scale's name in a sentence: "A natural minor", "A Dorian" (mode
+   names keep their capital), "A blues scale" */
+const SCALE_TITLES = {
+  major: 'major', minor: 'natural minor', blues: 'blues scale', 'whole-tone': 'whole tone scale',
+  'dim-wh': 'diminished whole-half', 'dim-hw': 'diminished half-whole', chromatic: 'chromatic scale',
+};
+const MODE_NAMES = ['Dorian', 'Phrygian', 'Lydian', 'Mixolydian', 'Locrian'];
+const scaleTitle = (def) => SCALE_TITLES[def.id] || (MODE_NAMES.includes(def.name) ? def.name : def.name.toLowerCase());
+
+/* Interval of each scale note from the root, by its degree (the letter the
+   scale is spelled with) and how far it sits from the major scale's:
+   A minor pentatonic is 1 ♭3 4 5 ♭7 */
+const CHROMATIC_DEGREES = ['1', '♭2', '2', '♭3', '3', '4', '♭5', '5', '♭6', '6', '♭7', '7'];
+function scaleDegrees(def) {
+  if (def.steps.length >= 12) return CHROMATIC_DEGREES;
+  const degrees = SCALE_LETTERS[def.id] || [1, 2, 3, 4, 5, 6, 7];
+  return def.steps.map((step, i) => {
+    const d = degrees[i];
+    const shift = step - MAJOR_STEPS[d - 1];
+    return (shift < 0 ? '♭'.repeat(-shift) : '♯'.repeat(shift)) + d;
+  });
+}
+
+/* Common scales with exactly the same notes: A minor and C major, D Dorian
+   and C major... Only the major, natural minor and pentatonic scales are
+   named, the ones people know these notes by. */
+const RELATIVE_IDS = ['major', 'minor', 'major-pentatonic', 'minor-pentatonic'];
+function relativeScales(sc) {
+  if (sc.def.steps.length >= 12) return [];
+  const found = [];
+  for (const id of RELATIVE_IDS) {
+    if (id === sc.def.id) continue;
+    const def = findScale(id);
+    if (def.steps.length !== sc.set.size) continue;
+    for (const n of sc.spell.notes) {
+      if (def.steps.every((st) => sc.set.has(mod12(n.pc + st)))) found.push(`${noteText(n)} ${id === 'minor' ? 'minor' : scaleTitle(def)}`);
+    }
+  }
+  return found;
+}
+
 /* ==========================================================================
    6. Events
    ========================================================================== */
@@ -2056,7 +2126,7 @@ function init() {
   for (const id of ['instrumentPicker', 'tuningSelect', 'neck', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordName', 'chordMeta',
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
-    'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
+    'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
