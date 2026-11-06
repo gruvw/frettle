@@ -707,14 +707,14 @@ function updateChord(patch) {   // a chord picked from the menus (or a triad): i
    The in-between chord of picking a root, then a type, does not pile up: a
    chip made by picking a root stays open, and if the very next thing you do
    is pick a type, that edits the same chip. Anything else (another root,
-   strumming, a shape, a chip, a triad) makes the chip final. Picking only a
-   type always makes a new chip.
+   strumming or tapping its notes, a shape, a chip, a triad) makes the chip
+   final. Picking only a type always makes a new chip.
    Each chip remembers the shape you chose for it, per instrument, tuning,
    capo and voicing (`shapes`): tapping the chip, or coming back to this
    instrument, brings that shape back. Picking the chord from the menus starts
    from its first shape, as always (and the chip remembers that). Shapes only
    change in memory when you choose them, never because a setting reset them. */
-const RECENT_MAX = 6;
+const RECENT_MAX = 8;
 let recentClock = 0;
 let shownChord;          // instrument and chord at the last render
 let openEntry = null;    // the chip a root pick made, which the next type pick may still edit
@@ -773,7 +773,7 @@ function trackChord() {   // on every render
   if (!fromChip) rememberShape(entry);   // picked from the menus: its first shape
 }
 
-function keepChord() { openEntry = null; }   // strummed, cycled, played: this chip is final
+function keepChord() { openEntry = null; }   // strummed, cycled, its notes played: this chip is final
 
 function playRecent(i) {
   const entry = recentList()[i];
@@ -782,6 +782,8 @@ function playRecent(i) {
   state.chord = { on: true, root: entry.root, type: entry.type };
   state.shape = rememberedShape(entry);
   chipPick = true;
+  ui.reveal = true;   // phones: bring the shape into view, even if this chip was already the one on screen
+  ui.chipKey = '';    // ... and the chip itself, whole
   render();
 }
 
@@ -994,6 +996,7 @@ function setupNeckTaps() {
     const f = Number(cell.dataset.f);
     playNote(instrument().strings[s] + f);
     flashCell(s, f);
+    if (cell.querySelector('.note.chord, .note.ghost')) keepChord();   // a note of the chord: it is being used
   };
   const cancel = (e) => {
     const tap = taps.get(e.pointerId);
@@ -1078,8 +1081,9 @@ function render() {
   saveState();
   // Phones: when the shape changes, scroll the neck so it is in view
   const key = ch && ch.shape ? [instrument().strings, capo(), ch.symbol, tabOf(ch.shape)].join('|') : null;
-  if (key && ui.shapeKey !== null && key !== ui.shapeKey) revealShape();
+  if (key && ui.shapeKey !== null && (key !== ui.shapeKey || ui.reveal)) revealShape();
   ui.shapeKey = key || '';
+  ui.reveal = false;
 }
 
 /* The recent chords, as chips in the dock (phones) and the chord panel
@@ -1097,12 +1101,36 @@ function renderRecent() {
     const name = noteText(spell.root) + def.symbol;
     // The chord on screen also gets an × to take it off the list
     return `<li${on ? ' class="on"' : ''}><button type="button" class="chip recent${on ? ' selected' : ''}" data-i="${i}" aria-pressed="${on}" ` +
-      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}`)}">${esc(name)}</button>` +
+      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}`)}"><span class="tx">${esc(name)}</span></button>` +
       (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the recent chords" ` +
         `title="Remove ${esc(name)} from the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>` : '') + '</li>';
   }).join('');
   els.dockRecentList.innerHTML = html;
   els.recentList.innerHTML = html;
+  // When the chips change (one picked, added, edited or removed), scroll the
+  // row so the selected one shows whole
+  const chipKey = html;
+  if (chipKey !== ui.chipKey) {
+    const smooth = ui.chipKey !== undefined;
+    ui.chipKey = chipKey;
+    requestAnimationFrame(() => { chipInView(els.dockRecentList, smooth); chipInView(els.recentList, smooth); });
+  }
+}
+function chipInView(row, smooth) {   // scroll a row of chips sideways so the selected one is whole
+  const chip = row.querySelector('li.on');
+  if (!chip || !row.clientWidth) return;
+  // Where the chip sits in the row's content, so a scroll still under way
+  // (quick picks in a row) cannot throw the result off: scroll to a place,
+  // not by an amount
+  const pad = 8;
+  const start = chip.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+  const end = start + chip.offsetWidth;
+  const max = row.scrollWidth - row.clientWidth;
+  let left = row.scrollLeft;
+  if (start - pad < left) left = start - pad;
+  else if (end + pad > left + row.clientWidth) left = end + pad - row.clientWidth;
+  left = Math.round(Math.min(max, Math.max(0, left)));
+  if (left !== Math.round(row.scrollLeft)) row.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
 }
 
 /* Phones: when the shape changes, scroll the page so the shape sits in the
@@ -1673,8 +1701,8 @@ function renderChordPanel(ch, sc) {
     const where = shapePlace(shape);
     const sel = i === ch.index;
     return `<li><button type="button" class="chip${sel ? ' selected' : ''}" data-shape="${i}" aria-pressed="${sel}" ` +
-      `title="Strings low to high${c ? ', frets from the capo' : ''}: ${tabOf(shape)}"><span class="chip-num">${where}</span>` +
-      `<span class="mono">${tabOf(shape)}</span></button></li>`;
+      `title="Strings low to high${c ? ', frets from the capo' : ''}: ${tabOf(shape)}"><span class="chip-num tx">${where}</span>` +
+      `<span class="mono tx">${tabOf(shape)}</span></button></li>`;
   }).join('');
   keepChipVisible();
 }
@@ -1727,8 +1755,8 @@ function renderScalePanel(sc, ch) {
     const def = findChord(t.type);
     const sel = ch && ch.root === t.root && ch.def.id === t.type;
     return `<button type="button" class="chip${sel ? ' selected' : ''}" data-root="${t.root}" data-type="${t.type}" ` +
-      `title="Select ${esc(t.name)} ${def.name.toLowerCase()}"><span class="chip-num">${esc(t.num)}</span>` +
-      `${esc(t.name + def.symbol)}</button>`;
+      `title="Select ${esc(t.name)} ${def.name.toLowerCase()}"><span class="chip-num tx">${esc(t.num)}</span>` +
+      `<span class="tx">${esc(t.name + def.symbol)}</span></button>`;
   }).join('');
 }
 
@@ -1831,6 +1859,7 @@ function init() {
     if (!card) return;
     playNote(Number(card.dataset.midi));
     flashCell(card.dataset.s, card.dataset.f);
+    keepChord();
   });
   // Strum buttons sound on press, like a plucked string. A click from the
   // keyboard (Enter, or Space on a button reached with Tab) still strums.

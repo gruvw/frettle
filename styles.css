@@ -769,7 +769,7 @@ kbd {
 
 /* Optical centring of pill text where supported. Trimming only works on a
    block of text, not on the flex pills themselves, so the text of the note
-   pills and circles sits in a .tx block cut to its capital letters (cap
+   pills, chips and circles sits in a .tx block cut to its capital letters (cap
    height to baseline): the pill then centres the letters exactly, whatever
    the font. Browsers without trimming centre the whole line, as before. */
 .tx { display: block; text-box: trim-both cap alphabetic; }
@@ -799,8 +799,10 @@ kbd {
   min-width: 0;
   display: flex;
   gap: 6px;
-  margin: 0;
-  padding: 0;
+  /* A little room inside the scrolling edge (taken back by the margin), so
+     the clip never shaves the round ends of a chip, whatever the pixel ratio */
+  margin: -2px;
+  padding: 2px;
   list-style: none;
   overflow-x: auto;
   scrollbar-width: none;
@@ -808,9 +810,13 @@ kbd {
 .recent-chips::-webkit-scrollbar { display: none; }
 .chip.recent { height: var(--recent-h); padding: 0 14px; background: var(--kbd-bg); }
 .chip.recent.selected { background: var(--chord); color: var(--chord-text); }
+/* Phones: a little tighter, so eight short chords fit on most screens */
+.dock-recent .recent-chips { gap: 5px; }
+.dock-recent .chip.recent { padding: 0 10px; }
+.dock-recent li.on .chip.recent { padding-right: 6px; }
 /* The chord on screen: its chip and an × to remove it, as one pink pill */
 .recent-chips li.on { display: flex; align-items: center; border-radius: var(--r-pill); background: var(--chord); }
-.recent-chips li.on .chip { padding-right: 6px; }
+.recent-chips li.on .chip { padding-right: 6px; background: transparent; }   /* the pill paints it: a short chip's own, tighter rounding would show at the left end */
 .recent-remove {
   flex: none;
   display: grid;
