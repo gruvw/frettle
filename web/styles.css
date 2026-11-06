@@ -61,7 +61,8 @@
   --control-h: 42px;     /* touch-sized on phones */
   --chip-h: 32px;
   --pill-h: 22px;
-  --tab-h: 54px;         /* dock tabs (phones): a fixed height, see --dock-h */
+  --tab-h: 54px;
+  --recent-h: 30px;      /* the dock's row of recent chords (phones): slim, a fixed height */         /* dock tabs (phones): a fixed height, see --dock-h */
 
   /* Neck geometry (vertical on phones) */
   --label-w: 26px;       /* fret numbers column */
@@ -91,7 +92,8 @@ body {
      tabs, the bottom padding, and the phone's safe area, which the browser
      keeps up to date by itself */
   --dock-shape-h: calc(var(--control-h) + var(--sp-1));
-  --dock-h: calc(1px + var(--sp-2) + var(--dock-shape-h) + var(--sp-1) + var(--tab-h) + var(--sp-2)
+  --dock-recent-h: calc(var(--recent-h) + var(--sp-2));
+  --dock-h: calc(1px + var(--sp-2) + var(--dock-recent-h) + var(--dock-shape-h) + var(--sp-1) + var(--tab-h) + var(--sp-2)
     + env(safe-area-inset-bottom, 0px));
   margin: 0;
   padding-bottom: calc(var(--dock-h) + var(--sp-3));   /* room for the dock */
@@ -102,6 +104,7 @@ body {
 }
 
 body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
+body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* fewer than two recent chords: no row */
 
 /* While a sheet is open, leave enough room to scroll the end of the neck above it */
 body.sheet-open { padding-bottom: calc(var(--dock-h) + 60vh); }
@@ -559,6 +562,9 @@ kbd {
   white-space: nowrap;
 }
 .note.ghost .deg-badge { border-color: color-mix(in srgb, var(--chord) 55%, transparent); }
+/* Chord notes that are not in the shown scale: an amber interval badge (the
+   amber of the chord panel's "Outside D Major" line) */
+.note.off-key .deg-badge { border-color: var(--warn); background: var(--warn); color: var(--pk-black); }
 .note.mute { background: transparent; box-shadow: none; color: var(--chord); }
 .mute-ico { width: 15px; height: 15px; }
 
@@ -685,6 +691,8 @@ kbd {
 .np-loc { grid-column: 1 / -1; align-self: end; }
 .np-note.root { border-color: var(--chord); box-shadow: inset 0 0 0 1px var(--chord); }
 .np-note.root .np-deg { outline: 2px solid var(--chord); outline-offset: 2px; }
+.np-note.off-key .np-deg { background: var(--warn); color: var(--pk-black); }
+.np-note.root.off-key .np-deg { outline-color: var(--warn); }
 
 /* ==========================================================================
    Rows with a label (shapes, scale notes, triads)
@@ -783,6 +791,57 @@ kbd {
   border-top: 1px solid var(--border);
 }
 
+/* Recent chords: a slim row of chips that scrolls sideways if it must */
+.dock-recent { display: flex; align-items: center; gap: 6px; height: var(--recent-h); margin-bottom: var(--sp-2); }   /* clear of the buttons below */
+.dock-recent[hidden] { display: none; }
+.recent-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.recent-chips::-webkit-scrollbar { display: none; }
+.chip.recent { height: var(--recent-h); padding: 0 14px; background: var(--kbd-bg); }
+.chip.recent.selected { background: var(--chord); color: var(--chord-text); }
+/* The chord on screen: its chip and an × to remove it, as one pink pill */
+.recent-chips li.on { display: flex; align-items: center; border-radius: var(--r-pill); background: var(--chord); }
+.recent-chips li.on .chip { padding-right: 6px; }
+.recent-remove {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--chord-text) 14%, transparent);
+  color: var(--chord-text);
+  cursor: pointer;
+}
+.recent-remove .ico { width: 12px; height: 12px; }
+.recent-clear {   /* a bin: start the list over (not an ×, which removes one chord) */
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: var(--recent-h);
+  margin-left: 2px;
+  padding: 0;
+  border: 1px solid var(--border);   /* outlined, like the other buttons */
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.recent-clear .ico { width: 15px; height: 15px; }
+.recent-line { display: none; }   /* phones: the dock has the recent chords */
 .dock-shape { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-1); }
 .dock-shape[hidden] { display: none; }   /* no chord selected: only the tabs */
 .dock-shape-info {
@@ -1138,6 +1197,7 @@ kbd {
   .np-symbol { width: 140px; height: 96px; }
   .chord-bar .voicing { flex-basis: 170px; }
   .shapes-line { display: flex; }
+  .recent-line:not([hidden]) { display: flex; }
   .chord-count:not([hidden]) { display: inline-flex; }
 
   /* Rows: label on the left */

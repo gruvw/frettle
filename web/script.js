@@ -572,6 +572,7 @@ function defaultState() {
     octaves: false,
     tuning: {},                       // tuning id per instrument that has several
     chord: { on: true, root: 0, type: 'maj' },
+    recent: {},                       // recently used chords per instrument [{ root, type, shape }]
     capo: 0,                          // fret of the capo, 0 = none (all instruments)
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
@@ -595,6 +596,14 @@ function loadState() {
     if (saved.chord && findChord(saved.chord.type)) {
       s.chord = { on: saved.chord.on !== false, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
     }
+    // Recent chords: a list per instrument (an older save had one list)
+    const lists = Array.isArray(saved.recent) ? { [s.instrument]: saved.recent } : saved.recent || {};
+    for (const [id, list] of Object.entries(lists)) {
+      if (!INSTRUMENTS.some((i) => i.id === id) || !Array.isArray(list)) continue;
+      s.recent[id] = list.filter((r) => r && findChord(r.type) && Number.isInteger(r.root)).slice(0, RECENT_MAX)
+        .map((r, i) => ({ root: mod12(r.root), type: r.type, used: -RECENT_MAX + i,
+          shape: Number.isInteger(r.shape) && r.shape >= 0 ? r.shape : 0, context: typeof r.context === 'string' ? r.context : '' }));
+    }
     if (saved.scale && findScale(saved.scale.type)) {
       s.scale = { on: saved.scale.on === true, root: mod12(Number(saved.scale.root) || 0), type: saved.scale.type };
     }
@@ -613,6 +622,8 @@ function loadState() {
 function saveState() {
   const { instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale } = state;
   const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale };
+  saved.recent = Object.fromEntries(Object.entries(state.recent)
+    .map(([id, list]) => [id, list.map(({ root, type, shape, context }) => ({ root, type, shape, context }))]));
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
@@ -685,9 +696,80 @@ function updateChord(patch) {
   render();
 }
 
+/* Recent chords, one list per instrument: a chord joins its list as soon as
+   it is shown, in a fixed place so a song's chords stay put while switching
+   between them. A chord replaced within RECENT_FRESH ms (picking a root, then
+   a type) just overwrites its chip, so the in-between chords do not pile up.
+   Past RECENT_MAX, the one unused longest makes room. Each chip remembers the
+   shape last shown with it (for that tuning, capo and voicing): tapping the
+   chip brings that shape back, while picking the chord from the menus starts
+   from its first shape, as always. */
+const RECENT_MAX = 6;
+const RECENT_FRESH = 1500;
+let recentClock = 0;
+let shownChord;     // instrument and chord at the last render
+let freshEntry = null;   // { entry, time }: the chip added last, while it can still be overwritten
+const shapeContext = () => [instrument().strings, capo(), voicingFor(findChord(state.chord.type))].join('|');
+const recentList = () => (state.recent[state.instrument] ||= []);
+const recentEntry = () => state.chord.on &&
+  recentList().find((r) => r.root === state.chord.root && r.type === state.chord.type);
+
+function trackChord() {   // on every render
+  const list = recentList();
+  const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
+  const changed = shownChord !== undefined && shownChord.inst === state.instrument && shownChord.key !== key;
+  shownChord = { inst: state.instrument, key };
+  let entry = recentEntry();
+  if (changed && state.chord.on) {
+    const now = Date.now();
+    const fresh = freshEntry && now - freshEntry.time < RECENT_FRESH && list.includes(freshEntry.entry) ? freshEntry.entry : null;
+    let added = true;
+    if (!entry && fresh) {               // still picking: this chord takes the last chip's place
+      fresh.root = state.chord.root;
+      fresh.type = state.chord.type;
+      entry = fresh;
+    } else if (!entry) {                 // a new chord: a new chip
+      if (list.length >= RECENT_MAX) list.splice(list.indexOf(list.reduce((a, b) => (a.used <= b.used ? a : b))), 1);
+      entry = { root: state.chord.root, type: state.chord.type };
+      list.push(entry);
+    } else {                             // a chord already there
+      added = false;
+      if (fresh && fresh !== entry) list.splice(list.indexOf(fresh), 1);   // drop the in-between chip
+    }
+    freshEntry = added ? { entry, time: now } : null;
+    entry.used = ++recentClock;
+  }
+  if (entry) { entry.shape = state.shape; entry.context = shapeContext(); }
+}
+
+function keepChord() { freshEntry = null; }   // strummed or cycled: this chip is no longer an in-between
+
+function playRecent(i) {
+  const entry = recentList()[i];
+  if (!entry) return;
+  keepChord();
+  state.chord = { on: true, root: entry.root, type: entry.type };
+  state.shape = entry.context === shapeContext() ? entry.shape : 0;
+  render();
+}
+
+function removeRecent(i) {   // the chord stays on screen, its chip goes
+  const list = recentList();
+  if (freshEntry && freshEntry.entry === list[i]) freshEntry = null;
+  list.splice(i, 1);
+  render();
+}
+
+function clearRecent() {   // keep only the chord shown now
+  const entry = recentEntry();
+  state.recent[state.instrument] = entry ? [entry] : [];
+  render();
+}
+
 function selectShape(index) {
   const ch = currentChord();
   if (!ch || !ch.shapes.length) return;
+  keepChord();   // cycling its shapes: this chord is being used
   state.shape = (index + ch.shapes.length) % ch.shapes.length;
   render();
 }
@@ -920,6 +1002,7 @@ if (typeof document !== 'undefined') {
 function strum() {
   const ch = currentChord();
   if (!ch || !ch.shape) return;
+  keepChord();
   const inst = instrument();
   const c = capo();
   let i = 0;
@@ -951,7 +1034,9 @@ function render() {
   const ch = currentChord();
   const sc = currentScale();
   if (ch && ch.shapes.length) state.shape = ch.index;
+  trackChord();
   renderHeader();
+  renderRecent();
   renderNeck(ch, sc);
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
@@ -963,22 +1048,54 @@ function render() {
   ui.shapeKey = key || '';
 }
 
-/* Scroll the page (phones only) so the selected shape sits in the part of
-   the screen that the dock and the open sheet do not cover. */
+/* The recent chords, as chips in the dock (phones) and the chord panel
+   (wide screens); shown once there are two to switch between */
+function renderRecent() {
+  const list = recentList();
+  const show = list.length >= 2;
+  els.dockRecent.hidden = !show;
+  els.recentLine.hidden = !show;
+  if (!show) return;
+  const html = list.map((r, i) => {
+    const def = findChord(r.type);
+    const spell = chordSpelling(r.root, def);
+    const on = state.chord.on && r.root === state.chord.root && r.type === state.chord.type;
+    const name = noteText(spell.root) + def.symbol;
+    // The chord on screen also gets an × to take it off the list
+    return `<li${on ? ' class="on"' : ''}><button type="button" class="chip recent${on ? ' selected' : ''}" data-i="${i}" aria-pressed="${on}" ` +
+      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}`)}">${esc(name)}</button>` +
+      (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the recent chords" ` +
+        `title="Remove ${esc(name)} from the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>` : '') + '</li>';
+  }).join('');
+  els.dockRecentList.innerHTML = html;
+  els.recentList.innerHTML = html;
+}
+
+/* Phones: when the shape changes, scroll the page so the shape sits in the
+   middle of the part of the neck you can see: from the top of the screen to
+   the top of the dock (or of the open sheet), measured where they actually
+   are. The page never scrolls past the top of the neck panel and the margin
+   above it (with a capo, past the capo's fret), so the highest position
+   still shows that edge. */
 function revealShape() {
   if (isWide()) return;
   const notes = [...els.neck.querySelectorAll('.note.chord')];
   if (!notes.length) return;
   const rects = notes.map((n) => n.getBoundingClientRect());
-  const top = Math.min(...rects.map((r) => r.top)) - 28;
-  const bottom = Math.max(...rects.map((r) => r.bottom)) + 12;
-  const covered = els.dockBar.offsetHeight + (els.sheet.classList.contains('open') ? els.sheet.offsetHeight : 0);
-  const viewTop = 8;
-  const viewBottom = window.innerHeight - covered - 8;
-  if (top >= viewTop && bottom <= viewBottom) return;
-  const room = viewBottom - viewTop;
-  const delta = bottom - top > room ? top - viewTop : (top + bottom) / 2 - (viewTop + viewBottom) / 2;
-  window.scrollTo({ top: window.scrollY + delta, behavior: 'smooth' });
+  const top = Math.min(...rects.map((r) => r.top));
+  const bottom = Math.max(...rects.map((r) => r.bottom));
+  const cover = els.sheet.classList.contains('open') ? els.sheet : els.dockBar;
+  const viewBottom = cover.getBoundingClientRect().top;
+  // Centre the shape; one too tall to fit starts at the top of the view
+  const delta = bottom - top > viewBottom - 24 ? top - 24 : (top + bottom) / 2 - viewBottom / 2;
+  // Highest: the neck panel with its margin, or with a capo, its fret (the
+  // frets behind it cannot be played) with more room, part of the fret
+  // behind it showing and the interval badges clear of the edge
+  const panel = els.neck.closest('.neck-panel');
+  const capoCell = capo() ? els.neck.querySelector(`.cell[data-f="${capo()}"]`) : null;
+  const margin = capoCell ? 20 : parseFloat(getComputedStyle(panel).marginTop);
+  const edge = (capoCell || panel).getBoundingClientRect().top;
+  window.scrollTo({ top: Math.max(edge + window.scrollY - margin, window.scrollY + delta), behavior: 'smooth' });
 }
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
@@ -1030,6 +1147,9 @@ function outsideScale(rootPc, def, sc) {
   if (!sc || sc.def.steps.length >= 12) return null;
   return chordTones(rootPc, def).filter((t) => !sc.set.has(t.pc));
 }
+/* Chord notes outside the shown scale get an amber mark on the neck and in
+   the chord panel (the same amber as the panel's "Outside D Major" line) */
+const offKeyTest = (sc) => (sc && sc.def.steps.length < 12 ? (pc) => !sc.set.has(mod12(pc)) : () => false);
 const fitsScale = (rootPc, def, sc) => { const out = outsideScale(rootPc, def, sc); return Boolean(out && !out.length); };
 /* Help line for the chord pickers when a scale is shown */
 const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${sc.rootName} ${sc.def.short}` : '');
@@ -1196,6 +1316,7 @@ function renderNeck(ch, sc) {
   const n = inst.strings.length;
   const N = inst.frets;
   const c = capo();
+  const offKey = offKeyTest(sc);   // chord notes outside the scale
   // Phones: vertical neck. Row 1 holds the string numbers, then the open
   // strings, then one row per fret; the lowest string is on the left.
   // Wide screens: horizontal neck. Row 1 holds the fret numbers, then one row
@@ -1289,7 +1410,7 @@ function renderNeck(ch, sc) {
         cls += ' mute';
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
-        cls += `${shapeAt.has(key) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}`;
+        cls += `${shapeAt.has(key) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`;
         badge = fmtDeg(deg);
         n = ch.spell.names.get(pc) || n;
       } else if (sc && sc.set.has(pc)) {
@@ -1300,6 +1421,7 @@ function renderNeck(ch, sc) {
       }
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
+      if (cls.includes(' off-key')) title += `, not in ${sc.rootName} ${sc.def.short}`;
       if (f < c) title += ', behind the capo';
       if (cls.includes(' mute')) title = `String ${num} not played`;
       const octave = octaveOf(s, f);
@@ -1498,13 +1620,15 @@ function renderChordPanel(ch, sc) {
     .map((f, s) => ({ f, s, midi: inst.strings[s] + f }))
     .filter((x) => x.f >= 0)
     .sort((a, b) => a.midi - b.midi || a.s - b.s);
+  const offKey = offKeyTest(sc);
   els.chordTones.innerHTML = notes.map((x) => {
     const deg = ch.degOfPc.get(mod12(x.midi));
     const name = pitchText(x.midi, ch.spell.names.get(mod12(x.midi)));
     const open = c ? 'capo' : 'open';
     const loc = x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
-    return `<li class="np-note${deg === 'R' ? ' root' : ''}" data-midi="${x.midi}" data-s="${x.s}" ` +
-      `data-f="${x.f + c}" title="Click to hear ${esc(name)}">` +
+    const off = offKey(x.midi);
+    return `<li class="np-note${deg === 'R' ? ' root' : ''}${off ? ' off-key' : ''}" data-midi="${x.midi}" data-s="${x.s}" ` +
+      `data-f="${x.f + c}" title="Click to hear ${esc(name)}${off ? `, not in ${sc.rootName} ${sc.def.short}` : ''}">` +
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
       `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
@@ -1622,6 +1746,7 @@ function init() {
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordMode', 'chordName', 'chordMeta',
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
+    'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose']) {
@@ -1679,6 +1804,18 @@ function init() {
     btn.addEventListener('pointerdown', (e) => { if (e.button === 0 && !btn.disabled) strum(); });
     btn.addEventListener('click', (e) => { if (e.detail === 0) strum(); });
   }
+
+  // Recent chords: tap to switch, × on the current one to remove it, Clear to start over
+  for (const list of [els.dockRecentList, els.recentList]) {
+    list.addEventListener('click', (e) => {
+      const remove = e.target.closest('[data-remove]');
+      if (remove) { removeRecent(Number(remove.dataset.remove)); return; }
+      const chip = e.target.closest('[data-i]');
+      if (chip) playRecent(Number(chip.dataset.i));
+    });
+  }
+  els.dockRecentClear.addEventListener('click', clearRecent);
+  els.recentClear.addEventListener('click', clearRecent);
 
   // Dock (phones): shape bar, tabs and the sheet they open
   els.dockPrev.addEventListener('click', () => selectShape(state.shape - 1));
