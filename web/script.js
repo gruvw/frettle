@@ -796,9 +796,12 @@ function chordSpelling(rootPc, def) {
 }
 const stringNumber = (s) => instrument().strings.length - s;   // 1 = string nearest the floor
 
+/* The voicing set for this instrument, or its default (root position on
+   guitar and bass, any bass note on the others) when the chord has no such
+   bass note (a 3rd inversion on a triad) */
 function voicingFor(def) {
   const v = state.voicing[state.instrument];
-  return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : '0';
+  return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : DEFAULT_VOICING[state.instrument];
 }
 
 /* Everything the views need about the selected chord, or null. */
@@ -1273,9 +1276,10 @@ function render() {
   // chord's root changes.
   if (!state.scale.on && state.chord.root !== ui.chordRoot) state.scale.root = state.chord.root;
   ui.chordRoot = state.chord.root;
-  // A bass note the chord does not have (a 3rd inversion on a triad) is root
-  // position, as the Voicing menu says: kept as is, the next 7th chord would
-  // come back in that old inversion (and links would carry it)
+  // A bass note the chord does not have (a 3rd inversion on a triad) goes
+  // back to the instrument's default, as the Voicing menu says: kept as is,
+  // the next 7th chord would come back in that old inversion (and links
+  // would carry it)
   if (state.chord.on) state.voicing[state.instrument] = voicingFor(findChord(state.chord.type));
   const ch = currentChord();
   const sc = currentScale();
