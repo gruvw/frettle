@@ -1216,6 +1216,22 @@ const fitsScale = (rootPc, def, sc) => { const out = outsideScale(rootPc, def, s
 /* Help line for the chord pickers when a scale is shown */
 const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${sc.rootName} ${sc.def.short}` : '');
 
+/* Shrink the text of a fixed-size box until it fits on one line (long chord
+   symbols like C♯m(maj7)). Measured on a canvas, so it also works while the
+   box is hidden (a closed sheet on phones). */
+let measureCtx = null;
+function fitText(el) {
+  el.style.fontSize = '';
+  const cs = getComputedStyle(el);
+  const room = parseFloat(cs.width) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const size = parseFloat(cs.fontSize);
+  if (!(room > 0)) return;
+  measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+  measureCtx.font = `${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+  const width = measureCtx.measureText(el.textContent).width;
+  if (width > room) el.style.fontSize = `${Math.floor((size * room) / width)}px`;
+}
+
 /* Phones: the shape bar, the tab values and which sheet is open. */
 function renderDock(ch, sc) {
   els.dockShapeBar.hidden = !ch;   // no chord: just the tabs
@@ -1223,8 +1239,8 @@ function renderDock(ch, sc) {
   els.dockPrev.disabled = els.dockNext.disabled = !many;
   els.dockStrum.disabled = !ch || !ch.shape;
   els.dockSymbol.textContent = ch ? ch.symbol : '';
-  if (!ch) els.dockTab.innerHTML = '<span>No chord selected</span>';
-  else if (!ch.shape) els.dockTab.innerHTML = '<span>No playable shape</span>';
+  if (!ch) els.dockTab.innerHTML = '<span class="dock-msg">No chord selected</span>';
+  else if (!ch.shape) els.dockTab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
   else {
     els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapePlace(ch.shape)}</span>` +
       `<span>${esc(shortTab(ch.shape))}</span>`;
@@ -1640,6 +1656,7 @@ function renderChordPanel(ch, sc) {
   const rootName = ch.rootName;
   els.chordSymbol.textContent = ch.symbol;
   els.chordSymbol.classList.add('on');
+  fitText(els.chordSymbol);
   els.chordMode.textContent = 'Selected';
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
   const voicingLabel = ch.voicing === 'any' ? 'Any bass note' : INVERSION_NAMES[Number(ch.voicing)];
@@ -2012,13 +2029,15 @@ function init() {
 
   // ← / → cycle through the shapes, Space strums, Escape closes the open
   // sheet. Space strums as soon as it is pressed, once per press. It is left
-  // to a focused button only when that button was reached with the keyboard
-  // (Tab): a button that just kept the focus after a click (Strum, a switch)
-  // would otherwise take Space and act on its release.
-  let clicked = null;   // the button last pressed with a mouse or a finger
-  document.addEventListener('pointerdown', (e) => { clicked = e.target.closest('button'); }, true);
+  // to a focused button only when you are moving around with the keyboard
+  // (Tab): a button that has the focus after a click or a tap (Strum, a
+  // switch, or the menu button a popup hands the focus back to) would
+  // otherwise take Space and act on it.
+  let keyboardFocus = false;   // the focus was last moved with the keyboard
+  document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
   const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
-    !e.target.closest('input, textarea') && !(e.target.closest('button') && e.target.closest('button') !== clicked);
+    !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
   document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;

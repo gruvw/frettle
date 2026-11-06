@@ -236,7 +236,7 @@ kbd {
 .field.grow { flex: 1 1 150px; }
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
-.chord-bar .voicing { flex-basis: 60%; }
+.chord-bar .voicing { flex-basis: calc(100% - var(--control-h) - var(--sp-3) - 1px); }   /* its own row, with ✕ (never ✕ alone on a row) */
 .bar .push-right { margin-left: 0; }
 /* Scale switches. Phones: Root, Type and ✕ on the first row, the two
    switches as equal buttons on a row of their own. Wide screens: everything
@@ -883,6 +883,7 @@ kbd {
 .dock-tab { display: grid; min-width: 0; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
 .dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* shape number above the tab */
+.dock-msg { font: 500 var(--fs-sm)/1.3 var(--font); color: var(--muted); }
 
 .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); padding: var(--sp-1) 0 var(--sp-2); }
 /* Each tab is a soft rounded button; the open one is tinted purple */
@@ -1001,7 +1002,11 @@ kbd {
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4) var(--sp-4);
   overflow-y: auto;
+  overscroll-behavior: contain;   /* scrolling the list to its end does not scroll the page */
 }
+/* While a popup is open the page behind it stays put (the gutter keeps a
+   desktop scrollbar's room, so nothing shifts) */
+html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* Section heading with a thin line running to the right */
 .picker-note { display: flex; align-items: center; gap: 7px; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); }
 .picker-note::before { flex: none; }
@@ -1215,5 +1220,18 @@ kbd {
   .field.scale-type .select-btn { width: 240px; }
   .scale-gap { width: 26px; }
 
+  /* When a bar is too narrow for one row (landscape phones, small windows),
+     it breaks into two clean rows instead of leaving Deselect alone on the
+     second: the menus first, then the switches and buttons */
+  .chord-bar, .scale-bar { container-type: inline-size; }
+  @container (max-width: 930px) {
+    .chord-bar .field.grow { flex: 1 1 calc((100% - 84px) / 2 - 2 * var(--sp-3)); }
+    .chord-bar .switch-row { margin-left: auto; }   /* the second row sits right, like the scale's */
+  }
+  @container (max-width: 755px) {
+    .scale-bar .field.scale-type { flex: 1 1 calc(100% - 84px - var(--sp-3) - 1px); }
+    .scale-bar .field.scale-type .select-btn { width: 100%; }
+    .scale-bar .switch-row { flex: 1 1 auto; justify-content: flex-end; }
+  }
 }
 
