@@ -1274,7 +1274,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .sheet .panel-head { touch-action: auto; }   /* no sheet to drag: touch screens scroll the page from the titles too */
 
   /* Chords panel: description and notes side by side */
-  .np-body { grid-template-columns: minmax(0, 400px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }
+  /* 396px leaves the notes 618px on large screens: room for a 6-string
+     shape's cards at their smallest (6 x 96px + 5 gaps = 616px) */
+  .np-body { grid-template-columns: minmax(0, 396px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }
   .np-symbol { width: 140px; height: 96px; }
   .chord-bar .field.grow { flex-basis: 150px; }
   .chord-bar .field.grow.voicing { order: 0; flex-basis: 170px; }
