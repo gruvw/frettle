@@ -19,8 +19,10 @@ const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A
    when you hold the instrument to the one nearest the floor. The standard
    ukulele is re-entrant: its first-listed string is a high G. A mandolin's
    strings come in pairs tuned alike: each pair is one string here, as on
-   mandolin charts. `span` is how many frets a hand covers (small mandolin
-   frets: one more); `fifths`: tuned in fifths, which changes scale groups. */
+   mandolin charts; the mandola is a mandolin a fifth lower (C G D A), played
+   with the same shapes. `span` is how many frets a hand covers (small
+   mandolin frets: one more); `fifths`: tuned in fifths, which changes scale
+   groups. */
 const INSTRUMENTS = [
   { id: 'guitar', family: 'Guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
   { id: 'guitar7', family: 'Guitar', name: '7-string Guitar', short: '7-string', strings: [35, 40, 45, 50, 55, 59, 64], frets: 24 },
@@ -29,6 +31,7 @@ const INSTRUMENTS = [
   { id: 'ukulele', family: 'Ukulele', name: 'Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18 },
   { id: 'baritone', family: 'Ukulele', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18 },
   { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 20, span: 5, fifths: true },
+  { id: 'mandola', family: 'Mandolin', name: 'Mandola', short: 'Mandola', strings: [48, 55, 62, 69], frets: 20, span: 5, fifths: true },
 ];
 /* Other tunings, for the instruments that have common ones; the first is the
    standard tuning. `flats`: write its notes with flats (E♭ standard). */
@@ -67,9 +70,9 @@ function tunedInstrument(id, tuningId = 'standard') {
   return { ...inst, strings: tuning.strings, tuning };
 }
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
-   Ukulele chords (re-entrant G), baritone and mandolin chords often have
-   another note lowest. */
-const DEFAULT_VOICING = { guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any' };
+   Ukulele chords (re-entrant G), baritone, mandolin and mandola chords often
+   have another note lowest. */
+const DEFAULT_VOICING = { guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any', mandola: 'any' };
 const MAX_CAPO = 12;
 const SINGLE_DOTS = [3, 5, 7, 9, 15, 17, 19, 21];
 const DOUBLE_DOTS = [12, 24];
@@ -391,7 +394,7 @@ function shapeCandidates(inst, rootPc, def, voicing) {
     const span = fretted.length ? Math.max(...fretted.map((x) => x.f)) - minFret : 0;
     const opens = sound.length - fretted.length;
     const maxFret = minFret + span;
-    const small = n < 5;   // 4 strings: ukulele, bass, mandolin
+    const small = n < 5;   // 4 strings: ukulele, bass, mandolin, mandola
     const feat = {
       sound: sound.length,
       opt: optional.filter((pc) => pcs.has(pc)).length,
@@ -1583,7 +1586,7 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
 
 /* Scale groups, as players learn them: N notes per string (3 for 7- and
    8-note scales, 2 for pentatonic and other small ones, one more on a
-   mandolin), continuing from string to string. Every string's scale notes are split into
+   mandolin or mandola), continuing from string to string. Every string's scale notes are split into
    consecutive runs, so groups never share a note; group 0 starts on the
    first root of the lowest string (for the minor pentatonic that is the
    classic "box 1").
@@ -1594,7 +1597,7 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
 function scaleGroups(inst, sc, capo) {
   const L = sc.def.steps.length;
   if (L >= 12) return [];   // chromatic: nothing to group
-  // One more note per string on an instrument tuned in fifths (mandolin):
+  // One more note per string on an instrument tuned in fifths (mandolin, mandola):
   // its strings are further apart, so each holds a longer run of the scale
   const nps = (L <= 6 ? 2 : 3) + (inst.fifths ? 1 : 0);
   const N = inst.frets;
