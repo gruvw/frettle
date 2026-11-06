@@ -16,11 +16,20 @@
   <meta property="og:url" content="https://frettle.gruvw.com/">
   <meta property="og:title" content="Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele &amp; Mandolin">
   <meta property="og:description" content="Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
+  <!-- The app icon as the preview picture: square, so apps show it as a small
+       thumbnail beside the title (WhatsApp needs 300px wide or more) -->
+  <meta property="og:image" content="https://frettle.gruvw.com/icon-512.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:image:alt" content="Frettle icon: a pink note on three strings">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Frettle | Fretboard Visualizer">
   <meta name="twitter:description" content="Free fretboard visualizer for guitar, bass, ukulele and mandolin. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
+  <meta name="twitter:image" content="https://frettle.gruvw.com/icon-512.png">
+  <meta name="twitter:image:alt" content="Frettle icon: a pink note on three strings">
 
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b1d23'/%3E%3Cpath d='M7 11h18M7 16h18M7 21h18' stroke='%238f9198' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='18' cy='16' r='4.5' fill='%23ff4d86'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="styles.css">
 
   <!-- Installable app (home screen, full screen, works offline) -->
@@ -193,10 +202,20 @@
           </div>
           <button type="button" id="scaleClear" class="btn deselect push-right" title="Deselect the scale" aria-label="Deselect the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
         </div>
-        <div class="line notes-line">
-          <span class="label">Notes</span>
-          <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
-          <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
+        <div id="scaleBody" class="np-body scale-body" aria-live="polite">
+          <div class="np-head">
+            <div id="scaleSymbol" class="np-symbol"></div>
+            <div class="np-desc">
+              <div id="scaleName" class="np-title"></div>
+              <div id="scaleMeta" class="np-meta"></div>
+              <div id="scaleAlt" class="np-alt"></div>
+            </div>
+          </div>
+          <div class="np-tones notes-line">
+            <span class="label">Notes</span>
+            <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
+            <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
+          </div>
         </div>
         <div class="line">
           <span class="label">Triads</span>
