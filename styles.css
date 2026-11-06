@@ -494,7 +494,7 @@ kbd {
   position: absolute;
   z-index: 3;
   top: 2px;
-  inset-inline-start: 2px;
+  left: 2px;   /* clear of the interval badge (top-right) and the capo (bottom, or the right end) */
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
@@ -505,6 +505,8 @@ kbd {
   text-align: center;
   pointer-events: none;
 }
+/* Left-handed and across, the capo sits at the cell's left end */
+.lefty .neck.horizontal .oct { top: auto; bottom: 2px; left: auto; right: 2px; }
 
 /* Barre: a pink band behind the notes one finger lies across, from the
    middle of the first note to the middle of the last (--k strings) */
@@ -528,6 +530,25 @@ kbd {
 .neck.horizontal .cell.capo { padding-inline-end: 14px; }
 .cell.behind { cursor: default; }
 .cell.behind .note, .cell.behind::before, .cell.behind .oct { opacity: 0.3; }
+
+/* A banjo's drone starts at the 5th fret: no fingerboard or string before
+   it, a short nut where it starts (its open note sits just before that nut,
+   like the other strings' open notes before theirs) with the string number
+   beside it, and with a capo a spike: a capo bar across that one string */
+.cell.no-string { cursor: default; }
+.cell.no-string::before { display: none; }
+.neck.horizontal .slabel.short { justify-self: end; padding-inline-end: 8px; }
+.cell.string-start::before { opacity: 0.45; }
+.cell.string-start::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  background: var(--nut);
+}
+.neck.vertical .cell.string-start::after { left: 0; right: 0; bottom: -2px; height: 5px; }
+.neck.horizontal .cell.string-start::after { top: 0; bottom: 0; inset-inline-end: -2px; width: 5px; }
+/* Its open note sits off the fingerboard, like the other open notes */
+.neck:not(.octaves) .cell.fret.string-start { background: transparent; }
 
 /* Note pills. Every note is shown at full strength. Scale notes are teal,
    chord-shape notes pink with their interval, other chord tones (optional)
@@ -1165,7 +1186,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
   .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
-  .cell.behind:hover, .cell.empty:hover { box-shadow: none; }
+  .cell.behind:hover, .cell.empty:hover, .cell.no-string:hover { box-shadow: none; }
   .np-note:hover { border-color: var(--accent); }
   .dock-shape-info:hover { color: var(--text); }
   .tab:hover { border-color: var(--border); color: var(--text); }
@@ -1274,7 +1295,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .sheet .panel-head { touch-action: auto; }   /* no sheet to drag: touch screens scroll the page from the titles too */
 
   /* Chords panel: description and notes side by side */
-  .np-body { grid-template-columns: minmax(0, 400px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }
+  /* 396px leaves the notes 618px on large screens: room for a 6-string
+     shape's cards at their smallest (6 x 96px + 5 gaps = 616px) */
+  .np-body { grid-template-columns: minmax(0, 396px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }
   .np-symbol { width: 140px; height: 96px; }
   .chord-bar .field.grow { flex-basis: 150px; }
   .chord-bar .field.grow.voicing { order: 0; flex-basis: 170px; }

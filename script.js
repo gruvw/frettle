@@ -20,9 +20,11 @@ const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A
    ukulele is re-entrant: its first-listed string is a high G. A mandolin's
    strings come in pairs tuned alike: each pair is one string here, as on
    mandolin charts; the mandola is a mandolin a fifth lower (C G D A), played
-   with the same shapes. `span` is how many frets a hand covers (small
-   mandolin frets: one more); `fifths`: tuned in fifths, which changes scale
-   groups. */
+   with the same shapes. The 5-string banjo's first-listed string is a short,
+   high drone: it starts at the 5th fret (`starts`, the fret where each
+   string begins) and its open note is the one listed. `span` is how many
+   frets a hand covers (small mandolin frets: one more); `fifths`: tuned in
+   fifths, which changes scale groups; `dots`: inlay frets, if not a guitar's. */
 const INSTRUMENTS = [
   { id: 'guitar', family: 'Guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
   { id: 'guitar7', family: 'Guitar', name: '7-string Guitar', short: '7-string', strings: [35, 40, 45, 50, 55, 59, 64], frets: 24 },
@@ -32,9 +34,12 @@ const INSTRUMENTS = [
   { id: 'baritone', family: 'Ukulele', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18 },
   { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 20, span: 5, fifths: true },
   { id: 'mandola', family: 'Mandolin', name: 'Mandola', short: 'Mandola', strings: [48, 55, 62, 69], frets: 20, span: 5, fifths: true },
+  { id: 'banjo', family: 'Banjo', name: 'Banjo', short: 'Banjo', strings: [67, 50, 55, 59, 62], starts: [5, 0, 0, 0, 0], frets: 22,
+    dots: { single: [3, 5, 7, 10, 15, 17, 19, 22], double: [12] } },
 ];
 /* Other tunings, for the instruments that have common ones; the first is the
-   standard tuning. `flats`: write its notes with flats (E♭ standard). */
+   standard tuning. `flats`: write its notes with flats (E♭ standard). `short`:
+   for the Neck tab on phones, when the name is too long for it. */
 const TUNINGS = {
   guitar7: [
     { id: 'standard', name: 'Standard', strings: [35, 40, 45, 50, 55, 59, 64] },
@@ -47,8 +52,8 @@ const TUNINGS = {
   guitar: [
     { id: 'standard', name: 'Standard', strings: [40, 45, 50, 55, 59, 64] },
     { id: 'drop-d', name: 'Drop D', strings: [38, 45, 50, 55, 59, 64] },
-    { id: 'half-down', name: 'Half step down', strings: [39, 44, 49, 54, 58, 63], flats: true },
-    { id: 'whole-down', name: 'Whole step down', strings: [38, 43, 48, 53, 57, 62] },
+    { id: 'half-down', name: 'Half step down', short: 'Half down', strings: [39, 44, 49, 54, 58, 63], flats: true },
+    { id: 'whole-down', name: 'Whole step down', short: 'Whole down', strings: [38, 43, 48, 53, 57, 62] },
     { id: 'drop-c', name: 'Drop C', strings: [36, 43, 48, 53, 57, 62] },
     { id: 'dadgad', name: 'DADGAD', strings: [38, 45, 50, 55, 57, 62] },
     { id: 'open-g', name: 'Open G', strings: [38, 43, 50, 55, 59, 62] },
@@ -60,6 +65,13 @@ const TUNINGS = {
     { id: 'standard', name: 'Standard (high G)', strings: [67, 60, 64, 69] },
     { id: 'low-g', name: 'Low G', strings: [55, 60, 64, 69] },
   ],
+  banjo: [   // the drone first: g D G B D
+    { id: 'standard', name: 'Open G (standard)', strings: [67, 50, 55, 59, 62] },
+    { id: 'double-c', name: 'Double C', strings: [67, 48, 55, 60, 62] },
+    { id: 'c', name: 'C tuning', strings: [67, 48, 55, 59, 62] },
+    { id: 'g-modal', name: 'G modal (Sawmill)', short: 'G modal', strings: [67, 50, 55, 60, 62] },
+    { id: 'open-d', name: 'Open D', strings: [66, 50, 54, 57, 62] },
+  ],
 };
 /* An instrument in one of its tunings (the standard one if none or unknown) */
 function tunedInstrument(id, tuningId = 'standard') {
@@ -70,12 +82,25 @@ function tunedInstrument(id, tuningId = 'standard') {
   return { ...inst, strings: tuning.strings, tuning };
 }
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
-   Ukulele chords (re-entrant G), baritone, mandolin and mandola chords often
-   have another note lowest. */
-const DEFAULT_VOICING = { guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any', mandola: 'any' };
+   Ukulele chords (re-entrant G), baritone, mandolin, mandola and banjo chords
+   often have another note lowest (the banjo's open G chord has D in the bass). */
+const DEFAULT_VOICING = {
+  guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any', mandola: 'any', banjo: 'any' };
 const MAX_CAPO = 12;
 const SINGLE_DOTS = [3, 5, 7, 9, 15, 17, 19, 21];
 const DOUBLE_DOTS = [12, 24];
+
+/* Short strings (the banjo's drone). Fret numbers on the neck are the neck's
+   own, as in banjo tab: the drone's first fret is the 6th. A capo leaves the
+   drone alone; banjo players raise it by the same amount (a spike or a
+   5th-string capo at fret 5 + capo), and so does Frettle. */
+const startFret = (inst, s) => (inst.starts ? inst.starts[s] : 0);
+/* Pitch of string s at neck fret f, for f at or past where the string starts */
+const fretPitch = (inst, s, f) => inst.strings[s] + f - startFret(inst, s);
+/* Neck fret of a shape's fret (shapes count from the capo; 0 = the string
+   rings open, which for the drone is where it starts, past its spike).
+   Shapes never fret the drone. */
+const shapeNeckFret = (inst, s, f, capo) => (f === 0 ? startFret(inst, s) : f) + capo;
 
 /* Scales: semitone steps from the root; `short` is the name shown in the
    phone's tab bar, where space is tight. */
@@ -342,7 +367,10 @@ function fingersFor(frets) {
   return { fingers, barre, barreFrom: barre ? lo : -1 };
 }
 
-function shapeCandidates(inst, rootPc, def, voicing) {
+/* extraPcs: notes also ringing (a banjo's open drone), which count as chord
+   tones the shape has. forced: a chart shape kept even if it leaves out a
+   required tone (the banjo's D7, 0 2 1 0, has no F♯). */
+function shapeCandidates(inst, rootPc, def, voicing, extraPcs = [], forced = null) {
   const tones = chordTones(rootPc, def);
   const n = inst.strings.length;
   const chordPcs = new Set(tones.map((t) => t.pc));
@@ -375,7 +403,8 @@ function shapeCandidates(inst, rootPc, def, voicing) {
     if (inner > maxInner || trail > 1) return null;
 
     const pcs = new Set(sound.map((x) => mod12(x.midi)));
-    if (required.some((pc) => !pcs.has(pc))) return null;
+    const complete = required.every((pc) => pcs.has(pc) || extraPcs.includes(pc));
+    if (!complete && !(forced && frets.join(',') === forced.join(','))) return null;
 
     const lowest = sound.reduce((x, y) => (y.midi < x.midi ? y : x));
     const bass = mod12(lowest.midi);
@@ -397,7 +426,7 @@ function shapeCandidates(inst, rootPc, def, voicing) {
     const small = n < 5;   // 4 strings: ukulele, bass, mandolin, mandola
     const feat = {
       sound: sound.length,
-      opt: optional.filter((pc) => pcs.has(pc)).length,
+      opt: optional.filter((pc) => pcs.has(pc) || extraPcs.includes(pc)).length,
       lead: small ? 0 : first,
       leadSmall: small ? first : 0,
       inner,
@@ -442,7 +471,28 @@ function shapeCandidates(inst, rootPc, def, voicing) {
 }
 
 function findShapes(inst, rootPc, def, voicing, weights = SHAPE_WEIGHTS) {
+  if (inst.starts) return droneShapes(inst, rootPc, def, voicing, weights);
   return pickShapes(shapeCandidates(inst, rootPc, def, voicing), weights, chartShape(inst, rootPc, def));
+}
+
+/* Banjo: chords are fretted on the long strings, as on any 4-string
+   instrument (the drone is the highest note, so it never sets the bass).
+   The drone then rings open when its note is in the chord, as banjo players
+   let it, and is left out otherwise; it is never fretted in a chord. A
+   ringing drone counts as a chord tone: C7 is 2 3 1 2 under an open g (its
+   5th), A7 can be the A barre under an open g (its 7th). */
+function droneShapes(inst, rootPc, def, voicing, weights) {
+  const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
+  const longInst = { ...inst, strings: long.map((s) => inst.strings[s]), starts: undefined };
+  const chordPcs = new Set(chordTones(rootPc, def).map((t) => t.pc));
+  const rings = (s) => chordPcs.has(mod12(inst.strings[s]));
+  const ringing = inst.strings.map((m, s) => s).filter((s) => startFret(inst, s) && rings(s)).map((s) => mod12(inst.strings[s]));
+  const chart = chartShape(longInst, rootPc, def);
+  const shapes = pickShapes(shapeCandidates(longInst, rootPc, def, voicing, ringing, chart), weights, chart);
+  return shapes.map((shape) => {
+    const frets = inst.strings.map((m, s) => (startFret(inst, s) ? (rings(s) ? 0 : -1) : shape.frets[long.indexOf(s)]));
+    return { ...shape, frets };
+  });
 }
 
 /* Two shapes are variants of each other when one is the other with strings
@@ -495,6 +545,18 @@ const CHART_SHAPES = [
     m7: '3333 1102 2213 3324 0202 1313 2424 0211 1322 0000 1111 2222',
     maj7: '0002 1113 2224 3335 1302 2413 3524 0222 1333 1100 3210 3322',
   } },
+  // Banjo, its four long strings in open G (D G B D), from the Deering and
+  // Walkin' on Water (wowrec) chord charts. Where those give a shape without
+  // the root (A7 2 0 2 2, Am7 2 0 1 2...), a shape with it is used instead,
+  // or none ('-': the finder's best comes first). D7 0 2 1 0 as Deering,
+  // Dummies and most charts teach it; A7 from Deering's movable shapes.
+  { strings: [50, 55, 59, 62], types: {
+    maj: '2012 3123 0234 5345 2102 3213 4324 0000 1111 2222 3333 4444',
+    min: '1011 2122 0233 1344 2002 3113 4224 5335 1101 2212 3323 4434',
+    7: '2312 3423 0210 5645 2100 3211 4322 0003 4111 2225 6333 1201',
+    m7: '1311 2422 0213 4321 2000 3111 4222 0333 6444 - - 0204',
+    maj7: '- - 4220 - 2101 - - 0004 - - - 1304',
+  } },
 ];
 function chartShape(inst, rootPc, def) {
   // A 7-string guitar plays the 6-string chart shapes, its low string muted
@@ -507,7 +569,7 @@ function chartShape(inst, rootPc, def) {
     const shift = mod12(inst.strings[0] - chart.strings[0]);
     if (!inst.strings.every((m, i) => mod12(m - chart.strings[i]) === shift)) continue;
     const shape = chart.types[def.id].split(' ')[mod12(rootPc - shift)];
-    return [...shape].map((c) => (c === 'x' ? -1 : Number(c)));
+    return shape === '-' ? null : [...shape].map((c) => (c === 'x' ? -1 : Number(c)));
   }
   return null;
 }
@@ -1139,12 +1201,12 @@ function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
   const playable = (target) => {
     const cell = target.closest('.cell');
-    return cell && !cell.classList.contains('behind') && !cell.classList.contains('empty') ? cell : null;
+    return cell && !cell.matches('.behind, .empty, .no-string') ? cell : null;
   };
   const play = (cell) => {
     const s = Number(cell.dataset.s);
     const f = Number(cell.dataset.f);
-    playNote(instrument().strings[s] + f);
+    playNote(fretPitch(instrument(), s, f));
     flashCell(s, f);
     if (cell.querySelector('.note.chord, .note.ghost')) keepChord();   // a note of the chord: it is being used
   };
@@ -1197,7 +1259,7 @@ function strum() {
     if (f < 0) return;
     const delay = i++ * STRUM_GAP;
     playNote(inst.strings[s] + c + f, delay, 0.45);
-    flashCell(s, f + c, delay);
+    flashCell(s, shapeNeckFret(inst, s, f, c), delay);
   });
 }
 
@@ -1484,7 +1546,8 @@ function renderDock(ch, sc) {
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
   // What the Neck sheet sets: the capo if there is one, else the tuning
   // (the instrument has its own menu above the neck)
-  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) || 'Standard';
+  const tuning = instrument().tuning;
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
@@ -1593,6 +1656,7 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
    Only complete groups are returned: N notes on every string, all playable
    (not cut off by the nut, the capo or the last fret). Each group is a list
    of bars, one per string: the frets from its first to its last note.
+   A banjo's drone is left out: groups are played on the long strings.
    Returns [{ id, bars: [{ s, a, b }] }]. */
 function scaleGroups(inst, sc, capo) {
   const L = sc.def.steps.length;
@@ -1601,7 +1665,8 @@ function scaleGroups(inst, sc, capo) {
   // its strings are further apart, so each holds a longer run of the scale
   const nps = (L <= 6 ? 2 : 3) + (inst.fifths ? 1 : 0);
   const N = inst.frets;
-  const n = inst.strings.length;
+  const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
+  const n = long.length;
   const rankOf = (midi) => {
     const rel = midi - sc.root;
     const d = sc.def.steps.indexOf(mod12(rel));
@@ -1611,9 +1676,9 @@ function scaleGroups(inst, sc, capo) {
   // of a standard ukulele) is grouped as if it were an octave lower: same
   // note names on the same frets, and groups that follow the neck instead of
   // jumping across it.
-  const pitches = inst.strings.slice();
-  for (let s = n - 2; s >= 0; s--) while (pitches[s] >= pitches[s + 1]) pitches[s] -= 12;
-  const order = pitches.map((m, s) => ({ m, s }));
+  const pitches = long.map((s) => inst.strings[s]);
+  for (let i = n - 2; i >= 0; i--) while (pitches[i] >= pitches[i + 1]) pitches[i] -= 12;
+  const order = pitches.map((m, i) => ({ m, s: long[i] }));
   const lowest = order[0];
   let offset = 0;
   for (let f = capo; f <= N; f++) {
@@ -1652,19 +1717,23 @@ function renderNeck(ch, sc) {
   // Wide screens: horizontal neck. Row 1 holds the fret numbers, then one row
   // per string with the highest string on top (as in tab).
   const vertical = !isWide();
+  // The capo covers the strings that run from the nut (all but a banjo's
+  // drone, which sits first); `nut` is where each string starts ringing
+  const short = inst.strings.filter((m, s) => startFret(inst, s)).length;
+  const nut = (s) => startFret(inst, s) + c;
   let cellAt, rulerAt, labelAt, capoAt;
   if (vertical) {
     els.neck.style.gridTemplateColumns = `var(--label-w) repeat(${n}, minmax(0, 1fr))`;
     cellAt = (s, f) => `grid-row:${f + 2};grid-column:${s + 2}`;
     rulerAt = (f) => `grid-row:${f + 2};grid-column:1`;
     labelAt = (s) => `grid-row:1;grid-column:${s + 2}`;
-    capoAt = `grid-row:${c + 2};grid-column:2 / span ${n}`;
+    capoAt = `grid-row:${c + 2};grid-column:${short + 2} / span ${n - short}`;
   } else {
     els.neck.style.gridTemplateColumns = `var(--label-w) var(--open-w) repeat(${N}, minmax(var(--cell-w), 1fr))`;
     cellAt = (s, f) => `grid-row:${n - s + 1};grid-column:${f + 2}`;
     rulerAt = (f) => `grid-row:1;grid-column:${f + 2}`;
     labelAt = (s) => `grid-row:${n - s + 1};grid-column:1`;
-    capoAt = `grid-row:2 / span ${n};grid-column:${c + 2}`;
+    capoAt = `grid-row:2 / span ${n - short};grid-column:${c + 2}`;
   }
   // Vertical: the open-string row is 3px taller, since the nut is 3px thicker
   // than a fret wire; its notes get as much room as any other
@@ -1681,7 +1750,7 @@ function renderNeck(ch, sc) {
   const shapeAt = new Map();
   if (ch && ch.shape) {
     ch.shape.frets.forEach((f, s) => {
-      if (f >= 0) shapeAt.set(`${s}:${f + c}`, ch.degOfPc.get(mod12(inst.strings[s] + c + f)));
+      if (f >= 0) shapeAt.set(`${s}:${shapeNeckFret(inst, s, f, c)}`, ch.degOfPc.get(mod12(inst.strings[s] + c + f)));
     });
   }
   const ghosts = ch && (state.allTones || !ch.shape);
@@ -1691,27 +1760,48 @@ function renderNeck(ch, sc) {
   const onlyScale = Boolean(sc && state.scaleOnly);
   ui.groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
 
-  // One octave number per octave, on its first cell: the lowest-listed
-  // string that reaches that octave, at its lowest fret (open strings
-  // included). That is the bottom-left of the band on the horizontal neck
-  // and its top-left on the vertical one. C4 = middle C, as on the piano.
-  const octaveOf = (s, f) => Math.floor((inst.strings[s] + f) / 12) - 1;
+  // One octave number per shaded band, on its first cell you can play: the
+  // lowest-listed string in the band, at its lowest fret not behind the capo
+  // (open strings included; a band wholly behind the capo keeps it on its
+  // first cell, faded with it). That is the bottom-left of the band on the
+  // horizontal neck and its top-left on the vertical one. An octave can make
+  // two separate bands (a ukulele's high G, a banjo's drone): each gets its
+  // number. C4 = middle C, as on the piano.
+  const octaveOf = (s, f) => Math.floor(fretPitch(inst, s, f) / 12) - 1;
   const octaveLabels = new Set();
   if (state.octaves) {
-    const best = new Map();   // octave → { s, f }
+    // Scanning string by string, fret by fret, the first cell met of a band
+    // starts it: gather the whole band (cells of the same octave touching
+    // along a string or across to the next string), then label it
+    const seen = new Set();
+    const onNeck = (s, f) => s >= 0 && s < n && f >= startFret(inst, s) && f <= N;
+    const before = (x, y) => x[0] - y[0] || x[1] - y[1];   // string, then fret
     inst.strings.forEach((open, s) => {
-      for (let f = 0; f <= N; f++) {
+      for (let f = startFret(inst, s); f <= N; f++) {
+        if (seen.has(`${s}:${f}`)) continue;
         const o = octaveOf(s, f);
-        const b = best.get(o);
-        if (!b || s < b.s || (s === b.s && f < b.f)) best.set(o, { s, f });
+        const band = [[s, f]];
+        seen.add(`${s}:${f}`);
+        for (let i = 0; i < band.length; i++) {
+          const [a, g] = band[i];
+          for (const [x, y] of [[a, g - 1], [a, g + 1], [a - 1, g], [a + 1, g]]) {
+            if (!onNeck(x, y) || seen.has(`${x}:${y}`) || octaveOf(x, y) !== o) continue;
+            seen.add(`${x}:${y}`);
+            band.push([x, y]);
+          }
+        }
+        const playable = band.filter(([x, y]) => y >= nut(x)).sort(before);
+        const [ls, lf] = playable.length ? playable[0] : [s, f];
+        octaveLabels.add(`${ls}:${lf}`);
       }
     });
-    for (const b of best.values()) octaveLabels.add(`${b.s}:${b.f}`);
   }
 
   const html = [];
+  const singleDots = inst.dots ? inst.dots.single : SINGLE_DOTS;
+  const doubleDots = inst.dots ? inst.dots.double : DOUBLE_DOTS;
   for (let f = 1; f <= N; f++) {
-    const dots = DOUBLE_DOTS.includes(f) ? 2 : SINGLE_DOTS.includes(f) ? 1 : 0;
+    const dots = doubleDots.includes(f) ? 2 : singleDots.includes(f) ? 1 : 0;
     const label = f === c && !vertical ? 'Capo' : `${f}${'<i></i>'.repeat(dots)}`;
     const title = f === c ? ` title="Capo on fret ${f}"` : '';
     html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : ''}" style="${rulerAt(f)}"${title}>${label}</div>`);
@@ -1720,13 +1810,24 @@ function renderNeck(ch, sc) {
   inst.strings.forEach((open, s) => {
     const sw = Math.min(3.2, Math.max(1, (72 - open) / 10)).toFixed(1);
     const num = stringNumber(s);
-    html.push(`<div class="slabel" style="${labelAt(s)}" title="String ${num}">${num}</div>`);
+    const start = startFret(inst, s);
+    const stop = start ? 'spike' : 'capo';   // what holds the string down past its start
+    // A short string's number sits just before where it starts, as the
+    // others sit just before the nut
+    html.push(start
+      ? `<div class="slabel short" style="${cellAt(s, start - 1)}" title="String ${num}">${num}</div>`
+      : `<div class="slabel" style="${labelAt(s)}" title="String ${num}">${num}</div>`);
     for (let f = 0; f <= N; f++) {
-      const midi = open + f;
+      const mark = singleDots.includes(f) || doubleDots.includes(f);
+      // Before a short string starts there is no fingerboard: nothing to show
+      if (f < start) {
+        html.push(`<div class="cell no-string" data-s="${s}" data-f="${f}" style="${cellAt(s, f)}" aria-hidden="true"></div>`);
+        continue;
+      }
+      const midi = fretPitch(inst, s, f);
       const pc = mod12(midi);
       const key = `${s}:${f}`;
-      const mark = SINGLE_DOTS.includes(f) || DOUBLE_DOTS.includes(f);
-      const where = f === 0 ? `string ${num}, open` : `string ${num}, fret ${f}`;
+      const where = f === start ? `string ${num}, open` : `string ${num}, fret ${f}`;
       // Each pill is spelled by its role: chord notes as in the chord, scale
       // notes as in the scale, other notes in the key's direction
       let cls = 'note';
@@ -1734,9 +1835,9 @@ function renderNeck(ch, sc) {
       let deg = null;
       let badge = '';   // chord notes: interval in a small corner badge, note name in the pill
 
-      if (f < c) {
+      if (f < nut(s)) {
         cls += ' plain';   // behind the capo: shown for reference, but cannot be played
-      } else if (f === c && ch && ch.shape && ch.shape.frets[s] < 0) {
+      } else if (f === nut(s) && ch && ch.shape && ch.shape.frets[s] < 0) {
         cls += ' mute';
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
@@ -1752,12 +1853,12 @@ function renderNeck(ch, sc) {
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
       if (cls.includes(' off-key')) title += `, not in ${sc.rootName} ${sc.def.short}`;
-      if (f < c) title += ', behind the capo';
+      if (f < nut(s)) title += `, behind the ${stop}`;
       if (cls.includes(' mute')) title = `String ${num} not played`;
       const octave = octaveOf(s, f);
       const empty = onlyScale && cls.includes(' out');
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
-        `${f < c ? ' behind' : ''}${c && f === c ? ' capo' : ''}${empty ? ' empty' : ''}`;
+        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}${empty ? ' empty' : ''}`;
       const inner = cls.includes(' mute') ? MUTE_ICON : tx(text);
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
       html.push(
@@ -1767,14 +1868,20 @@ function renderNeck(ch, sc) {
       );
     }
   });
-  // The capo clamps all strings just behind its fret wire
+  // The capo clamps all strings just behind its fret wire (a banjo's drone:
+  // a spike holds it down the same number of frets past its start)
   if (c) {
     html.push(`<div class="capo-bar" style="${capoAt}" ` +
       `title="Place the capo here, just behind fret ${c}" aria-hidden="true"></div>`);
+    inst.strings.forEach((m, s) => {
+      if (startFret(inst, s)) html.push(`<div class="capo-bar spike" style="${cellAt(s, nut(s))}" aria-hidden="true"></div>`);
+    });
   }
-  // Barres: a pink band behind the notes the finger lies across
+  // Barres: a pink band behind the notes the finger lies across (a drone
+  // ringing beside the shape does not stop a barre)
   if (ch && ch.shape) {
-    for (const { fret, from, to } of barresFor(ch.shape.frets)) {
+    const fretted = ch.shape.frets.map((f, s) => (startFret(inst, s) ? -1 : f));
+    for (const { fret, from, to } of barresFor(fretted)) {
       const at = vertical ? `grid-row:${fret + c + 2};grid-column:${from + 2} / ${to + 3}`
         : `grid-column:${fret + c + 2};grid-row:${n - to + 1} / ${n - from + 2}`;
       html.push(`<div class="barre" style="${at};--k:${to - from + 1}" aria-hidden="true"><i></i></div>`);
@@ -1953,11 +2060,11 @@ function renderChordPanel(ch, sc) {
   els.chordTones.innerHTML = notes.map((x) => {
     const deg = ch.degOfPc.get(mod12(x.midi));
     const name = pitchText(x.midi, ch.spell.names.get(mod12(x.midi)));
-    const open = c ? 'capo' : 'open';
+    const open = c && !startFret(inst, x.s) ? 'capo' : 'open';   // a banjo's drone rings open past its spike
     const loc = x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
     const off = offKey(x.midi);
     return `<li class="np-note${deg === 'R' ? ' root' : ''}${off ? ' off-key' : ''}" data-midi="${x.midi}" data-s="${x.s}" ` +
-      `data-f="${x.f + c}" title="Click to hear ${esc(name)}${off ? `, not in ${sc.rootName} ${sc.def.short}` : ''}">` +
+      `data-f="${shapeNeckFret(inst, x.s, x.f, c)}" title="Click to hear ${esc(name)}${off ? `, not in ${sc.rootName} ${sc.def.short}` : ''}">` +
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
       `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
