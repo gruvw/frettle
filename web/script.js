@@ -631,6 +631,144 @@ function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
+/* Shareable links. The address holds what is on the neck, so it can be
+   shared, bookmarked or reloaded as it is:
+     ?instrument=guitar&tuning=drop-d&capo=2&chord=A-m7&voicing=1
+     &shape=x-0-2-0-1-0&scale=A-minor-pentatonic
+   Only what differs from the defaults is written (the instrument always).
+   How you like to see the neck (left-handed, flats, octaves, the switches)
+   stays yours: it is not in the link. A shape is written as its frets, so a
+   link keeps showing the same shape even if the shape list changes. */
+const LINK_KEYS = ['instrument', 'tuning', 'capo', 'chord', 'voicing', 'shape', 'scale'];
+const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
+const linkNote = (n) => LETTERS[n.letter] + (n.acc > 0 ? '#'.repeat(n.acc) : 'b'.repeat(-n.acc));
+function parseLinkNote(text) {   // "A", "Bb", "F#" (or "Fs", "F♯") → pitch class
+  const m = /^([A-Ga-g])([#s♯]{1,2}|[b♭]{1,2})?$/.exec(text || '');
+  if (!m) return null;
+  const acc = m[2] ? (/[#s♯]/.test(m[2]) ? 1 : -1) * m[2].length : 0;
+  return mod12(LETTER_PC[LETTERS.indexOf(m[1].toUpperCase())] + acc);
+}
+const linkFrets = (frets) => frets.map((f) => (f < 0 ? 'x' : f)).join('-');
+/* "A-minor-pentatonic" → { root, id } (ids may contain hyphens, roots do not) */
+function parseLinkPair(text) {
+  const m = /^([^-]+)-(.+)$/.exec(text || '');
+  const root = m && parseLinkNote(m[1]);
+  return root === null || !m ? null : { root, id: m[2] };
+}
+
+function linkParams() {
+  const p = new URLSearchParams();
+  const inst = instrument();
+  p.set('instrument', state.instrument);
+  if (inst.tuning && inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
+  if (capo()) p.set('capo', String(capo()));
+  if (state.chord.on) {
+    const def = findChord(state.chord.type);
+    p.set('chord', `${linkNote(chordSpelling(state.chord.root, def).root)}-${def.id}`);
+    const voicing = state.voicing[state.instrument];
+    if (voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
+    const ch = currentChord();
+    if (ch && ch.shape && ch.index > 0) p.set('shape', linkFrets(ch.shape.frets));
+  }
+  if (state.scale.on) {
+    const def = findScale(state.scale.type);
+    p.set('scale', `${linkNote(scaleSpelling(state.scale.root, def).root)}-${def.id}`);
+  }
+  return p;
+}
+
+/* Opened from a link: show what it holds, and nothing left over from your
+   last visit (no chord, scale or capo unless the link has one). Returns
+   false for an address without a link. */
+function applyLink(search) {
+  const p = new URLSearchParams(search);
+  if (!LINK_KEYS.some((k) => p.has(k))) return false;
+  // A link without an instrument (written by hand) shows on yours, as you tuned it
+  if (findInstrument(p.get('instrument'))) {
+    state.instrument = p.get('instrument');
+    const tunings = TUNINGS[state.instrument];
+    if (tunings) state.tuning[state.instrument] = tunings.some((t) => t.id === p.get('tuning')) ? p.get('tuning') : 'standard';
+  }
+  const c = Number(p.get('capo') || 0);
+  state.capo = Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : 0;
+  const chord = parseLinkPair(p.get('chord'));
+  if (chord && findChord(chord.id) && findChord(chord.id).id === chord.id) state.chord = { on: true, root: chord.root, type: chord.id };
+  else state.chord.on = false;
+  state.voicing[state.instrument] = VOICINGS.includes(p.get('voicing')) ? p.get('voicing') : DEFAULT_VOICING[state.instrument];
+  const scale = parseLinkPair(p.get('scale'));
+  if (scale && findScale(scale.id) && findScale(scale.id).id === scale.id) state.scale = { on: true, root: scale.root, type: scale.id };
+  else state.scale.on = false;
+  state.shape = 0;
+  const ch = state.chord.on && p.get('shape') ? currentChord() : null;
+  const at = ch ? ch.shapes.findIndex((shape) => linkFrets(shape.frets) === p.get('shape')) : -1;
+  if (at > 0) state.shape = at;
+  return true;
+}
+
+/* Keep the address in step with the neck, right away (a reload shows what
+   you just picked). Safari refuses too many address updates in a row: then
+   it is tried again a moment later. */
+let linkRetry = 0;
+function syncLink() {
+  if (typeof history === 'undefined' || !history.replaceState) return;
+  clearTimeout(linkRetry);
+  const query = `?${linkParams()}`;
+  if (query === location.search) return;
+  try { history.replaceState(history.state, '', `${location.pathname}${query}${location.hash}`); } catch {
+    linkRetry = setTimeout(syncLink, 1000);
+  }
+}
+
+/* A line for the share sheet: "Am7 over A minor pentatonic, on guitar (capo 2)" */
+function linkSummary() {
+  const ch = currentChord();
+  const sc = currentScale();
+  const what = [ch && ch.symbol, sc && `${sc.rootName} ${sc.def.name.replace(/ \(.*\)$/, '').toLowerCase()}`].filter(Boolean).join(' over ');
+  const inst = instrument();
+  const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
+  return `${what || 'The neck'}, on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}`;
+}
+
+/* Share: the phone's share sheet, or copy the link. A copied link turns the
+   button's icon into a tick for a moment. */
+// Drawn 1 unit left of centre: its two dots on the right make it look right-heavy otherwise
+const SHARE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg>';
+const DONE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+async function shareLink() {
+  const url = new URL(`?${linkParams()}`, location.href).href;
+  if (navigator.share && window.matchMedia('(pointer: coarse)').matches) {
+    try { await navigator.share({ title: 'Frettle', text: linkSummary(), url }); } catch { /* closed */ }
+    return;
+  }
+  let copied = false;
+  try { await navigator.clipboard.writeText(url); copied = true; } catch {
+    const field = document.createElement('textarea');   // older browsers
+    field.value = url;
+    field.setAttribute('readonly', '');
+    field.style.cssText = 'position:fixed;opacity:0';
+    document.body.append(field);
+    field.select();
+    try { copied = document.execCommand('copy'); } catch { /* not allowed */ }
+    field.remove();
+  }
+  shareDone(copied ? 'Link copied' : 'Could not copy: copy the address to share this view', copied);
+}
+
+let shareTimer = 0;
+function shareDone(text, copied) {
+  els.shareStatus.textContent = text;
+  els.shareOpen.title = text;
+  els.shareOpen.classList.toggle('done', copied);
+  if (copied) els.shareOpen.innerHTML = `${DONE_ICON}<span class="btn-label">Copied</span>`;
+  clearTimeout(shareTimer);
+  shareTimer = setTimeout(() => {
+    els.shareOpen.classList.remove('done');
+    els.shareOpen.innerHTML = `${SHARE_ICON}<span class="btn-label">Share</span>`;
+    els.shareOpen.title = 'Share a link to what is on the neck';
+    els.shareStatus.textContent = '';
+  }, 1600);
+}
+
 let state = null;
 let shapeCache = { key: '', shapes: [] };
 
@@ -970,6 +1108,7 @@ function playNote(midi, delay = 0, level = 0.55) {
   src.connect(gain);
   gain.connect(a.out);
   src.start(a.ctx.currentTime + delay);
+  return src;
 }
 
 /* Light up a note on the neck while it sounds. */
@@ -1056,6 +1195,61 @@ function strum() {
   });
 }
 
+/* Play the scale once, low to high (root to octave), from its lowest root
+   you can play (above the capo), lighting each note in the Notes row. The
+   last note rings out. Pressing again stops it; so does picking another
+   scale. A note of the row can also be tapped to hear it. */
+const SCALE_GAP = 0.3;   // seconds between notes
+let scaleRun = null;     // { key, sources, timers }
+function scalePitches(sc) {   // the Notes row's pitches, root to octave
+  const low = Math.min(...instrument().strings) + capo();
+  const start = low + mod12(sc.root - low);
+  return [...sc.def.steps.map((step) => start + step), start + 12];
+}
+function pingScaleNote(i) {
+  const note = els.scaleNotes.querySelectorAll('.scale-note')[i];
+  if (!note) return;
+  note.classList.remove('ping');
+  void note.offsetWidth;   // restart the animation
+  note.classList.add('ping');
+}
+function playScale() {
+  if (scaleRun) { stopScale(); return; }
+  const sc = currentScale();
+  if (!sc) return;
+  const pitches = scalePitches(sc);
+  scaleRun = { key: scaleKey(sc), sources: [], timers: [] };
+  pitches.forEach((midi, i) => {
+    scaleRun.sources.push(playNote(midi, i * SCALE_GAP, 0.5));
+    scaleRun.timers.push(setTimeout(() => pingScaleNote(i), i * SCALE_GAP * 1000));
+  });
+  // Done once the last note has started: it rings on, and Play is back
+  scaleRun.timers.push(setTimeout(() => { scaleRun = null; renderPlayButton(); }, (pitches.length - 1) * SCALE_GAP * 1000 + 50));
+  renderPlayButton();
+}
+function stopScale() {
+  if (!scaleRun) return;
+  for (const src of scaleRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
+  for (const t of scaleRun.timers) clearTimeout(t);
+  scaleRun = null;
+  renderPlayButton();
+}
+function playScaleNote(i) {
+  const sc = currentScale();
+  if (!sc) return;
+  playNote(scalePitches(sc)[i]);
+  pingScaleNote(i);
+}
+const scaleKey = (sc) => (sc ? [sc.root, sc.def.id, instrument().strings, capo()].join('|') : '');
+const PLAY_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>';
+const STOP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+function renderPlayButton() {
+  const playing = Boolean(scaleRun);
+  els.scalePlay.innerHTML = `${playing ? STOP_ICON : PLAY_ICON}<span class="btn-label">${playing ? 'Stop' : 'Play'}</span>`;
+  els.scalePlay.setAttribute('aria-label', playing ? 'Stop the scale' : 'Play the scale');
+  els.scalePlay.title = playing ? 'Stop' : 'Play the scale, low to high';
+}
+
 /* ==========================================================================
    5. Rendering
    Phones (narrow): vertical neck, controls in a dock with tabs that open a
@@ -1065,7 +1259,7 @@ function strum() {
 const WIDE_QUERY = '(min-width: 900px), (orientation: landscape) and (min-width: 640px)';
 const wideMedia = typeof window !== 'undefined' ? window.matchMedia(WIDE_QUERY) : null;
 const isWide = () => Boolean(wideMedia && wideMedia.matches);
-const ui = { tab: null, shapeKey: null, groups: [] };   // open dock tab (phones), last shape shown
+const ui = { tab: null, shapeKey: null, groups: [], chordRoot: undefined };   // open dock tab (phones), last shape shown
 const els = {};
 /* Text for a pill or circle, wrapped so its capital letters can be centred
    exactly (see .tx in styles.css) */
@@ -1073,6 +1267,12 @@ const tx = (s) => `<span class="tx">${esc(s)}</span>`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function render() {
+  // While no scale is shown, its root follows the chord's: picking a scale
+  // type then gives the scale of the chord you are on (A minor pentatonic
+  // over A, not C). A root picked for the scale itself stays until the
+  // chord's root changes.
+  if (!state.scale.on && state.chord.root !== ui.chordRoot) state.scale.root = state.chord.root;
+  ui.chordRoot = state.chord.root;
   const ch = currentChord();
   const sc = currentScale();
   if (ch && ch.shapes.length) state.shape = ch.index;
@@ -1084,6 +1284,7 @@ function render() {
   renderScalePanel(sc, ch);
   renderDock(ch, sc);
   saveState();
+  syncLink();
   // Phones: when the shape changes, scroll the neck so it is in view
   const key = ch && ch.shape ? [instrument().strings, capo(), ch.symbol, tabOf(ch.shape)].join('|') : null;
   if (key && ui.shapeKey !== null && (key !== ui.shapeKey || ui.reveal)) revealShape();
@@ -1169,11 +1370,25 @@ function revealShape() {
    "Neck" tab on phones; the instrument menu in the neck's header, or above
    the neck on phones. */
 function placeSettings() {
-  const slot = isWide() ? els.settingsWideSlot : els.settingsNarrowSlot;
+  const wide = isWide();
+  const slot = wide ? els.settingsWideSlot : els.settingsNarrowSlot;
   if (els.settings.parentElement !== slot) slot.appendChild(els.settings);
   // The instrument menu: the neck's title on wide screens, above the neck on phones
-  const instSlot = isWide() ? els.instWideSlot : els.instNarrowSlot;
+  const instSlot = wide ? els.instWideSlot : els.instNarrowSlot;
   if (els.instrumentPicker.parentElement !== instSlot) instSlot.appendChild(els.instrumentPicker);
+  // Chord and scale switches: at the end of the panel's title row on wide screens,
+  // under the menus on phones. Play the scale: before Deselect on wide
+  // screens (as Strum is for chords), on the Notes line on phones.
+  const put = (el, parent, before = null) => { if (el.parentElement !== parent || el.nextElementSibling !== before) parent.insertBefore(el, before); };
+  if (wide) {
+    put(els.chordSwitches, els.chordHead);
+    put(els.scaleSwitches, els.scaleHead);
+    put(els.scalePlay, els.scaleBar, els.scaleClear);
+  } else {
+    put(els.chordSwitches, els.chordBar, els.chordStrum);
+    put(els.scaleSwitches, els.scaleBar, els.scaleClear);
+    put(els.scalePlay, els.notesLine);
+  }
 }
 
 /* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
@@ -1202,11 +1417,14 @@ function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
 function closePicker() {
   if (els.picker.close) els.picker.close(); else els.picker.removeAttribute('open');
 }
-/* The 12 roots, each spelled as it would be for the given chord or scale type;
-   `fits(pc)` marks the roots whose chord fits the scale */
-const rootItems = (spellRoot, fits = () => false) => [{ items: SHARP_NAMES.map((_, pc) => ({
-  value: pc, label: noteText(spellRoot(pc)), cls: fits(pc) ? 'fits' : '',
-})) }];
+/* The 12 roots, each spelled as it would be for the given chord or scale type,
+   with the other name of the black keys below (D♭ / C♯), as the neck may
+   use either; `fits(pc)` marks the roots whose chord fits the scale */
+const rootItems = (spellRoot, fits = () => false) => [{ items: SHARP_NAMES.map((_, pc) => {
+  const label = noteText(spellRoot(pc));
+  const other = [true, false].map((flats) => noteText(plainNote(pc, flats))).find((n) => n !== label);
+  return { value: pc, label, sub: LETTER_PC.includes(pc) ? '' : other, cls: fits(pc) ? 'fits' : '' };
+}) }];
 
 /* The chord's notes that are outside the shown scale: [] when it fits, null
    when there is no scale to compare with (none, or the chromatic scale). */
@@ -1253,7 +1471,9 @@ function renderDock(ch, sc) {
 
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
-  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) || instrument().short;
+  // What the Neck sheet sets: the capo if there is one, else the tuning
+  // (the instrument has its own menu above the neck)
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) || 'Standard';
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
@@ -1652,7 +1872,6 @@ function renderChordPanel(ch, sc) {
   if (!ch) {
     els.chordSymbol.textContent = '';
     els.chordSymbol.classList.remove('on');
-    els.chordMode.textContent = '';
     els.chordName.textContent = 'No chord selected';
     els.chordMeta.textContent = 'Pick a chord type, or tap a triad in the Scale panel.';
     els.chordAlt.textContent = '';
@@ -1669,7 +1888,6 @@ function renderChordPanel(ch, sc) {
   els.chordSymbol.textContent = ch.symbol;
   els.chordSymbol.classList.add('on');
   fitText(els.chordSymbol);
-  els.chordMode.textContent = 'Selected';
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
   const voicingLabel = ch.voicing === 'any' ? 'Any bass note' : INVERSION_NAMES[Number(ch.voicing)];
   const formula = ch.def.degrees.map((d) => fmtDeg(d === 'R' ? '1' : d)).join(' ');
@@ -1755,6 +1973,8 @@ function renderScalePanel(sc, ch) {
   els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc;
   els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
 
+  if (scaleRun && scaleRun.key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
+  els.scalePlay.disabled = !sc;
   if (!sc) {
     els.scaleNotes.innerHTML = '<li class="empty-text" style="grid-row:1">No scale selected</li>';
     els.scaleTriads.innerHTML = '<span class="empty-text">Pick a scale type</span>';
@@ -1763,12 +1983,12 @@ function renderScalePanel(sc, ch) {
 
   const parts = [];
   sc.spell.notes.forEach((n, i) => {
-    parts.push(`<li class="scale-note${i === 0 ? ' root' : ''}">${tx(noteText(n))}</li>`);
+    parts.push(`<li><button type="button" class="scale-note${i === 0 ? ' root' : ''}" data-i="${i}" title="Hear ${esc(noteText(n))}">${tx(noteText(n))}</button></li>`);
     const next = i + 1 < sc.def.steps.length ? sc.def.steps[i + 1] : 12;
     const gap = next - sc.def.steps[i];
     parts.push(`<li class="scale-gap" aria-label="${gap} semitones"><span>${STEP_NAMES[gap] || gap}</span></li>`);
   });
-  parts.push(`<li class="scale-note octave">${tx(sc.rootName)}</li>`);
+  parts.push(`<li><button type="button" class="scale-note octave" data-i="${sc.def.steps.length}" title="Hear ${esc(sc.rootName)}, an octave up">${tx(sc.rootName)}</button></li>`);
   els.scaleNotes.innerHTML = parts.join('');
 
   const triads = scaleTriads(sc);
@@ -1834,19 +2054,27 @@ function scaleTriads(sc) {
    ========================================================================== */
 function init() {
   for (const id of ['instrumentPicker', 'tuningSelect', 'neck', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
-    'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordMode', 'chordName', 'chordMeta',
+    'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordName', 'chordMeta',
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
-    'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose']) {
+    'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay']) {
     els[id] = document.getElementById(id);
   }
   els.dockBar = document.querySelector('.dock-bar');
+  els.chordBar = document.querySelector('.chord-bar');
+  els.scaleBar = document.querySelector('.scale-bar');
+  els.chordSwitches = els.chordBar.querySelector('.switch-row');
+  els.scaleSwitches = els.scaleBar.querySelector('.switch-row');
+  els.chordHead = document.querySelector('#panelChord .panel-head');
+  els.scaleHead = document.querySelector('#panelScale .panel-head');
+  els.notesLine = document.querySelector('.notes-line');
   els.tabs = [...document.querySelectorAll('.tab')];
   els.sheetPanels = [...els.sheet.querySelectorAll('.panel[data-tab]')];
   state = loadState();
+  applyLink(location.search);   // opened from a shared link
 
   // Instrument and tuning: popups, each tile showing the open strings
   els.instrumentPicker.addEventListener('click', () => openPicker({
@@ -2008,6 +2236,23 @@ function init() {
   });
   els.pickerClose.addEventListener('click', closePicker);
   // About popup: opened from the header, closed like the picker
+  els.shareOpen.addEventListener('click', shareLink);
+  els.scalePlay.addEventListener('click', playScale);
+  // A note of the Notes row: heard on press with a mouse, on release with a
+  // finger (so swiping the row to scroll it plays nothing), and with Enter
+  let pressedNote = null;
+  els.scaleNotes.addEventListener('pointerdown', (e) => {
+    const note = e.target.closest('.scale-note');
+    if (!note || e.pointerType === 'touch' || e.button > 0) return;
+    pressedNote = note;
+    playScaleNote(Number(note.dataset.i));
+  });
+  els.scaleNotes.addEventListener('click', (e) => {
+    const note = e.target.closest('.scale-note');
+    if (!note) return;
+    if (note === pressedNote) { pressedNote = null; return; }   // heard on press already
+    playScaleNote(Number(note.dataset.i));
+  });
   els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
   const closeAbout = () => { if (els.about.close) els.about.close(); else els.about.removeAttribute('open'); };
   els.aboutClose.addEventListener('click', closeAbout);

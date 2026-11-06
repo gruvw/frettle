@@ -62,6 +62,7 @@
        horizontal and the panels sit below it. -->
   <header class="top">
     <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
+    <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is on the neck" aria-label="Share"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
     <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog">About</button>
     <!-- Phones: the instrument menu sits here, centred above the neck -->
     <div id="instNarrowSlot" class="inst-slot"></div>
@@ -108,9 +109,9 @@
         <span aria-hidden="true"></span>
       </button>
 
-      <section class="panel" id="panelChord" data-tab="chord" aria-label="Chords">
+      <section class="panel" id="panelChord" data-tab="chord" aria-label="Chord">
         <div class="panel-head">
-          <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i>Chords</h2>
+          <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span></h2>
           <span id="shapeCount" class="status chord-count" hidden></span>
         </div>
 
@@ -141,7 +142,6 @@
           <div class="np-head">
             <div id="chordSymbol" class="np-symbol"></div>
             <div class="np-desc">
-              <div id="chordMode" class="label np-mode"></div>
               <div id="chordName" class="np-title"></div>
               <div id="chordMeta" class="np-meta"></div>
               <div id="chordAlt" class="np-alt"></div>
@@ -164,13 +164,13 @@
         <div id="recentLine" class="line recent-line" hidden>
           <span class="label">Recent</span>
           <ol id="recentList" class="recent-chips" aria-label="Recent chords"></ol>
-          <button type="button" id="recentClear" class="btn small" title="Clear the recent chords">Clear</button>
+          <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg>Clear</button>
         </div>
       </section>
 
       <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
         <div class="panel-head">
-          <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</h2>
+          <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span></h2>
         </div>
         <div class="bar scale-bar">
           <div class="field root">
@@ -187,7 +187,7 @@
               <span class="pill-dot" aria-hidden="true"></span>Only scale notes
             </button>
             <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
-                    title="Outline the scale in hand-sized groups: 3 notes per string (2 for pentatonic scales)">
+                    title="Outline the scale in hand-sized groups of a few notes per string">
               <span class="pill-dot" aria-hidden="true"></span>Groups
             </button>
           </div>
@@ -196,6 +196,7 @@
         <div class="line notes-line">
           <span class="label">Notes</span>
           <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
+          <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
         </div>
         <div class="line">
           <span class="label">Triads</span>
@@ -229,11 +230,11 @@
       </div>
       <nav class="tabs" aria-label="Panels">
         <button type="button" class="tab" data-tab="chord" aria-pressed="false">
-          <span class="tab-label"><i class="swatch swatch-chord" aria-hidden="true"></i>Chord</span>
+          <span class="tab-label"><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span></span>
           <span id="tabChordValue" class="tab-value"></span>
         </button>
         <button type="button" class="tab" data-tab="scale" aria-pressed="false">
-          <span class="tab-label"><i class="swatch swatch-scale" aria-hidden="true"></i>Scale</span>
+          <span class="tab-label"><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span></span>
           <span id="tabScaleValue" class="tab-value"></span>
         </button>
         <button type="button" class="tab" data-tab="neck" aria-pressed="false">
@@ -276,5 +277,6 @@
   </dialog>
 
   <script src="script.js" defer></script>
+  <span id="shareStatus" class="sr-only" role="status" aria-live="polite"></span>
 </body>
 </html>

@@ -153,14 +153,18 @@ kbd {
 .top {
   padding: var(--sp-4) var(--gutter) var(--sp-2);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "title about" "inst inst";
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: "title share about" "inst inst inst";
   gap: var(--sp-3);
   align-items: center;
 }
 .top h1 { grid-area: title; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .h1-sub { display: none; margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 500; color: var(--muted); letter-spacing: 0; }   /* shown on wide screens */
 .about-btn { grid-area: about; justify-self: end; }
+.share-btn { grid-area: share; }
+.share-btn.done { color: var(--accent); border-color: var(--accent); }   /* a tick for a moment: link copied */
+/* Read out by screen readers only */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; }
 
 /* About popup: the picker's look, sized to its one line */
@@ -240,7 +244,10 @@ kbd {
 .field.grow { flex: 1 1 150px; }
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
-.chord-bar .voicing { flex-basis: calc(100% - var(--control-h) - var(--sp-3) - 1px); }   /* its own row, with ✕ (never ✕ alone on a row) */
+/* Phones: Root, Chord and ✕ on the first row (like the scale's; Chord
+   gives way), Voicing on a row of its own */
+.chord-bar .field.grow { flex-basis: 0; }
+.chord-bar .field.grow.voicing { order: 2; flex-basis: 100%; }
 .bar .push-right { margin-left: 0; }
 /* Scale switches. Phones: Root, Type and ✕ on the first row, the two
    switches as equal buttons on a row of their own. Wide screens: everything
@@ -309,13 +316,14 @@ kbd {
 .btn:not(:disabled):active { filter: brightness(1.15); }
 
 .select-btn:focus-visible, .pick:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible,
-.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, a:focus-visible {
+.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 /* Switch-style toggles and the capo button (the neck settings) */
-.settings { display: grid; gap: var(--sp-2); }
+.settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
+.settings .select-btn, .settings #tglLefty { grid-column: 1 / -1; }   /* menus, and the last switch, full width */
 .settings-slot:empty { display: none; }
 .pill-toggle {
   display: inline-flex;
@@ -378,7 +386,7 @@ kbd {
 .status.warn { color: var(--warn); border-color: var(--warn); }
 .status.warn::before { background: var(--warn); }
 
-/* Chips: shapes and triads (one style, pink when selected) */
+/* Chips: shapes, triads and recent chords (one style, pink when selected) */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -387,7 +395,7 @@ kbd {
   padding: 0 var(--sp-3);
   border: 0;
   border-radius: var(--r-pill);
-  background: var(--accent-soft);
+  background: var(--kbd-bg);
   color: var(--text);
   font: 700 var(--fs-sm)/1 var(--font);
   white-space: nowrap;
@@ -598,7 +606,12 @@ kbd {
   0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
   100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
 }
-.note.ping { animation: ping 450ms ease-out; }
+.note.ping, .scale-note.ping { animation: ping 450ms ease-out; }
+.scale-note.octave.ping { animation-name: ping-octave; }   /* keeps its ring */
+@keyframes ping-octave {
+  0% { box-shadow: inset 0 0 0 2px var(--scale), 0 0 0 0 var(--warn); transform: scale(1.18); }
+  100% { box-shadow: inset 0 0 0 2px var(--scale), 0 0 0 10px transparent; transform: scale(1); }
+}
 
 /* ==========================================================================
    Chords panel
@@ -621,7 +634,7 @@ kbd {
   place-items: center;
   padding: 0 var(--sp-2);
   border-radius: var(--r-lg);
-  background: var(--accent-soft);
+  background: var(--kbd-bg);
   color: var(--muted);
   font: 800 var(--fs-display)/1 var(--font);
   white-space: nowrap;
@@ -631,7 +644,6 @@ kbd {
 
 .np-desc { display: grid; gap: 2px; min-width: 0; }
 .np-desc > div { min-height: 1.4em; overflow: hidden; text-overflow: ellipsis; }
-.np-mode { color: var(--chord); }
 .np-title { font-size: var(--fs-lg); font-weight: 700; white-space: nowrap; }
 .np-meta { font-size: var(--fs-sm); }
 .np-alt { font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
@@ -736,8 +748,11 @@ kbd {
 /* Scale notes on the top line, each step under the gap it describes */
 .scale-chain {
   list-style: none;
-  margin: 0 0 calc(-1 * var(--scroll-gap));
-  padding: 4px 4px var(--scroll-gap);   /* room for the root's ring and the scrollbar */
+  /* Room around the notes for the root's ring and a note's glow while it
+     sounds (the row clips what sticks out), taken back by the margins; and
+     for the scrollbar below */
+  margin: -10px 0 calc(-1 * var(--scroll-gap)) -10px;
+  padding: 14px 14px var(--scroll-gap) 14px;
   display: grid;
   grid-auto-flow: column;
   grid-template-rows: var(--chip-h) 18px;
@@ -748,8 +763,9 @@ kbd {
   overflow-x: auto;
   overflow-y: hidden;
 }
-.scale-note {
-  grid-row: 1;
+.scale-chain > li { grid-row: 1; display: flex; }
+.scale-chain > .scale-gap { grid-row: 1 / 3; }
+.scale-note {   /* a button: tap to hear it */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -759,11 +775,22 @@ kbd {
   border-radius: var(--r-pill);
   background: var(--scale);
   color: var(--scale-text);
+  border: 0;
   font: 700 var(--fs-sm)/1 var(--font);
+  cursor: pointer;
 }
 .scale-note.root { outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
 .scale-note.octave { background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }
 .scale-gap { grid-row: 1 / 3; align-self: end; width: 22px; display: flex; justify-content: center; }
+/* Play the scale, styled like Strum. Phones: a compact button on the
+   "Notes" label's line, so the notes keep the whole width below. Wide
+   screens: after the notes, centred on them and their steps. */
+.notes-line > .label { flex: 1 0 auto; }
+.notes-line .scale-play { order: 1; position: relative; z-index: 1; flex: none; height: var(--chip-h); padding: 0 12px; font-size: var(--fs-sm); }
+.notes-line .scale-play .btn-label { display: inline; }
+.notes-line .scale-play .ico { width: 14px; height: 14px; }
+.notes-line .scale-chain { order: 2; flex: 1 0 100%; }
+
 .scale-gap > span { font-size: var(--fs-xs); font-weight: 800; line-height: 18px; color: var(--muted); white-space: nowrap; }
 
 /* Thin, rounded scrollbars for the sideways-scrolling rows */
@@ -813,7 +840,7 @@ kbd {
   scrollbar-width: none;
 }
 .recent-chips::-webkit-scrollbar { display: none; }
-.chip.recent { height: var(--recent-h); padding: 0 14px; background: var(--kbd-bg); }
+.chip.recent { height: var(--recent-h); padding: 0 14px; }
 .chip.recent.selected { background: var(--chord); color: var(--chord-text); }
 /* Phones: a little tighter, so eight short chords fit on most screens */
 .dock-recent .recent-chips { gap: 5px; }
@@ -1095,7 +1122,10 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 
 /* Root picker: a grid of the 12 notes */
 .picker-grid.roots { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.roots .pick { height: 48px; justify-items: center; padding: 0; font-size: var(--fs-lg); font-weight: 700; }
+.roots .pick { position: relative; height: 56px; justify-items: center; padding: 0; font-size: var(--fs-lg); font-weight: 700; }
+/* The other name of a black key (D♭ / C♯), tucked under the name, so every
+   tile's main name sits at the same height */
+.roots .pick .pick-sub { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1; }
 
 /* ==========================================================================
    Hover effects only where there is a real pointer (no "stuck" hover after
@@ -1140,18 +1170,24 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn.wide-only { display: inline-flex !important; }
   .narrow-only { display: none !important; }
 
-  /* Header: title | About */
+  /* Header: title | Share | About */
+  /* Title bar: as wide as the neck under it (the top of the page reads as
+     one block); the panels below keep their narrower column */
   .top {
-    max-width: 1120px;
+    max-width: 1400px;
+    width: calc(100% - 40px);
     margin: 0 auto;
-    padding-top: 28px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "title about";
+    padding: 28px 0 var(--sp-2);
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "title share about";
   }
   .inst-slot { display: none; }
   .h1-sub { display: inline; }
   .btn.deselect { width: auto; padding: 0 14px; }
   .btn-label { display: inline; }
+  .btn.share-btn { width: auto; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play */
+  .notes-line > .label { flex: none; }
+  .notes-line .scale-chain { order: 0; flex: 1 1 auto; }
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }
@@ -1166,11 +1202,16 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 
   /* Settings as a row of compact pills in the neck's header */
   .settings, .switch-row { display: flex; flex-wrap: wrap; align-items: center; }
-  .switch-row { order: 3; flex: 0 1 auto; margin: 0 0 2px auto; }   /* level with the menus (36px vs 32px pills) */
   .switch-row .pill-toggle { padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); }
+  /* Chord and scale switches at the right end of the panel's title row
+     (moved there by placeSettings), the shape count next to the title */
+  .sheet .panel-head { justify-content: flex-start; }
+  .panel-head .switch-row { order: 0; flex: none; margin: 0 0 0 auto; gap: var(--sp-2); }
+  /* Scale bar: Root, Type, then Play and Deselect at the end (as Strum and
+     Deselect are on the chord bar) */
+  .scale-bar .scale-play { order: 3; margin-left: auto; }
   .scale-bar .deselect { order: 4; }
   .scale-bar .push-right { margin-left: 0; }
-  .chord-bar .switch-row { order: 0; margin-left: 0; }   /* after Voicing, before Strum */
   .pill-toggle { height: 32px; padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); font-size: var(--fs-sm); }
   .pill-select {
     width: auto;
@@ -1211,7 +1252,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   /* Chords panel: description and notes side by side */
   .np-body { grid-template-columns: minmax(0, 400px) minmax(0, 1fr); align-items: center; gap: var(--sp-4) var(--sp-5); }
   .np-symbol { width: 140px; height: 96px; }
-  .chord-bar .voicing { flex-basis: 170px; }
+  .chord-bar .field.grow { flex-basis: 150px; }
+  .chord-bar .field.grow.voicing { order: 0; flex-basis: 170px; }
   .shapes-line { display: flex; }
   .recent-line:not([hidden]) { display: flex; }
   .chord-count:not([hidden]) { display: inline-flex; }
@@ -1227,19 +1269,18 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 
   /* When a bar is too narrow for one row (landscape phones, small windows),
      it breaks into two clean rows instead of leaving Deselect alone on the
-     second: the menus first, then the switches and buttons.
+     second: the menus first, then the buttons, on the right.
      The two widths are each bar's one-row width with today's labels (CSS
-     cannot take them from variables): renaming a switch or a button, or
-     adding one, means measuring them again. */
+     cannot take them from variables): renaming a button, or adding one,
+     means measuring them again. */
   .chord-bar, .scale-bar { container-type: inline-size; }
-  @container (max-width: 930px) {
-    .chord-bar .field.grow { flex: 1 1 calc((100% - var(--root-w) - 2 * var(--sp-3)) / 2 - 1px); }
-    .chord-bar .switch-row { margin-left: auto; }   /* the second row sits right, like the scale's */
+  @container (max-width: 770px) {
+    .chord-bar .field.grow, .chord-bar .field.grow.voicing { flex: 1 1 calc((100% - var(--root-w) - 2 * var(--sp-3)) / 2 - 1px); }
+    .chord-bar #chordStrum { margin-left: auto; }
   }
-  @container (max-width: 755px) {
+  @container (max-width: 590px) {
     .scale-bar .field.scale-type { flex: 1 1 calc(100% - var(--root-w) - var(--sp-3) - 1px); }
     .scale-bar .field.scale-type .select-btn { width: 100%; }
-    .scale-bar .switch-row { flex: 1 1 auto; justify-content: flex-end; }
   }
 }
 
