@@ -38,7 +38,8 @@ const INSTRUMENTS = [
     dots: { single: [3, 5, 7, 10, 15, 17, 19, 22], double: [12] } },
 ];
 /* Other tunings, for the instruments that have common ones; the first is the
-   standard tuning. `flats`: write its notes with flats (E♭ standard). */
+   standard tuning. `flats`: write its notes with flats (E♭ standard). `short`:
+   for the Neck tab on phones, when the name is too long for it. */
 const TUNINGS = {
   guitar7: [
     { id: 'standard', name: 'Standard', strings: [35, 40, 45, 50, 55, 59, 64] },
@@ -51,8 +52,8 @@ const TUNINGS = {
   guitar: [
     { id: 'standard', name: 'Standard', strings: [40, 45, 50, 55, 59, 64] },
     { id: 'drop-d', name: 'Drop D', strings: [38, 45, 50, 55, 59, 64] },
-    { id: 'half-down', name: 'Half step down', strings: [39, 44, 49, 54, 58, 63], flats: true },
-    { id: 'whole-down', name: 'Whole step down', strings: [38, 43, 48, 53, 57, 62] },
+    { id: 'half-down', name: 'Half step down', short: 'Half down', strings: [39, 44, 49, 54, 58, 63], flats: true },
+    { id: 'whole-down', name: 'Whole step down', short: 'Whole down', strings: [38, 43, 48, 53, 57, 62] },
     { id: 'drop-c', name: 'Drop C', strings: [36, 43, 48, 53, 57, 62] },
     { id: 'dadgad', name: 'DADGAD', strings: [38, 45, 50, 55, 57, 62] },
     { id: 'open-g', name: 'Open G', strings: [38, 43, 50, 55, 59, 62] },
@@ -68,7 +69,7 @@ const TUNINGS = {
     { id: 'standard', name: 'Open G (standard)', strings: [67, 50, 55, 59, 62] },
     { id: 'double-c', name: 'Double C', strings: [67, 48, 55, 60, 62] },
     { id: 'c', name: 'C tuning', strings: [67, 48, 55, 59, 62] },
-    { id: 'g-modal', name: 'G modal (Sawmill)', strings: [67, 50, 55, 60, 62] },
+    { id: 'g-modal', name: 'G modal (Sawmill)', short: 'G modal', strings: [67, 50, 55, 60, 62] },
     { id: 'open-d', name: 'Open D', strings: [66, 50, 54, 57, 62] },
   ],
 };
@@ -1545,7 +1546,8 @@ function renderDock(ch, sc) {
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
   // What the Neck sheet sets: the capo if there is one, else the tuning
   // (the instrument has its own menu above the neck)
-  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) || 'Standard';
+  const tuning = instrument().tuning;
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));

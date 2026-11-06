@@ -494,7 +494,7 @@ kbd {
   position: absolute;
   z-index: 3;
   top: 2px;
-  inset-inline-start: 2px;
+  left: 2px;   /* clear of the interval badge (top-right) and the capo (bottom, or the right end) */
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
@@ -505,6 +505,8 @@ kbd {
   text-align: center;
   pointer-events: none;
 }
+/* Left-handed and across, the capo sits at the cell's left end */
+.lefty .neck.horizontal .oct { top: auto; bottom: 2px; left: auto; right: 2px; }
 
 /* Barre: a pink band behind the notes one finger lies across, from the
    middle of the first note to the middle of the last (--k strings) */
