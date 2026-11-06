@@ -572,7 +572,7 @@ function defaultState() {
     octaves: false,
     tuning: {},                       // tuning id per instrument that has several
     chord: { on: true, root: 0, type: 'maj' },
-    recent: {},                       // recently used chords per instrument [{ root, type, shape }]
+    recent: [],                       // recently used chords [{ root, type, shapes }], shared by all instruments
     capo: 0,                          // fret of the capo, 0 = none (all instruments)
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
@@ -596,13 +596,18 @@ function loadState() {
     if (saved.chord && findChord(saved.chord.type)) {
       s.chord = { on: saved.chord.on !== false, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
     }
-    // Recent chords: a list per instrument (an older save had one list)
-    const lists = Array.isArray(saved.recent) ? { [s.instrument]: saved.recent } : saved.recent || {};
-    for (const [id, list] of Object.entries(lists)) {
-      if (!INSTRUMENTS.some((i) => i.id === id) || !Array.isArray(list)) continue;
-      s.recent[id] = list.filter((r) => r && findChord(r.type) && Number.isInteger(r.root)).slice(0, RECENT_MAX)
-        .map((r, i) => ({ root: mod12(r.root), type: r.type, used: -RECENT_MAX + i,
-          shape: Number.isInteger(r.shape) && r.shape >= 0 ? r.shape : 0, context: typeof r.context === 'string' ? r.context : '' }));
+    // Recent chords: one list (an older save had a list per instrument: they
+    // are merged, the current instrument's first)
+    const lists = Array.isArray(saved.recent) ? [saved.recent]
+      : saved.recent && typeof saved.recent === 'object'
+        ? Object.entries(saved.recent).sort(([a], [b]) => (b === s.instrument) - (a === s.instrument)).map(([, l]) => l) : [];
+    for (const r of lists.flat()) {
+      if (!r || !findChord(r.type) || !Number.isInteger(r.root) || s.recent.length >= RECENT_MAX) continue;
+      if (s.recent.some((x) => x.root === mod12(r.root) && x.type === r.type)) continue;
+      const shapes = {};
+      const kept = r.shapes && typeof r.shapes === 'object' ? r.shapes : typeof r.context === 'string' ? { [r.context]: r.shape } : {};
+      for (const [ctx, shape] of Object.entries(kept)) if (Number.isInteger(shape) && shape >= 0) shapes[ctx] = shape;
+      s.recent.push({ root: mod12(r.root), type: r.type, used: -RECENT_MAX + s.recent.length, shapes });
     }
     if (saved.scale && findScale(saved.scale.type)) {
       s.scale = { on: saved.scale.on === true, root: mod12(Number(saved.scale.root) || 0), type: saved.scale.type };
@@ -622,8 +627,7 @@ function loadState() {
 function saveState() {
   const { instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale } = state;
   const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale };
-  saved.recent = Object.fromEntries(Object.entries(state.recent)
-    .map(([id, list]) => [id, list.map(({ root, type, shape, context }) => ({ root, type, shape, context }))]));
+  saved.recent = state.recent.map(({ root, type, shapes }) => ({ root, type, shapes }));
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
@@ -690,79 +694,108 @@ function currentScale() {
 }
 
 /* Change the chord and show its first shape. */
-function updateChord(patch) {
+function updateChord(patch) {   // a chord picked from the menus (or a triad): its first shape
   Object.assign(state.chord, patch, { on: true });
   state.shape = 0;
+  menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
   render();
 }
 
-/* Recent chords, one list per instrument: a chord joins its list as soon as
+/* Recent chords, one list for all instruments: a chord joins it as soon as
    it is shown, in a fixed place so a song's chords stay put while switching
-   between them. A chord replaced within RECENT_FRESH ms (picking a root, then
-   a type) just overwrites its chip, so the in-between chords do not pile up.
-   Past RECENT_MAX, the one unused longest makes room. Each chip remembers the
-   shape last shown with it (for that tuning, capo and voicing): tapping the
-   chip brings that shape back, while picking the chord from the menus starts
-   from its first shape, as always. */
+   between them. Past RECENT_MAX, the one unused longest makes room.
+   The in-between chord of picking a root, then a type, does not pile up: a
+   chip made by picking a root stays open, and if the very next thing you do
+   is pick a type, that edits the same chip. Anything else (another root,
+   strumming, a shape, a chip, a triad) makes the chip final. Picking only a
+   type always makes a new chip.
+   Each chip remembers the shape you chose for it, per instrument, tuning,
+   capo and voicing (`shapes`): tapping the chip, or coming back to this
+   instrument, brings that shape back. Picking the chord from the menus starts
+   from its first shape, as always (and the chip remembers that). Shapes only
+   change in memory when you choose them, never because a setting reset them. */
 const RECENT_MAX = 6;
-const RECENT_FRESH = 1500;
 let recentClock = 0;
-let shownChord;     // instrument and chord at the last render
-let freshEntry = null;   // { entry, time }: the chip added last, while it can still be overwritten
+let shownChord;          // instrument and chord at the last render
+let openEntry = null;    // the chip a root pick made, which the next type pick may still edit
+let menuPick = '';       // how the chord on screen was just picked: 'root', 'type', 'both' or 'other' (menus)
+let chipPick = false;    // ... or from its chip
 const shapeContext = () => [instrument().strings, capo(), voicingFor(findChord(state.chord.type))].join('|');
-const recentList = () => (state.recent[state.instrument] ||= []);
+const recentList = () => state.recent;
 const recentEntry = () => state.chord.on &&
   recentList().find((r) => r.root === state.chord.root && r.type === state.chord.type);
+
+/* The shape a chip remembers for the chord on screen, here and now (or the first) */
+function rememberedShape(entry = recentEntry()) {
+  const shape = entry && entry.shapes && entry.shapes[shapeContext()];
+  return Number.isInteger(shape) ? shape : 0;
+}
+function rememberShape(entry = recentEntry()) {
+  if (!entry) return;
+  const ctx = shapeContext();
+  entry.shapes = { ...entry.shapes };
+  delete entry.shapes[ctx];
+  entry.shapes[ctx] = state.shape;   // newest last; keep the last few settings only
+  const keys = Object.keys(entry.shapes);
+  for (const k of keys.slice(0, Math.max(0, keys.length - 4))) delete entry.shapes[k];
+}
 
 function trackChord() {   // on every render
   const list = recentList();
   const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
-  const changed = shownChord !== undefined && shownChord.inst === state.instrument && shownChord.key !== key;
-  shownChord = { inst: state.instrument, key };
+  const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
+  const setup = [state.instrument, instrument().strings, capo()].join('|');
+  if (!shownChord || shownChord.setup !== setup) openEntry = null;   // a new instrument, tuning or capo: final
+  const how = menuPick;
+  const changed = sameInst && (shownChord.key !== key || how !== '');
+  const fromChip = chipPick;
+  menuPick = '';
+  chipPick = false;
+  shownChord = { inst: state.instrument, key, setup };
+  if (!changed || !state.chord.on) return;
+  const open = how === 'type' && openEntry && list.includes(openEntry) ? openEntry : null;
+  openEntry = null;
   let entry = recentEntry();
-  if (changed && state.chord.on) {
-    const now = Date.now();
-    const fresh = freshEntry && now - freshEntry.time < RECENT_FRESH && list.includes(freshEntry.entry) ? freshEntry.entry : null;
-    let added = true;
-    if (!entry && fresh) {               // still picking: this chord takes the last chip's place
-      fresh.root = state.chord.root;
-      fresh.type = state.chord.type;
-      entry = fresh;
-    } else if (!entry) {                 // a new chord: a new chip
-      if (list.length >= RECENT_MAX) list.splice(list.indexOf(list.reduce((a, b) => (a.used <= b.used ? a : b))), 1);
-      entry = { root: state.chord.root, type: state.chord.type };
-      list.push(entry);
-    } else {                             // a chord already there
-      added = false;
-      if (fresh && fresh !== entry) list.splice(list.indexOf(fresh), 1);   // drop the in-between chip
-    }
-    freshEntry = added ? { entry, time: now } : null;
-    entry.used = ++recentClock;
+  if (!entry && open) {                // root, then type: the same chip, edited
+    open.root = state.chord.root;
+    open.type = state.chord.type;
+    open.shapes = {};
+    entry = open;
+  } else if (!entry) {                 // a new chord: a new chip
+    if (list.length >= RECENT_MAX) list.splice(list.indexOf(list.reduce((a, b) => (a.used <= b.used ? a : b))), 1);
+    entry = { root: state.chord.root, type: state.chord.type, shapes: {} };
+    list.push(entry);
+    if (how === 'root') openEntry = entry;   // the next type pick may still edit it
+  } else if (open && open !== entry) { // root, then type, landing on a chord already there
+    list.splice(list.indexOf(open), 1);
   }
-  if (entry) { entry.shape = state.shape; entry.context = shapeContext(); }
+  entry.used = ++recentClock;
+  if (!fromChip) rememberShape(entry);   // picked from the menus: its first shape
 }
 
-function keepChord() { freshEntry = null; }   // strummed or cycled: this chip is no longer an in-between
+function keepChord() { openEntry = null; }   // strummed, cycled, played: this chip is final
 
 function playRecent(i) {
   const entry = recentList()[i];
   if (!entry) return;
   keepChord();
   state.chord = { on: true, root: entry.root, type: entry.type };
-  state.shape = entry.context === shapeContext() ? entry.shape : 0;
+  state.shape = rememberedShape(entry);
+  chipPick = true;
   render();
 }
 
 function removeRecent(i) {   // the chord stays on screen, its chip goes
   const list = recentList();
-  if (freshEntry && freshEntry.entry === list[i]) freshEntry = null;
+  if (openEntry === list[i]) openEntry = null;
   list.splice(i, 1);
   render();
 }
 
 function clearRecent() {   // keep only the chord shown now
+  keepChord();
   const entry = recentEntry();
-  state.recent[state.instrument] = entry ? [entry] : [];
+  state.recent = entry ? [entry] : [];
   render();
 }
 
@@ -771,6 +804,7 @@ function selectShape(index) {
   if (!ch || !ch.shapes.length) return;
   keepChord();   // cycling its shapes: this chord is being used
   state.shape = (index + ch.shapes.length) % ch.shapes.length;
+  rememberShape();
   render();
 }
 
@@ -1770,7 +1804,7 @@ function init() {
     onPick: (v) => {
       if (v === state.instrument) return;
       state.instrument = v;
-      state.shape = 0;
+      state.shape = rememberedShape();   // the shape last chosen for this chord on that instrument
       render();
     },
   }));
@@ -1780,7 +1814,7 @@ function init() {
     openPicker({
       title: 'Tuning', value: instrument().tuning.id,
       groups: [{ items: list.map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, t.flats) })) }],
-      onPick: (v) => { state.tuning[state.instrument] = v; state.shape = 0; render(); },
+      onPick: (v) => { state.tuning[state.instrument] = v; state.shape = rememberedShape(); render(); },
     });
   });
 
