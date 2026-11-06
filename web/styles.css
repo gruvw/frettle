@@ -159,7 +159,7 @@ kbd {
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
 .about-body p { margin: 0; color: color-mix(in srgb, var(--text) 85%, transparent); }
-.about-link { justify-self: start; text-decoration: none; }
+.about-link { justify-self: center; text-decoration: none; }
 
 /* Instrument: a button that opens the picker popup (the neck's title on wide
    screens). The tuning (when not the standard one) follows in grey, then a
