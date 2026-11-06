@@ -19,8 +19,10 @@ const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A
    when you hold the instrument to the one nearest the floor. The standard
    ukulele is re-entrant: its first-listed string is a high G. A mandolin's
    strings come in pairs tuned alike: each pair is one string here, as on
-   mandolin charts. `span` is how many frets a hand covers (small mandolin
-   frets: one more); `fifths`: tuned in fifths, which changes scale groups. */
+   mandolin charts; the mandola is a mandolin a fifth lower (C G D A), played
+   with the same shapes. `span` is how many frets a hand covers (small
+   mandolin frets: one more); `fifths`: tuned in fifths, which changes scale
+   groups. */
 const INSTRUMENTS = [
   { id: 'guitar', family: 'Guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
   { id: 'guitar7', family: 'Guitar', name: '7-string Guitar', short: '7-string', strings: [35, 40, 45, 50, 55, 59, 64], frets: 24 },
@@ -29,6 +31,7 @@ const INSTRUMENTS = [
   { id: 'ukulele', family: 'Ukulele', name: 'Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18 },
   { id: 'baritone', family: 'Ukulele', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18 },
   { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 20, span: 5, fifths: true },
+  { id: 'mandola', family: 'Mandolin', name: 'Mandola', short: 'Mandola', strings: [48, 55, 62, 69], frets: 20, span: 5, fifths: true },
 ];
 /* Other tunings, for the instruments that have common ones; the first is the
    standard tuning. `flats`: write its notes with flats (E♭ standard). */
@@ -67,9 +70,9 @@ function tunedInstrument(id, tuningId = 'standard') {
   return { ...inst, strings: tuning.strings, tuning };
 }
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
-   Ukulele chords (re-entrant G), baritone and mandolin chords often have
-   another note lowest. */
-const DEFAULT_VOICING = { guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any' };
+   Ukulele chords (re-entrant G), baritone, mandolin and mandola chords often
+   have another note lowest. */
+const DEFAULT_VOICING = { guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any', mandola: 'any' };
 const MAX_CAPO = 12;
 const SINGLE_DOTS = [3, 5, 7, 9, 15, 17, 19, 21];
 const DOUBLE_DOTS = [12, 24];
@@ -391,7 +394,7 @@ function shapeCandidates(inst, rootPc, def, voicing) {
     const span = fretted.length ? Math.max(...fretted.map((x) => x.f)) - minFret : 0;
     const opens = sound.length - fretted.length;
     const maxFret = minFret + span;
-    const small = n < 5;   // 4 strings: ukulele, bass, mandolin
+    const small = n < 5;   // 4 strings: ukulele, bass, mandolin, mandola
     const feat = {
       sound: sound.length,
       opt: optional.filter((pc) => pcs.has(pc)).length,
@@ -723,7 +726,7 @@ function syncLink() {
 function linkSummary() {
   const ch = currentChord();
   const sc = currentScale();
-  const what = [ch && ch.symbol, sc && `${sc.rootName} ${sc.def.name.replace(/ \(.*\)$/, '').toLowerCase()}`].filter(Boolean).join(' over ');
+  const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
   const inst = instrument();
   const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
   return `${what || 'The neck'}, on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}`;
@@ -796,9 +799,12 @@ function chordSpelling(rootPc, def) {
 }
 const stringNumber = (s) => instrument().strings.length - s;   // 1 = string nearest the floor
 
+/* The voicing set for this instrument, or its default (root position on
+   guitar and bass, any bass note on the others) when the chord has no such
+   bass note (a 3rd inversion on a triad) */
 function voicingFor(def) {
   const v = state.voicing[state.instrument];
-  return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : '0';
+  return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : DEFAULT_VOICING[state.instrument];
 }
 
 /* Everything the views need about the selected chord, or null. */
@@ -1273,6 +1279,11 @@ function render() {
   // chord's root changes.
   if (!state.scale.on && state.chord.root !== ui.chordRoot) state.scale.root = state.chord.root;
   ui.chordRoot = state.chord.root;
+  // A bass note the chord does not have (a 3rd inversion on a triad) goes
+  // back to the instrument's default, as the Voicing menu says: kept as is,
+  // the next 7th chord would come back in that old inversion (and links
+  // would carry it)
+  if (state.chord.on) state.voicing[state.instrument] = voicingFor(findChord(state.chord.type));
   const ch = currentChord();
   const sc = currentScale();
   if (ch && ch.shapes.length) state.shape = ch.index;
@@ -1575,7 +1586,7 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
 
 /* Scale groups, as players learn them: N notes per string (3 for 7- and
    8-note scales, 2 for pentatonic and other small ones, one more on a
-   mandolin), continuing from string to string. Every string's scale notes are split into
+   mandolin or mandola), continuing from string to string. Every string's scale notes are split into
    consecutive runs, so groups never share a note; group 0 starts on the
    first root of the lowest string (for the minor pentatonic that is the
    classic "box 1").
@@ -1586,7 +1597,7 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
 function scaleGroups(inst, sc, capo) {
   const L = sc.def.steps.length;
   if (L >= 12) return [];   // chromatic: nothing to group
-  // One more note per string on an instrument tuned in fifths (mandolin):
+  // One more note per string on an instrument tuned in fifths (mandolin, mandola):
   // its strings are further apart, so each holds a longer run of the scale
   const nps = (L <= 6 ? 2 : 3) + (inst.fifths ? 1 : 0);
   const N = inst.frets;
@@ -2312,6 +2323,7 @@ function init() {
   // finger (so swiping the row to scroll it plays nothing), and with Enter
   let pressedNote = null;
   els.scaleNotes.addEventListener('pointerdown', (e) => {
+    pressedNote = null;
     const note = e.target.closest('.scale-note');
     if (!note || e.pointerType === 'touch' || e.button > 0) return;
     pressedNote = note;
@@ -2320,7 +2332,9 @@ function init() {
   els.scaleNotes.addEventListener('click', (e) => {
     const note = e.target.closest('.scale-note');
     if (!note) return;
-    if (note === pressedNote) { pressedNote = null; return; }   // heard on press already
+    const pressed = pressedNote;
+    pressedNote = null;
+    if (note === pressed && e.detail > 0) return;   // heard on press already (a key press is not)
     playScaleNote(Number(note.dataset.i));
   });
   els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
