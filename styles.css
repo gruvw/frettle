@@ -59,15 +59,16 @@
   --r-xl: 18px;
   --r-pill: 999px;
   --control-h: 42px;     /* touch-sized on phones */
+  --root-w: 84px;        /* the Root menus */
   --chip-h: 32px;
   --pill-h: 22px;
   --tab-h: 54px;
   --recent-h: 30px;      /* the dock's row of recent chords (phones): slim, a fixed height */         /* dock tabs (phones): a fixed height, see --dock-h */
 
   /* Neck geometry (vertical on phones) */
-  --label-w: 26px;       /* fret numbers column */
+  --label-w: 28px;       /* fret numbers column */
   --row-h: 42px;         /* one fret: room for a root's ring inside a group outline */
-  --ruler-row: 22px;     /* string numbers row */
+  --ruler-row: 24px;     /* string numbers row */
   --cell-w: 46px;        /* horizontal neck only */
   --open-w: 54px;
   --scroll-gap: 10px;    /* space between scrolling content and its scrollbar */
@@ -88,9 +89,12 @@ html { -webkit-text-size-adjust: 100%; }
 
 body {
   /* Height of the phone dock, worked out from its fixed rows rather than
-     measured: top border and padding, the shape bar (only with a chord), the
-     tabs, the bottom padding, and the phone's safe area, which the browser
-     keeps up to date by itself */
+     measured (measuring lagged behind and left a gap on some phones): top
+     border and padding, the recent chords and the shape bar (each only when
+     shown), the tabs, the bottom padding, and the phone's safe area, which
+     the browser keeps up to date by itself. It holds as long as these rows
+     are sized with the same variables: a new row or a fixed size in the dock
+     must be added here. */
   --dock-shape-h: calc(var(--control-h) + var(--sp-1));
   --dock-recent-h: calc(var(--recent-h) + var(--sp-2));
   --dock-h: calc(1px + var(--sp-2) + var(--dock-recent-h) + var(--dock-shape-h) + var(--sp-1) + var(--tab-h) + var(--sp-2)
@@ -232,11 +236,11 @@ kbd {
 .field { display: grid; gap: 7px; min-width: 0; }
 .field > span { margin-left: -2px; } /* optical alignment with the rounded box */
 .field.root { flex: none; }
-.field.root .select-btn { width: 84px; min-width: 0; }
+.field.root .select-btn { width: var(--root-w); min-width: 0; }
 .field.grow { flex: 1 1 150px; }
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
-.chord-bar .voicing { flex-basis: 60%; }
+.chord-bar .voicing { flex-basis: calc(100% - var(--control-h) - var(--sp-3) - 1px); }   /* its own row, with ✕ (never ✕ alone on a row) */
 .bar .push-right { margin-left: 0; }
 /* Scale switches. Phones: Root, Type and ✕ on the first row, the two
    switches as equal buttons on a row of their own. Wide screens: everything
@@ -462,15 +466,16 @@ kbd {
 .neck.vertical .cell::before { top: 0; bottom: 0; left: 50%; width: var(--sw, 1px); transform: translateX(-50%); }
 .neck.vertical .cell.fret { border-bottom: 2px solid var(--fret-wire); }
 .neck.vertical .cell.open { border-bottom: 5px solid var(--nut); }
-.neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 6px; }
+.neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 8px; }
 .neck.vertical .ruler i { display: none; }   /* bright numbers mark the inlays */
-.neck.vertical .slabel { align-self: end; padding-bottom: 2px; }
+.neck.vertical .slabel { align-self: end; padding-bottom: 4px; }
 
 /* Horizontal: strings go across, fret wires and the nut run down */
 .neck.horizontal .cell::before { left: 0; right: 0; top: 50%; height: var(--sw, 1px); transform: translateY(-50%); }
 .neck.horizontal .cell.fret { border-inline-end: 2px solid var(--fret-wire); }
 .neck.horizontal .cell.open { border-inline-end: 5px solid var(--nut); }
 .neck.horizontal .ruler { align-self: start; height: 24px; }
+.neck.horizontal .slabel { padding-inline-end: 2px; }   /* a little clear of the open strings */
 
 /* Octaves: alternate octaves are shaded, open strings included (replacing
    the inlay tint), and each octave's first cell shows its number in a small
@@ -883,6 +888,7 @@ kbd {
 .dock-tab { display: grid; min-width: 0; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
 .dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* shape number above the tab */
+.dock-msg { font: 500 var(--fs-sm)/1.3 var(--font); color: var(--muted); }
 
 .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); padding: var(--sp-1) 0 var(--sp-2); }
 /* Each tab is a soft rounded button; the open one is tinted purple */
@@ -1001,7 +1007,11 @@ kbd {
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4) var(--sp-4);
   overflow-y: auto;
+  overscroll-behavior: contain;   /* scrolling the list to its end does not scroll the page */
 }
+/* While a popup is open the page behind it stays put (the gutter keeps a
+   desktop scrollbar's room, so nothing shifts) */
+html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* Section heading with a thin line running to the right */
 .picker-note { display: flex; align-items: center; gap: 7px; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); }
 .picker-note::before { flex: none; }
@@ -1121,9 +1131,9 @@ kbd {
     --fs-input: var(--fs-md);
     --fs-xl: 1.5rem;
     --fs-display: 1.9rem;
-    --label-w: 28px;
+    --label-w: 30px;
     --row-h: 40px;         /* one string */
-    --ruler-row: 26px;
+    --ruler-row: 28px;
   }
   body { padding-bottom: 0; }
   .wide-only { display: revert !important; }
@@ -1215,5 +1225,21 @@ kbd {
   .field.scale-type .select-btn { width: 240px; }
   .scale-gap { width: 26px; }
 
+  /* When a bar is too narrow for one row (landscape phones, small windows),
+     it breaks into two clean rows instead of leaving Deselect alone on the
+     second: the menus first, then the switches and buttons.
+     The two widths are each bar's one-row width with today's labels (CSS
+     cannot take them from variables): renaming a switch or a button, or
+     adding one, means measuring them again. */
+  .chord-bar, .scale-bar { container-type: inline-size; }
+  @container (max-width: 930px) {
+    .chord-bar .field.grow { flex: 1 1 calc((100% - var(--root-w) - 2 * var(--sp-3)) / 2 - 1px); }
+    .chord-bar .switch-row { margin-left: auto; }   /* the second row sits right, like the scale's */
+  }
+  @container (max-width: 755px) {
+    .scale-bar .field.scale-type { flex: 1 1 calc(100% - var(--root-w) - var(--sp-3) - 1px); }
+    .scale-bar .field.scale-type .select-btn { width: 100%; }
+    .scale-bar .switch-row { flex: 1 1 auto; justify-content: flex-end; }
+  }
 }
 
