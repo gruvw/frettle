@@ -636,12 +636,12 @@ function defaultState() {
     leftHanded: false,                // mirror the neck
     octaves: false,
     tuning: {},                       // tuning id per instrument that has several
-    chord: { on: true, root: 0, type: 'maj' },
+    chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
     recent: [],                       // recently used chords [{ root, type, shapes }], shared by all instruments
     capo: 0,                          // fret of the capo, 0 = none (all instruments)
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
-    scale: { on: false, root: 0, type: 'major' },
+    scale: { on: false, root: 0, type: null },
   };
 }
 
@@ -658,8 +658,10 @@ function loadState() {
     // version 2 turned the groups on, version 3 "Only scale notes"
     if (!(saved.v >= 2)) s.scaleGroups = true;
     if (!(saved.v >= 3)) s.scaleOnly = true;
-    if (saved.chord && findChord(saved.chord.type)) {
-      s.chord = { on: saved.chord.on !== false, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
+    // Off, only the root is kept (a save from before kept the type too)
+    if (saved.chord && saved.chord.on === false) s.chord = { on: false, root: mod12(Number(saved.chord.root) || 0), type: null };
+    else if (saved.chord && findChord(saved.chord.type)) {
+      s.chord = { on: true, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
     }
     // Recent chords: one list (an older save had a list per instrument: they
     // are merged, the current instrument's first)
@@ -674,9 +676,9 @@ function loadState() {
       for (const [ctx, shape] of Object.entries(kept)) if (Number.isInteger(shape) && shape >= 0) shapes[ctx] = shape;
       s.recent.push({ root: mod12(r.root), type: r.type, used: -RECENT_MAX + s.recent.length, shapes });
     }
-    if (saved.scale && findScale(saved.scale.type)) {
-      s.scale = { on: saved.scale.on === true, root: mod12(Number(saved.scale.root) || 0), type: saved.scale.type };
-    }
+    if (saved.scale && saved.scale.on === true && findScale(saved.scale.type)) {
+      s.scale = { on: true, root: mod12(Number(saved.scale.root) || 0), type: saved.scale.type };
+    } else if (saved.scale) s.scale = { on: false, root: mod12(Number(saved.scale.root) || 0), type: null };
     if (Number.isInteger(saved.capo) && saved.capo >= 0 && saved.capo <= MAX_CAPO) s.capo = saved.capo;
     for (const id of Object.keys(TUNINGS)) {
       const t = saved.tuning && saved.tuning[id];
@@ -758,11 +760,11 @@ function applyLink(search) {
   state.capo = Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : 0;
   const chord = parseLinkPair(p.get('chord'));
   if (chord && findChord(chord.id) && findChord(chord.id).id === chord.id) state.chord = { on: true, root: chord.root, type: chord.id };
-  else state.chord.on = false;
+  else chordOff();
   state.voicing[state.instrument] = VOICINGS.includes(p.get('voicing')) ? p.get('voicing') : DEFAULT_VOICING[state.instrument];
   const scale = parseLinkPair(p.get('scale'));
   if (scale && findScale(scale.id) && findScale(scale.id).id === scale.id) state.scale = { on: true, root: scale.root, type: scale.id };
-  else state.scale.on = false;
+  else scaleOff();
   state.shape = 0;
   const ch = state.chord.on && p.get('shape') ? currentChord() : null;
   const at = ch ? ch.shapes.findIndex((shape) => linkFrets(shape.frets) === p.get('shape')) : -1;
@@ -897,6 +899,17 @@ function currentScale() {
   const pcs = def.steps.map((s) => mod12(state.scale.root + s));
   const spell = scaleSpelling(state.scale.root, def);
   return { def, root: state.scale.root, pcs, set: new Set(pcs), spell, rootName: noteText(spell.root) };
+}
+
+/* Turning the chord or the scale off ("None", Deselect, a link without one)
+   keeps only its root: the type is forgotten, so nothing can go on reading
+   an old type (every way back on picks a new one) */
+function chordOff() { state.chord.on = false; state.chord.type = null; openEntry = null; }   // and its chip is final
+function scaleOff() { state.scale.on = false; state.scale.type = null; }
+/* A root with no type picked: written as the scale on screen writes it, or
+   else as the neck does (Flats setting) */
+function plainRoot(pc, sc = currentScale()) {
+  return (sc && sc.spell.names.get(mod12(pc))) || plainNote(pc, state.flats);
 }
 
 /* Change the chord and show its first shape. */
@@ -1179,15 +1192,15 @@ function playNote(midi, delay = 0, level = 0.55) {
   return src;
 }
 
-/* Light up a note on the neck while it sounds. */
+/* Light up a note while it sounds: on the neck, or any pill (ping). */
+function ping(el) {
+  if (!el) return;
+  el.classList.remove('ping');
+  void el.offsetWidth;   // restart the animation
+  el.classList.add('ping');
+}
 function flashCell(s, f, delay = 0) {
-  setTimeout(() => {
-    const note = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`);
-    if (!note) return;
-    note.classList.remove('ping');
-    void note.offsetWidth;   // restart the animation
-    note.classList.add('ping');
-  }, delay * 1000);
+  setTimeout(() => ping(els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`)), delay * 1000);
 }
 
 /* Tap a note on the neck to hear it (not behind the capo, not a hidden note).
@@ -1275,11 +1288,7 @@ function scalePitches(sc) {   // the Notes row's pitches, root to octave
   return [...sc.def.steps.map((step) => start + step), start + 12];
 }
 function pingScaleNote(i) {
-  const note = els.scaleNotes.querySelectorAll('.scale-note')[i];
-  if (!note) return;
-  note.classList.remove('ping');
-  void note.offsetWidth;   // restart the animation
-  note.classList.add('ping');
+  ping(els.scaleNotes.querySelectorAll('.scale-note')[i]);
 }
 function playScale() {
   if (scaleRun) { stopScale(); return; }
@@ -1526,6 +1535,9 @@ const offKeyTest = (sc) => (sc && sc.def.steps.length < 12 ? (pc) => !sc.set.has
 const fitsScale = (rootPc, def, sc) => { const out = outsideScale(rootPc, def, sc); return Boolean(out && !out.length); };
 /* Help line for the chord pickers when a scale is shown */
 const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${sc.rootName} ${sc.def.short}` : '');
+/* With no chord (type "None"), any note of the scale can be the root */
+const rootNote = (sc) => (sc && sc.def.steps.length < 12 ? `In ${sc.rootName} ${sc.def.short}` : '');
+const inScale = (pc, sc) => Boolean(sc && sc.def.steps.length < 12 && sc.set.has(pc));
 
 /* Shrink the text of a fixed-size box until it fits on one line (long chord
    symbols like C♯m(maj7)). Measured on a canvas, so it also works while the
@@ -1998,14 +2010,14 @@ function roundedPath(pts, r) {
 }
 
 function renderChordPanel(ch, sc) {
-  const def = findChord(state.chord.type);
-  const spell = ch ? ch.spell : chordSpelling(state.chord.root, def);
-  els.chordRoot.textContent = noteText(spell.root);
+  els.chordRoot.textContent = ch ? ch.rootName : noteText(plainRoot(state.chord.root, sc));
   els.chordType.textContent = ch ? ch.def.name : 'None';
 
-  const voicing = voicingFor(def);
+  // No chord: the bass the next one gets, without a note to name yet
+  const voicing = ch ? ch.voicing : state.voicing[state.instrument];
   els.chordVoicing.textContent = voicing === 'any' ? 'Any bass note'
-    : `${INVERSION_NAMES[Number(voicing)]}, ${noteText(spell.notes[Number(voicing)])} in bass`;
+    : ch ? `${INVERSION_NAMES[Number(voicing)]}, ${noteText(ch.spell.notes[Number(voicing)])} in bass`
+      : INVERSION_NAMES[Number(voicing)];
 
   els.chordClear.disabled = !ch;
   els.chordVoicing.disabled = !ch;
@@ -2111,11 +2123,11 @@ function keepChipVisible() {
 }
 
 function renderScalePanel(sc, ch) {
-  els.scaleRoot.textContent = sc ? sc.rootName : noteText(scaleSpelling(state.scale.root, findScale(state.scale.type)).root);
+  els.scaleRoot.textContent = sc ? sc.rootName : noteText(plainNote(state.scale.root, state.flats));
   els.scaleType.textContent = sc ? sc.def.name : 'None';
   els.scaleClear.disabled = !sc;
-  els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc;
-  els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
+  // The chromatic scale has every note: nothing to hide or to group
+  els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
 
   if (scaleRun && scaleRun.key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
   els.scalePlay.disabled = !sc;
@@ -2320,6 +2332,7 @@ function init() {
     const card = e.target.closest('[data-midi]');
     if (!card) return;
     playNote(Number(card.dataset.midi));
+    ping(card.querySelector('.np-deg'));   // its interval pill, like the note on the neck
     flashCell(card.dataset.s, card.dataset.f);
     keepChord();
   });
@@ -2379,10 +2392,10 @@ function init() {
   }));
 
   // Clearing the chord or the scale also closes its panel on phones
-  const clearChord = () => { state.chord.on = false; ui.tab = null; render(); };
+  const clearChord = () => { chordOff(); ui.tab = null; render(); };
   const clearScale = () => {   // closes the sheet: centre the shape again, as on closing it
     const wasOpen = ui.tab !== null;
-    state.scale.on = false;
+    scaleOff();
     ui.tab = null;
     render();
     if (wasOpen) revealShape();
@@ -2390,9 +2403,11 @@ function init() {
 
   // Root and type buttons open the picker popup
   els.chordRoot.addEventListener('click', () => openPicker({
-    title: 'Chord root', layout: 'roots', value: state.chord.root, note: fitsNote(currentScale()),
-    groups: rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root,
-      (pc) => fitsScale(pc, findChord(state.chord.type), currentScale())),
+    title: 'Chord root', layout: 'roots', value: state.chord.root,
+    note: state.chord.on ? fitsNote(currentScale()) : rootNote(currentScale()),
+    groups: state.chord.on
+      ? rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root, (pc) => fitsScale(pc, findChord(state.chord.type), currentScale()))
+      : rootItems((pc) => plainRoot(pc), (pc) => inScale(pc, currentScale())),
     onPick: (v) => {
       const root = Number(v);
       if (state.chord.on) updateChord({ root });
@@ -2416,7 +2431,7 @@ function init() {
   }));
   els.scaleRoot.addEventListener('click', () => openPicker({
     title: 'Scale root', layout: 'roots', value: state.scale.root,
-    groups: rootItems((pc) => scaleSpelling(pc, findScale(state.scale.type)).root),
+    groups: rootItems((pc) => (state.scale.on ? scaleSpelling(pc, findScale(state.scale.type)).root : plainNote(pc, state.flats))),
     onPick: (v) => { state.scale.root = Number(v); render(); },
   }));
   els.scaleType.addEventListener('click', () => openPicker({
