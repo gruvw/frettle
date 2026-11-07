@@ -1386,6 +1386,8 @@ function renderRecent() {
   }).join('');
   els.dockRecentList.innerHTML = html;
   els.recentList.innerHTML = html;
+  scrollHint(els.dockRecentList);
+  scrollHint(els.recentList);
   // When the chips change (one picked, added, edited or removed), scroll the
   // row so the selected one shows whole
   const chipKey = html;
@@ -1394,6 +1396,19 @@ function renderRecent() {
     ui.chipKey = chipKey;
     requestAnimationFrame(() => { chipInView(els.dockRecentList, smooth); chipInView(els.recentList, smooth); });
   }
+}
+/* The thin bar under a row of recent chords: shown when the chips do not
+   all fit, its thumb as long as the part in view and where it is */
+function scrollHint(row) {
+  const box = row.parentElement;
+  const max = row.scrollWidth - row.clientWidth;
+  const scrolls = max > 1;
+  box.classList.toggle('scrolls', scrolls);
+  if (!scrolls) return;
+  const track = box.clientWidth;
+  const thumb = Math.max(24, (track * row.clientWidth) / row.scrollWidth);
+  box.style.setProperty('--thumb', `${thumb}px`);
+  box.style.setProperty('--at', `${(track - thumb) * Math.min(1, Math.max(0, row.scrollLeft / max))}px`);
 }
 function chipInView(row, smooth) {   // scroll a row of chips sideways so the selected one is whole
   const chip = row.querySelector('li.on');
@@ -1545,9 +1560,11 @@ function renderDock(ch, sc) {
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
   // What the Neck sheet sets: the capo if there is one, else the tuning
-  // (the instrument has its own menu above the neck)
+  // (the instrument has its own menu above the neck), or "No capo" for an
+  // instrument with no other tuning to pick
   const tuning = instrument().tuning;
-  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}`
+    : !tuning ? 'No capo' : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
@@ -1568,7 +1585,7 @@ function setupSheetDrag() {
     if (isWide() || !els.sheet.classList.contains('open')) return;
     dragged = false;
     if (e.target.closest('.panel-head button, .panel-head .status')) return;
-    if (e.currentTarget !== els.sheetClose && els.sheet.scrollTop > 0) return;   // title only at the top
+    if (e.currentTarget !== els.sheetClose && els.sheetBody.scrollTop > 0) return;   // title only at the top
     startY = e.clientY; dy = 0; t0 = performance.now(); dragged = false;
     els.sheet.style.transition = 'none';
   };
@@ -1612,7 +1629,7 @@ function openTab(tab) {
   const ch = currentChord();
   renderDock(ch, currentScale());
   if (ui.tab) {
-    els.sheet.scrollTop = 0;
+    els.sheetBody.scrollTop = 0;
     // Once the sheet has slid up, make sure the shape is still visible above
     // it: wait for its own slide animation (or not at all, if it has none)
     const sliding = els.sheet.getAnimations ? els.sheet.getAnimations() : [];
@@ -2246,7 +2263,7 @@ function init() {
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
-    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetClose',
+    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay']) {
     els[id] = document.getElementById(id);
@@ -2321,6 +2338,10 @@ function init() {
       const chip = e.target.closest('[data-i]');
       if (chip) playRecent(Number(chip.dataset.i));
     });
+  }
+  for (const list of [els.dockRecentList, els.recentList]) {
+    list.addEventListener('scroll', () => scrollHint(list), { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(() => scrollHint(list)).observe(list);   // shown, rotated, resized
   }
   els.dockRecentClear.addEventListener('click', clearRecent);
   els.recentClear.addEventListener('click', clearRecent);
