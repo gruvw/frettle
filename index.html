@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele &amp; Mandolin</title>
+  <title>Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele, Mandolin &amp; Banjo</title>
   <meta name="description" content="Free fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://frettle.gruvw.com/">
@@ -14,7 +14,7 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Frettle">
   <meta property="og:url" content="https://frettle.gruvw.com/">
-  <meta property="og:title" content="Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele &amp; Mandolin">
+  <meta property="og:title" content="Frettle | Fretboard Visualizer for Guitar, Bass, Ukulele, Mandolin &amp; Banjo">
   <meta property="og:description" content="Free fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. See every note on the neck, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
   <!-- The app icon as the preview picture: square, so apps show it as a small
        thumbnail beside the title (WhatsApp needs 300px wide or more) -->
@@ -117,125 +117,129 @@
       <button type="button" id="sheetClose" class="sheet-close" aria-label="Close panel">
         <span aria-hidden="true"></span>
       </button>
+      <!-- The panels scroll under the handle, so the scrollbar stays clear
+           of the sheet's rounded corners -->
+      <div id="sheetBody" class="sheet-body">
 
-      <section class="panel" id="panelChord" data-tab="chord" aria-label="Chord">
-        <div class="panel-head">
-          <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span></h2>
-          <span id="shapeCount" class="status chord-count" hidden></span>
-        </div>
+        <section class="panel" id="panelChord" data-tab="chord" aria-label="Chord">
+          <div class="panel-head">
+            <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span></h2>
+            <span id="shapeCount" class="status chord-count" hidden></span>
+          </div>
 
-        <div class="bar chord-bar">
-          <div class="field root">
-            <span>Root</span>
-            <button type="button" id="chordRoot" class="select-btn" aria-haspopup="dialog" aria-label="Chord root"></button>
+          <div class="bar chord-bar">
+            <div class="field root">
+              <span>Root</span>
+              <button type="button" id="chordRoot" class="select-btn" aria-haspopup="dialog" aria-label="Chord root"></button>
+            </div>
+            <div class="field grow">
+              <span>Chord</span>
+              <button type="button" id="chordType" class="select-btn" aria-haspopup="dialog" aria-label="Chord type"></button>
+            </div>
+            <div class="field grow voicing">
+              <span>Voicing</span>
+              <button type="button" id="chordVoicing" class="select-btn" aria-haspopup="dialog" aria-label="Chord voicing"></button>
+            </div>
+            <div class="switch-row">
+              <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
+                      title="Also mark every other place the chord's notes appear on the neck">
+                <span class="pill-dot" aria-hidden="true"></span>All chord tones
+              </button>
+            </div>
+            <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>Strum</button>
+            <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
           </div>
-          <div class="field grow">
-            <span>Chord</span>
-            <button type="button" id="chordType" class="select-btn" aria-haspopup="dialog" aria-label="Chord type"></button>
-          </div>
-          <div class="field grow voicing">
-            <span>Voicing</span>
-            <button type="button" id="chordVoicing" class="select-btn" aria-haspopup="dialog" aria-label="Chord voicing"></button>
-          </div>
-          <div class="switch-row">
-            <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
-                    title="Also mark every other place the chord's notes appear on the neck">
-              <span class="pill-dot" aria-hidden="true"></span>All chord tones
-            </button>
-          </div>
-          <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>Strum</button>
-          <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
-        </div>
 
-        <div id="chordBody" class="np-body" aria-live="polite">
-          <div class="np-head">
-            <div id="chordSymbol" class="np-symbol"></div>
-            <div class="np-desc">
-              <div id="chordName" class="np-title"></div>
-              <div id="chordMeta" class="np-meta"></div>
-              <div id="chordAlt" class="np-alt"></div>
-              <div id="chordCapo" class="np-meta np-capo" hidden></div>
-              <div id="chordKey" class="np-key" hidden></div>
+          <div id="chordBody" class="np-body" aria-live="polite">
+            <div class="np-head">
+              <div id="chordSymbol" class="np-symbol"></div>
+              <div class="np-desc">
+                <div id="chordName" class="np-title"></div>
+                <div id="chordMeta" class="np-meta"></div>
+                <div id="chordAlt" class="np-alt"></div>
+                <div id="chordCapo" class="np-meta np-capo" hidden></div>
+                <div id="chordKey" class="np-key" hidden></div>
+              </div>
+            </div>
+            <div class="np-tones">
+              <span id="tonesLabel" class="label">Shape notes, bass to top</span>
+              <ol id="chordTones" class="np-notes"></ol>
             </div>
           </div>
-          <div class="np-tones">
-            <span id="tonesLabel" class="label">Shape notes, bass to top</span>
-            <ol id="chordTones" class="np-notes"></ol>
-          </div>
-        </div>
 
-        <div class="line shapes-line">
-          <span class="label">Shapes</span>
-          <button type="button" id="shapePrev" class="btn small" title="Previous shape (←)" aria-label="Previous shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
-          <ol id="shapeList" class="chip-list" aria-label="Chord shapes, from the nut up the neck"></ol>
-          <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
-        </div>
-        <div id="recentLine" class="line recent-line" hidden>
-          <span class="label">Recent</span>
-          <ol id="recentList" class="recent-chips" aria-label="Recent chords"></ol>
-          <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg>Clear</button>
-        </div>
-      </section>
+          <div class="line shapes-line">
+            <span class="label">Shapes</span>
+            <button type="button" id="shapePrev" class="btn small" title="Previous shape (←)" aria-label="Previous shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+            <ol id="shapeList" class="chip-list" aria-label="Chord shapes, from the nut up the neck"></ol>
+            <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+          </div>
+          <div id="recentLine" class="line recent-line" hidden>
+            <span class="label">Recent</span>
+            <div class="recent-scroll"><ol id="recentList" class="recent-chips" aria-label="Recent chords"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
+            <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg>Clear</button>
+          </div>
+        </section>
 
-      <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
-        <div class="panel-head">
-          <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span></h2>
-        </div>
-        <div class="bar scale-bar">
-          <div class="field root">
-            <span>Root</span>
-            <button type="button" id="scaleRoot" class="select-btn" aria-haspopup="dialog" aria-label="Scale root"></button>
+        <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
+          <div class="panel-head">
+            <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span></h2>
           </div>
-          <div class="field scale-type">
-            <span>Type</span>
-            <button type="button" id="scaleType" class="select-btn" aria-haspopup="dialog" aria-label="Scale type"></button>
+          <div class="bar scale-bar">
+            <div class="field root">
+              <span>Root</span>
+              <button type="button" id="scaleRoot" class="select-btn" aria-haspopup="dialog" aria-label="Scale root"></button>
+            </div>
+            <div class="field scale-type">
+              <span>Type</span>
+              <button type="button" id="scaleType" class="select-btn" aria-haspopup="dialog" aria-label="Scale type"></button>
+            </div>
+            <div class="switch-row">
+              <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
+                      title="Hide the notes that are not in the scale">
+                <span class="pill-dot" aria-hidden="true"></span>Only scale notes
+              </button>
+              <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
+                      title="Outline the scale in hand-sized groups of a few notes per string">
+                <span class="pill-dot" aria-hidden="true"></span>Groups
+              </button>
+            </div>
+            <button type="button" id="scaleClear" class="btn deselect push-right" title="Deselect the scale" aria-label="Deselect the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
           </div>
-          <div class="switch-row">
-            <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
-                    title="Hide the notes that are not in the scale">
-              <span class="pill-dot" aria-hidden="true"></span>Only scale notes
-            </button>
-            <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
-                    title="Outline the scale in hand-sized groups of a few notes per string">
-              <span class="pill-dot" aria-hidden="true"></span>Groups
-            </button>
-          </div>
-          <button type="button" id="scaleClear" class="btn deselect push-right" title="Deselect the scale" aria-label="Deselect the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
-        </div>
-        <div id="scaleBody" class="np-body scale-body" aria-live="polite">
-          <div class="np-head">
-            <div id="scaleSymbol" class="np-symbol"></div>
-            <div class="np-desc">
-              <div id="scaleName" class="np-title"></div>
-              <div id="scaleMeta" class="np-meta"></div>
-              <div id="scaleAlt" class="np-alt"></div>
+          <div id="scaleBody" class="np-body scale-body" aria-live="polite">
+            <div class="np-head">
+              <div id="scaleSymbol" class="np-symbol"></div>
+              <div class="np-desc">
+                <div id="scaleName" class="np-title"></div>
+                <div id="scaleMeta" class="np-meta"></div>
+                <div id="scaleAlt" class="np-alt"></div>
+              </div>
+            </div>
+            <div class="np-tones notes-line">
+              <span class="label">Notes</span>
+              <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
+              <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
             </div>
           </div>
-          <div class="np-tones notes-line">
-            <span class="label">Notes</span>
-            <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
-            <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
+          <div class="line">
+            <span class="label">Triads</span>
+            <div id="scaleTriads" class="chip-wrap"></div>
           </div>
-        </div>
-        <div class="line">
-          <span class="label">Triads</span>
-          <div id="scaleTriads" class="chip-wrap"></div>
-        </div>
-      </section>
+        </section>
 
-      <section class="panel narrow-only" id="panelNeck" data-tab="neck" aria-label="Neck settings">
-        <div class="panel-head">
-          <h2>Neck</h2>
-        </div>
-        <div id="settingsNarrowSlot" class="settings-slot"></div>
-      </section>
+        <section class="panel narrow-only" id="panelNeck" data-tab="neck" aria-label="Neck settings">
+          <div class="panel-head">
+            <h2>Neck</h2>
+          </div>
+          <div id="settingsNarrowSlot" class="settings-slot"></div>
+        </section>
+      </div>
     </div>
 
     <!-- Phones only: always-visible shape controls and the tab bar -->
     <div class="dock-bar narrow-only">
       <!-- Recent chords: one tap to switch between a song's chords -->
       <div id="dockRecent" class="dock-recent" hidden>
-        <ol id="dockRecentList" class="recent-chips" aria-label="Recent chords"></ol>
+        <div class="recent-scroll"><ol id="dockRecentList" class="recent-chips" aria-label="Recent chords"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
         <button type="button" id="dockRecentClear" class="recent-clear" aria-label="Clear the recent chords" title="Clear the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg></button>
       </div>
       <div id="dockShapeBar" class="dock-shape">

@@ -86,6 +86,13 @@
 * { box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
+/* Phones (not the wide layout, see WIDE_QUERY): no page scrollbar, which
+   would run down over the dock too. The page still scrolls as a whole, so
+   the browser's bars can shrink away. */
+@media (max-width: 899.98px) and (orientation: portrait), (max-width: 639.98px) {
+  html { scrollbar-width: none; }
+  html::-webkit-scrollbar { display: none; }
+}
 
 body {
   /* Height of the phone dock, worked out from its fixed rows rather than
@@ -151,7 +158,7 @@ kbd {
    Header: title + About button
    ========================================================================== */
 .top {
-  padding: var(--sp-4) var(--gutter) var(--sp-2);
+  padding: var(--sp-4) var(--sp-4) var(--sp-2);   /* a little further in than the neck panel below */
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-areas: "title share about" "inst inst inst";
@@ -840,7 +847,7 @@ kbd {
 .scale-gap > span { font-size: var(--fs-xs); font-weight: 800; line-height: 18px; color: var(--muted); white-space: nowrap; }
 
 /* Thin, rounded scrollbars for the sideways-scrolling rows */
-.neck-scroll, .np-notes, .chip-list, .scale-chain, .sheet {
+.neck-scroll, .np-notes, .chip-list, .scale-chain, .sheet-body {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
 }
@@ -886,6 +893,32 @@ kbd {
   scrollbar-width: none;
 }
 .recent-chips::-webkit-scrollbar { display: none; }
+/* The row's scrollbar is hidden (it would push the chips around); when the
+   chips do not all fit, a thin bar under them shows how far along the row
+   is and that it scrolls (script.js sizes and moves its thumb) */
+.recent-scroll { position: relative; flex: 1; min-width: 0; }
+.scroll-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 2px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  pointer-events: none;
+  visibility: hidden;
+}
+.recent-scroll.scrolls .scroll-hint { visibility: visible; }
+.scroll-hint i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--thumb, 100%);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  transform: translateX(var(--at, 0px));
+}
 .chip.recent { height: var(--recent-h); padding: 0 14px; }
 .chip.recent.selected { background: var(--chord); color: var(--chord-text); }
 /* Phones: a little tighter, so eight short chords fit on most screens */
@@ -1006,8 +1039,9 @@ kbd {
   z-index: 1;
   max-height: 56vh;                                            /* older browsers */
   max-height: min(56dvh, calc(100dvh - var(--dock-h) - 160px)); /* leave some neck visible */
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;   /* the panels scroll below the handle (.sheet-body) */
   background: var(--panel);
   border-top: 1px solid var(--border);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
@@ -1017,12 +1051,13 @@ kbd {
   transition: transform 220ms ease, visibility 0s linear 220ms;
 }
 .sheet.open { transform: none; visibility: visible; transition: transform 220ms ease; }
+/* Under the handle, which is taller than the corners are round, so the
+   scrollbar never runs into them */
+.sheet-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .sheet .panel { display: none; border: 0; border-radius: 0; background: transparent; padding-top: 0; }
 .sheet .panel.active { display: block; }
 .sheet-close {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: none;
   display: grid;
   place-items: center;
   width: 100%;
@@ -1276,9 +1311,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   }
   .sheet {
     position: static;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);   /* long chip rows scroll instead of widening the page */
-    gap: var(--sp-4);
+    display: block;
     max-height: none;
     overflow: visible;
     background: none;
@@ -1288,6 +1321,12 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     transform: none;
     visibility: visible;
     transition: none;
+  }
+  .sheet-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);   /* long chip rows scroll instead of widening the page */
+    gap: var(--sp-4);
+    overflow: visible;
   }
   .sheet .panel { display: block; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); padding: 20px; }
   .sheet .panel.narrow-only { display: none; }
