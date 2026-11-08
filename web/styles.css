@@ -691,10 +691,16 @@ kbd {
 .mute-ico { width: 15px; height: 15px; }
 
 /* Notes outside the shown scale are a little darker; with "Only scale
-   notes" they disappear (and stay silent) */
-.note.off { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
+   notes" they are hidden, but still sound when tapped: the note shows for a
+   moment, darker, as it rings */
+.note.off, .note.out { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.out { visibility: hidden; }
-.cell.empty { cursor: default; }
+.note.out.peek { visibility: visible; animation: peek 900ms ease-out forwards; }
+@keyframes peek {
+  0% { opacity: 1; box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
+  50% { opacity: 1; box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
 
 /* Scale groups: rounded outlines (an SVG drawn by script.js), above the
    strings and fret wires, below the note pills: the group picked in the
@@ -1308,7 +1314,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
   .group-chip:hover { box-shadow: inset 0 0 0 1px var(--scale); }   /* scale groups: the scale's colour */
   .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
-  .cell.behind:hover, .cell.empty:hover, .cell.no-string:hover { box-shadow: none; }
+  .cell.behind:hover, .cell.no-string:hover { box-shadow: none; }
   .np-note:hover { border-color: var(--accent); }
   .dock-shape-info:hover { color: var(--text); }
   .tab:hover { border-color: var(--border); color: var(--text); }

@@ -1553,15 +1553,18 @@ function playNote(midi, delay = 0, level = 0.55) {
 /* Light up a note while it sounds: on the neck, or any pill (ping). */
 function ping(el) {
   if (!el) return;
-  el.classList.remove('ping');
+  const cls = el.classList.contains('out') ? 'peek' : 'ping';   // a hidden note shows for a moment
+  el.classList.remove(cls);
   void el.offsetWidth;   // restart the animation
-  el.classList.add('ping');
+  el.classList.add(cls);
+  if (cls === 'peek') el.addEventListener('animationend', () => el.classList.remove('peek'), { once: true });
 }
 function flashCell(s, f, delay = 0) {
   setTimeout(() => ping(els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`)), delay * 1000);
 }
 
-/* Tap a note on the neck to hear it (not behind the capo, not a hidden note).
+/* Tap a note on the neck to hear it (not behind the capo; a note hidden by
+   "Only scale notes" sounds too, and shows for a moment).
    With a mouse or a pen it sounds on press. On a touch screen it sounds once
    the finger has rested TAP_DELAY ms without moving (or on release, if that
    comes first), so swiping to scroll the neck never plays notes. Each finger
@@ -1572,7 +1575,7 @@ function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
   const playable = (target) => {
     const cell = target.closest('.cell');
-    return cell && !cell.matches('.behind, .empty, .no-string') ? cell : null;
+    return cell && !cell.matches('.behind, .no-string') ? cell : null;
   };
   const play = (cell) => {
     const s = Number(cell.dataset.s);
@@ -2516,9 +2519,8 @@ function renderNeck(ch, sc) {
       if (f < nut(s)) title += `, behind the ${stop}`;
       if (cls.includes(' mute')) title = `String ${num} not played`;
       const octave = octaveOf(s, f);
-      const empty = onlyScale && cls.includes(' out');
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
-        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}${empty ? ' empty' : ''}`;
+        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}`;
       const inner = cls.includes(' mute') ? MUTE_ICON : tx(text);
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
       html.push(
