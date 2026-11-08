@@ -177,7 +177,20 @@ kbd {
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
 .about-body p { margin: 0; color: color-mix(in srgb, var(--text) 85%, transparent); }
-.about-link { justify-self: center; text-decoration: none; }
+/* The links stay in view under the text (which scrolls on short screens):
+   stacked on phones, side by side on wide screens */
+.about-links {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.about-link { text-decoration: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
+.about-link .heart { color: var(--chord); }
 
 /* Instrument: a button that opens the picker popup (the neck's title on wide
    screens). The tuning (when not the standard one) follows in grey, then a
@@ -247,7 +260,7 @@ kbd {
 .field { display: grid; gap: 7px; min-width: 0; }
 .field > span { margin-left: -2px; } /* optical alignment with the rounded box */
 .field.root { flex: none; }
-.field.root .select-btn { width: var(--root-w); min-width: 0; }
+.field.root .select-btn { width: auto; min-width: var(--root-w); white-space: nowrap; }   /* grows for C♯ (D♭) */
 .field.grow { flex: 1 1 150px; }
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
@@ -412,6 +425,8 @@ kbd {
 .chip .mono { font-weight: 600; }
 .chip.selected { background: var(--chord); color: var(--chord-text); }
 .chip.selected .chip-num { color: var(--chord-text); opacity: 0.8; }
+.group-chip.selected { background: var(--scale); color: var(--scale-text); }   /* scale groups: the scale's colour */
+.group-chip.shown { background: color-mix(in srgb, var(--pk-white) 82%, var(--bg)); color: var(--pk-black); }   /* drawn in white on the neck */
 
 /* ==========================================================================
    Neck. Phones: vertical (nut on top, low string on the left, frets going
@@ -615,9 +630,9 @@ kbd {
 .note.out { visibility: hidden; }
 .cell.empty { cursor: default; }
 
-/* Scale groups: one rounded outline per group (an SVG drawn by script.js),
-   above the strings and fret wires, below the note pills; groups alternate
-   between two colours */
+/* Scale groups: rounded outlines (an SVG drawn by script.js), above the
+   strings and fret wires, below the note pills: the group picked in the
+   scale's colour, the others shown with it in white */
 .group-layer {
   position: absolute;
   left: 0;
@@ -627,14 +642,14 @@ kbd {
   pointer-events: none;
 }
 .group-layer path { fill: none; stroke-width: 2; stroke-linejoin: round; }
-.group-layer .g-a { stroke: var(--scale); }
-.group-layer .g-b { stroke: color-mix(in srgb, var(--pk-white) 70%, transparent); }
+.group-layer .g-a { stroke: var(--scale); }   /* the group picked */
+.group-layer .g-b { stroke: color-mix(in srgb, var(--pk-white) 70%, transparent); }   /* the others shown with it */
 /* A note lights up in amber while it sounds */
 @keyframes ping {
   0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
   100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
 }
-.note.ping, .scale-note.ping { animation: ping 450ms ease-out; }
+.note.ping, .scale-note.ping, .np-deg.ping { animation: ping 450ms ease-out; }
 .scale-note.octave.ping { animation-name: ping-octave; }   /* keeps its ring */
 @keyframes ping-octave {
   0% { box-shadow: inset 0 0 0 2px var(--scale), 0 0 0 0 var(--warn); transform: scale(1.18); }
@@ -758,6 +773,7 @@ kbd {
    panel leaves out its own shape row and counter */
 .shapes-line, .chord-count { display: none; }
 .line .btn.small { flex: none; }
+.group-line[hidden] { display: none; }
 
 .chip-list {
   position: relative;
@@ -991,10 +1007,12 @@ kbd {
   overflow: hidden;
 }
 .dock-symbol:empty { display: none; }
+.dock-shape.groups .dock-symbol { background: var(--scale); color: var(--scale-text); }   /* no chord: the scale's groups */
 .dock-tab { display: grid; min-width: 0; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
 .dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* shape number above the tab */
 .dock-msg { font: 500 var(--fs-sm)/1.3 var(--font); color: var(--muted); }
+.dock-words { font-family: var(--font); }   /* a group's frets: words, not tab */
 
 .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); padding: var(--sp-1) 0 var(--sp-2); }
 /* Each tab is a soft rounded button; the open one is tinted purple */
@@ -1215,11 +1233,13 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 @media (hover: hover) {
   .btn:not(:disabled):hover { border-color: var(--accent); }
   .btn.primary:not(:disabled):hover { filter: brightness(1.08); }
+  .about-link.support:hover { border-color: var(--chord); background: color-mix(in srgb, var(--chord) 12%, transparent); }   /* stays pink */
   .btn:not(:disabled):active { filter: none; }
   .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
   .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
+  .group-chip:hover { box-shadow: inset 0 0 0 1px var(--scale); }   /* scale groups: the scale's colour */
   .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
   .cell.behind:hover, .cell.empty:hover, .cell.no-string:hover { box-shadow: none; }
   .np-note:hover { border-color: var(--accent); }
@@ -1234,6 +1254,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
    Keep in sync with WIDE_QUERY in script.js.
    ========================================================================== */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
+  .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
   body { --dock-h: 0px; }   /* no dock bar: the panels are part of the page */
   :root {
     --gutter: 20px;
