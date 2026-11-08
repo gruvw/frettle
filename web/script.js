@@ -1758,7 +1758,8 @@ function render() {
   renderDock(ch, sc);
   saveState();
   clearLink();
-  // Phones: when the shape changes, scroll the neck so it is in view
+  // When the shape changes, scroll the neck so it is in view (phones: the
+  // page up or down; wide screens: the neck sideways)
   const key = ch && ch.shape ? [instrument().strings, capo(), ch.symbol, tabOf(ch.shape)].join('|') : null;
   if (key && ui.shapeKey !== null && (key !== ui.shapeKey || ui.reveal)) revealShape();
   else if (ui.revealGroup && !key) revealGroup();   // a group picked, no chord shape to keep in view
@@ -1842,8 +1843,8 @@ function chipInView(row, smooth) {   // scroll a row of chips sideways so the se
    above it (with a capo, past the capo's fret), so the highest position
    still shows that edge. The same for a scale group (revealGroup). */
 function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
-  if (isWide()) return;
   if (!notes.length) return;
+  if (isWide()) { revealAcross(notes); return; }
   const rects = notes.map((n) => n.getBoundingClientRect());
   const top = Math.min(...rects.map((r) => r.top));
   const bottom = Math.max(...rects.map((r) => r.bottom));
@@ -1859,6 +1860,31 @@ function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
   const margin = capoCell ? 20 : parseFloat(getComputedStyle(panel).marginTop);
   const edge = (capoCell || panel).getBoundingClientRect().top;
   window.scrollTo({ top: Math.max(edge + window.scrollY - margin, window.scrollY + delta), behavior: 'smooth' });
+}
+
+/* Wide screens: the same rule sideways, when the neck is wider than its
+   panel: the shape (or group) is centred in the part of the neck you can
+   see, as far as the scroll goes; one too wide to fit starts at its end
+   nearest the nut. With a capo, the neck never scrolls past the capo's
+   fret (the frets behind it cannot be played). */
+function revealAcross(notes) {
+  const box = els.neck.closest('.neck-scroll');
+  if (box.scrollWidth <= box.clientWidth + 1) return;
+  const view = box.getBoundingClientRect();
+  const rects = notes.map((n) => n.getBoundingClientRect());
+  const left = Math.min(...rects.map((r) => r.left));
+  const right = Math.max(...rects.map((r) => r.right));
+  const pad = 24;
+  const lefty = box.classList.contains('lefty');   // the nut on the right
+  let delta = right - left > view.width - 2 * pad
+    ? (lefty ? right - (view.right - pad) : left - (view.left + pad))
+    : (left + right) / 2 - (view.left + view.right) / 2;
+  const capoCell = capo() ? els.neck.querySelector(`.cell[data-f="${capo()}"]`) : null;
+  if (capoCell) {   // keep the capo's fret in view, with the same room as on phones
+    const c = capoCell.getBoundingClientRect();
+    delta = lefty ? Math.max(delta, c.right - (view.right - 20)) : Math.min(delta, c.left - (view.left + 20));
+  }
+  if (Math.abs(delta) > 1) box.scrollBy({ left: delta, behavior: 'smooth' });
 }
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
