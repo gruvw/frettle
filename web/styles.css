@@ -492,7 +492,6 @@ kbd {
 .chip.selected { background: var(--chord); color: var(--chord-text); }
 .chip.selected .chip-num { color: var(--chord-text); opacity: 0.8; }
 .group-chip.selected { background: var(--scale); color: var(--scale-text); }   /* scale groups: the scale's colour */
-.group-chip.shown { background: color-mix(in srgb, var(--pk-white) 82%, var(--bg)); color: var(--pk-black); }   /* drawn in white on the neck */
 
 /* ==========================================================================
    Neck. Phones: vertical (nut on top, low string on the left, frets going
@@ -703,8 +702,8 @@ kbd {
 }
 
 /* Scale groups: rounded outlines (an SVG drawn by script.js), above the
-   strings and fret wires, below the note pills: the group picked in the
-   scale's colour, the others shown with it in white */
+   strings and fret wires, below the note pills: one at a time, the group
+   picked, in the scale's colour */
 .group-layer {
   position: absolute;
   left: 0;
@@ -715,7 +714,6 @@ kbd {
 }
 .group-layer path { fill: none; stroke-width: 2; stroke-linejoin: round; }
 .group-layer .g-a { stroke: var(--scale); }   /* the group picked */
-.group-layer .g-b { stroke: color-mix(in srgb, var(--pk-white) 70%, transparent); }   /* the others shown with it */
 /* A note lights up in amber while it sounds */
 @keyframes ping {
   0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }

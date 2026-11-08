@@ -2663,11 +2663,9 @@ function renderNeck(ch, sc) {
   drawGroups();
 }
 
-/* Draw the group picked (ui.groups[ui.group]) in the scale's colour, and
-   with it, in white, the groups that share no note with it nor with each
-   other: every other group, going out from it both ways, as far as the
-   neck goes. Stepping to the next group shows the other half. Each is an
-   outline measured from the cells on screen: an SVG path that is inset a
+/* Draw the group picked (ui.groups[ui.group]) in the scale's colour, one
+   at a time (the arrows and chips step through them). It is an outline
+   measured from the cells on screen: an SVG path that is inset a
    little from the cells and has every corner rounded, inner ones included.
    Redrawn whenever the neck changes size. */
 const GROUP_INSET = 2;   // keeps the line clear of a root note's ring
@@ -2700,8 +2698,7 @@ function drawGroups() {
         u1: r.right - box.left - px('borderRightWidth') - px('paddingRight'),
         v0: r.top - box.top, v1: r.bottom - box.top };
   };
-  const shown = shownGroups();
-  layer.innerHTML = shown.map((g) => {
+  layer.innerHTML = [group].map((g) => {   // one group at a time: the one picked
     const bars = g.bars.map(({ s, a, b }) => {
       const first = cellBox(s, a);
       const last = cellBox(s, b);
@@ -2709,24 +2706,8 @@ function drawGroups() {
       return { u0: Math.min(first.u0, last.u0), u1: Math.max(first.u1, last.u1), v0: first.v0, v1: first.v1 };
     }).sort((p, q) => p.v0 - q.v0);
     const points = staircase(bars, GROUP_INSET).map(([u, v]) => (vertical ? [v, u] : [u, v]));
-    return `<path class="${g === group ? 'g-a' : 'g-b'}" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
+    return `<path class="g-a" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
   }).join('');
-}
-
-/* The groups drawn: the one picked, then going out from it both ways, each
-   group that shares no note (no fret on the same string) with those before */
-function shownGroups() {
-  const group = ui.groups[ui.group];
-  if (!group) return [];
-  const share = (g, h) => g.bars.some((x) => h.bars.some((y) => x.s === y.s && x.a <= y.b && y.a <= x.b));
-  const shown = [group];
-  for (const step of [-1, 1]) {
-    for (let i = ui.group + step; i >= 0 && i < ui.groups.length; i += step) {
-      const g = ui.groups[i];
-      if (!shown.some((h) => share(g, h))) shown.push(g);
-    }
-  }
-  return shown;
 }
 
 /* Outline of stacked bars (one per string, each covering a range along u),
@@ -2957,13 +2938,12 @@ function renderGroupLine(sc) {
   els.groupPrev.disabled = els.groupNext.disabled = ui.groups.length < 2;
   if (!on) { els.groupList.innerHTML = ''; return; }
   const c = capo();
-  const shown = new Set(shownGroups());   // drawn on the neck: white chips, the one picked in the scale's colour
   els.groupList.dataset.empty = 'No group fits on this neck';
   els.groupList.innerHTML = ui.groups.map((g, i) => {
     const sel = i === ui.group;
     const [a, b] = groupFrets(g);
     const place = groupPlace(g, c);
-    return `<li><button type="button" class="chip group-chip${sel ? ' selected' : shown.has(g) ? ' shown' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
+    return `<li><button type="button" class="chip group-chip${sel ? ' selected' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
       `title="Group ${i + 1}, frets ${a} to ${b}"><span class="tx">${place[0].toUpperCase()}${place.slice(1)}</span></button></li>`;
   }).join('');
   requestAnimationFrame(() => keepChipVisible(els.groupList));
