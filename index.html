@@ -71,7 +71,7 @@
        horizontal and the panels sit below it. -->
   <header class="top">
     <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
-    <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is on the neck" aria-label="Share"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
+    <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is on the neck" aria-label="Share" aria-haspopup="dialog"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
     <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog">About</button>
     <!-- Phones: the instrument menu sits here, centred above the neck -->
     <div id="instNarrowSlot" class="inst-slot"></div>
@@ -174,9 +174,9 @@
             <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
           </div>
           <div id="recentLine" class="line recent-line" hidden>
-            <span class="label">Recent</span>
-            <div class="recent-scroll"><ol id="recentList" class="recent-chips" aria-label="Recent chords"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
-            <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg>Clear</button>
+            <span class="label">List</span>
+            <div class="recent-scroll"><ol id="recentList" class="recent-chips" aria-label="Chord list"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
+            <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg>Clear</button>
           </div>
         </section>
 
@@ -243,10 +243,10 @@
 
     <!-- Phones only: always-visible shape controls and the tab bar -->
     <div class="dock-bar narrow-only">
-      <!-- Recent chords: one tap to switch between a song's chords -->
+      <!-- Chord list (recent chords, or shared ones): one tap to switch between a song's chords -->
       <div id="dockRecent" class="dock-recent" hidden>
-        <div class="recent-scroll"><ol id="dockRecentList" class="recent-chips" aria-label="Recent chords"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
-        <button type="button" id="dockRecentClear" class="recent-clear" aria-label="Clear the recent chords" title="Clear the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg></button>
+        <div class="recent-scroll"><ol id="dockRecentList" class="recent-chips" aria-label="Chord list"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
+        <button type="button" id="dockRecentClear" class="recent-clear" aria-label="Clear the chord list" title="Clear the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg></button>
       </div>
       <div id="dockShapeBar" class="dock-shape">
         <button type="button" id="dockPrev" class="btn icon" aria-label="Previous shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
@@ -295,6 +295,76 @@
     <div class="about-links">
       <a class="btn about-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener">Source code on GitHub</a>
       <a class="btn about-link support" href="https://ko-fi.com/gruvw" target="_blank" rel="noopener"><svg class="ico heart" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>Support Frettle</a>
+    </div>
+  </dialog>
+
+  <dialog id="share" class="picker share" aria-labelledby="shareTitle">
+    <div class="picker-head">
+      <h2 id="shareTitle">Share</h2>
+      <button type="button" id="shareClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="picker-body lk-body">
+      <button type="button" id="shareNeck" class="lk-row neck" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Neck</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="shareChord" class="lk-row chord" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="shareRecent" class="lk-row chord" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord list</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="shareScale" class="lk-row scale" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Scale</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+    </div>
+    <div class="about-links share-actions">
+      <button type="button" id="shareCancel" class="btn">Cancel</button>
+      <button type="button" id="shareGo" class="btn primary">Copy link</button>
+    </div>
+  </dialog>
+
+  <dialog id="linkOpen" class="picker share" aria-labelledby="linkTitle">
+    <div class="picker-head">
+      <h2 id="linkTitle">Load link</h2>
+      <button type="button" id="linkClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="picker-body lk-body">
+      <button type="button" id="linkNeck" class="lk-row neck" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Neck</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="linkChord" class="lk-row chord" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="linkList" class="lk-row chord" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord list</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="linkScale" class="lk-row scale" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Scale</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+    </div>
+    <div class="about-links share-actions">
+      <button type="button" id="linkKeep" class="btn">Cancel</button>
+      <button type="button" id="linkLoad" class="btn primary" autofocus>Load</button>
     </div>
   </dialog>
 

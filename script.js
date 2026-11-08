@@ -9,8 +9,9 @@
 /* ==========================================================================
    1. Music data
    ========================================================================== */
-const STORAGE_KEY = 'frettle.settings.v1';
-const SAVE_VERSION = 3;   // raised when a default changes for people with saved settings
+const STORAGE_KEY = 'frettle';
+const OLD_STORAGE_KEYS = ['frettle.settings.v1'];   // removed: their settings are not read
+const SAVE_VERSION = 1;   // a save of another version is not read: defaults instead
 const TOGGLES = [['tglOctaves', 'octaves'], ['tglFlats', 'flats'], ['tglLefty', 'leftHanded'], ['tglAllTones', 'allTones'],
   ['tglScaleOnly', 'scaleOnly'], ['tglScaleGroups', 'scaleGroups']];   // [button id, state key]
 const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
@@ -657,54 +658,60 @@ function defaultState() {
     octaves: false,
     tuning: {},                       // tuning id per instrument that has several
     chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
-    recent: [],                       // recently used chords [{ root, type, shapes }], shared by all instruments
+    recent: [],                       // the chord list [{ root, type, shapes }], shared by all instruments: none, or 2 or more
+    solo: null,                       // the chord before there is a list (its shapes), the list's first chip to be
     capo: 0,                          // fret of the capo, 0 = none (all instruments)
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
     scale: { on: false, root: 0, type: null },
+    share: { neck: true, chord: true, scale: true, recent: false },   // what the Share popup puts in the link
   };
 }
 
+/* Saved settings, in two parts: how you like to see things (prefs), and
+   what is on the neck (work: the neck, chord, scale and chord list, the
+   parts a link can hold, written the same way as in a link). Each value is
+   checked as it is read; a wrong or missing one keeps its default. */
 function loadState() {
   const s = defaultState();
   try {
+    for (const key of OLD_STORAGE_KEYS) localStorage.removeItem(key);
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (!saved || typeof saved !== 'object') return s;
-    if (findInstrument(saved.instrument)) s.instrument = saved.instrument;
+    if (!saved || saved.v !== SAVE_VERSION) return s;
+    const prefs = saved.prefs || {};
+    const work = saved.work || {};
     for (const k of ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded']) {
-      if (typeof saved[k] === 'boolean') s[k] = saved[k];
+      if (typeof prefs[k] === 'boolean') s[k] = prefs[k];
     }
-    // A default that changed is applied once to settings saved before it:
-    // version 2 turned the groups on, version 3 "Only scale notes"
-    if (!(saved.v >= 2)) s.scaleGroups = true;
-    if (!(saved.v >= 3)) s.scaleOnly = true;
-    // Off, only the root is kept (a save from before kept the type too)
-    if (saved.chord && saved.chord.on === false) s.chord = { on: false, root: mod12(Number(saved.chord.root) || 0), type: null };
-    else if (saved.chord && findChord(saved.chord.type)) {
-      s.chord = { on: true, root: mod12(Number(saved.chord.root) || 0), type: saved.chord.type };
+    for (const k of Object.keys(s.share)) {
+      if (prefs.share && typeof prefs.share[k] === 'boolean') s.share[k] = prefs.share[k];
     }
-    // Recent chords: one list (an older save had a list per instrument: they
-    // are merged, the current instrument's first)
-    const lists = Array.isArray(saved.recent) ? [saved.recent]
-      : saved.recent && typeof saved.recent === 'object'
-        ? Object.entries(saved.recent).sort(([a], [b]) => (b === s.instrument) - (a === s.instrument)).map(([, l]) => l) : [];
-    for (const r of lists.flat()) {
-      if (!r || !findChord(r.type) || !Number.isInteger(r.root) || s.recent.length >= RECENT_MAX) continue;
-      if (s.recent.some((x) => x.root === mod12(r.root) && x.type === r.type)) continue;
-      const shapes = {};
-      const kept = r.shapes && typeof r.shapes === 'object' ? r.shapes : typeof r.context === 'string' ? { [r.context]: r.shape } : {};
-      for (const [ctx, shape] of Object.entries(kept)) if (Number.isInteger(shape) && shape >= 0) shapes[ctx] = shape;
-      s.recent.push({ root: mod12(r.root), type: r.type, used: -RECENT_MAX + s.recent.length, shapes });
-    }
-    if (saved.scale && saved.scale.on === true && findScale(saved.scale.type)) {
-      s.scale = { on: true, root: mod12(Number(saved.scale.root) || 0), type: saved.scale.type };
-    } else if (saved.scale) s.scale = { on: false, root: mod12(Number(saved.scale.root) || 0), type: null };
-    if (Number.isInteger(saved.capo) && saved.capo >= 0 && saved.capo <= MAX_CAPO) s.capo = saved.capo;
+    if (readInstrument(work.instrument)) s.instrument = work.instrument;
     for (const id of Object.keys(TUNINGS)) {
-      const t = saved.tuning && saved.tuning[id];
-      if (TUNINGS[id].some((x) => x.id === t)) s.tuning[id] = t;
+      const t = readTuning(id, work.tuning && work.tuning[id]);
+      if (t) s.tuning[id] = t;
     }
-    if (saved.lowG === true && !s.tuning.ukulele) s.tuning.ukulele = 'low-g';   // the old "Low G" switch
+    const c = readCapo(work.capo);
+    if (c !== null) s.capo = c;
+    const chord = readChord(work.chord);
+    if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id } : { on: false, root: chord.root, type: null };
+    const scale = readScale(work.scale);
+    if (scale) s.scale = scale.def ? { on: true, root: scale.root, type: scale.def.id } : { on: false, root: scale.root, type: null };
+    const entry = (e) => {
+      const r = e && readChord(e.chord);
+      return r && r.def ? { root: r.root, type: r.def.id, used: Number(e.used) || 0, voicings: readVoicings(e.voicings), shapes: readShapes(e.shapes) } : null;
+    };
+    for (const e of Array.isArray(work.list) ? work.list : []) {
+      const r = entry(e);
+      if (!r || s.recent.length >= RECENT_MAX || s.recent.some((x) => x.root === r.root && x.type === r.type)) continue;
+      s.recent.push(r);
+    }
+    // Which was used last, as saved: all before this visit's picks (negative)
+    s.recent.map((r, i) => [r, i]).sort(([a, i], [b, j]) => a.used - b.used || i - j)
+      .forEach(([r], rank) => { r.used = rank - RECENT_MAX; });
+    s.solo = entry(work.solo);
+    if (s.solo) s.solo.used = -RECENT_MAX - 1;
+    settleList(s);   // never a list of one
   } catch {
     /* storage unavailable or corrupt: keep defaults */
   }
@@ -712,119 +719,437 @@ function loadState() {
 }
 
 function saveState() {
-  const { instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale } = state;
-  const saved = { v: SAVE_VERSION, instrument, flats, allTones, octaves, tuning, scaleOnly, scaleGroups, leftHanded, capo, chord, scale };
-  saved.recent = state.recent.map(({ root, type, shapes }) => ({ root, type, shapes }));
+  const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, share } = state;
+  const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the chip unused longest
+  const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), voicings: r.voicings, shapes: r.shapes });
+  const saved = {
+    v: SAVE_VERSION,
+    prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, share },
+    work: {
+      instrument: state.instrument,
+      tuning: state.tuning,
+      capo: state.capo,
+      chord: state.chord.on ? chordText(state.chord.root, findChord(state.chord.type)) : noteToken(plainNote(state.chord.root, state.flats)),
+      scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
+      list: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
+      solo: state.solo && entry(state.solo),
+    },
+  };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
 }
 
-/* Shareable links. The address holds what is on the neck, so it can be
-   shared, bookmarked or reloaded as it is:
-     ?instrument=guitar&tuning=drop-d&capo=2&chord=A-m7&voicing=1
-     &shape=x-0-2-0-1-0&scale=A-minor-pentatonic
-   Only what differs from the defaults is written (the instrument always).
-   How you like to see the neck (left-handed, flats, octaves, the switches)
-   stays yours: it is not in the link. A shape is written as its frets, so a
-   link keeps showing the same shape even if the shape list changes. */
-const LINK_KEYS = ['instrument', 'tuning', 'capo', 'chord', 'voicing', 'shape', 'scale'];
-const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
-const linkNote = (n) => LETTERS[n.letter] + (n.acc > 0 ? '#'.repeat(n.acc) : 'b'.repeat(-n.acc));
-function parseLinkNote(text) {   // "A", "Bb", "F#" (or "Fs", "F♯") → pitch class
+/* Text forms shared by links and saved settings: each part is written one
+   way, and read back (checked) one way.
+   A note: "A", "Bb", "Fs" (sharps as s: a # would be escaped in a link).
+   A chord: its root as spelled on screen, a hyphen, its type: "A-m7"; with
+   a shape, its frets after a dot: "A-m7.x-0-2-0-1-0"; a root alone is no
+   chord (the root kept for the menus). A scale: "A-minor-pentatonic", or a
+   root alone for none. */
+const noteToken = (n) => LETTERS[n.letter] + (n.acc > 0 ? 's'.repeat(n.acc) : 'b'.repeat(-n.acc));
+function readNote(text) {   // "A", "Bb", "Fs" (or "F#", "F♯") → pitch class, or null
   const m = /^([A-Ga-g])([#s♯]{1,2}|[b♭]{1,2})?$/.exec(text || '');
   if (!m) return null;
   const acc = m[2] ? (/[#s♯]/.test(m[2]) ? 1 : -1) * m[2].length : 0;
   return mod12(LETTER_PC[LETTERS.indexOf(m[1].toUpperCase())] + acc);
 }
-const linkFrets = (frets) => frets.map((f) => (f < 0 ? 'x' : f)).join('-');
-/* "A-minor-pentatonic" → { root, id } (ids may contain hyphens, roots do not) */
-function parseLinkPair(text) {
-  const m = /^([^-]+)-(.+)$/.exec(text || '');
-  const root = m && parseLinkNote(m[1]);
-  return root === null || !m ? null : { root, id: m[2] };
+const fretsText = (frets) => frets.map((f) => (f < 0 ? 'x' : f)).join('-');
+const FRETS_RE = /^(x|\d{1,2})(-(x|\d{1,2}))*$/;
+// "A-minor-pentatonic" → { root, id }, "A" → { root, id: null } (ids may contain hyphens, roots do not)
+function readPair(text) {
+  const m = /^([^-]+)(?:-(.+))?$/.exec(text || '');
+  const root = m ? readNote(m[1]) : null;
+  return root === null ? null : { root, id: m[2] || null };
+}
+const chordText = (root, def) => `${noteToken(chordSpelling(root, def).root)}-${def.id}`;
+const scaleText = (root, def) => `${noteToken(scaleSpelling(root, def).root)}-${def.id}`;
+// → { root, def (null: none), frets ('' without a shape) }, or null when wrong
+function readChord(text) {
+  const [name, frets = ''] = String(text || '').split('.');
+  const pair = readPair(name);
+  const def = pair && pair.id && findChord(pair.id);
+  if (!pair || (pair.id && (!def || def.id !== pair.id)) || (frets && !FRETS_RE.test(frets))) return null;
+  return { root: pair.root, def: def || null, frets };
+}
+function readScale(text) {   // → { root, def (null: none) }, or null when wrong
+  const pair = readPair(text);
+  const def = pair && pair.id && findScale(pair.id);
+  if (!pair || (pair.id && (!def || def.id !== pair.id))) return null;
+  return { root: pair.root, def: def || null };
+}
+// The neck: each value, or null when wrong
+const readInstrument = (id) => (findInstrument(id) ? id : null);
+const readTuning = (inst, id) => (TUNINGS[inst] && TUNINGS[inst].some((t) => t.id === id) ? id : null);
+function readCapo(value) {
+  const c = Number(value);
+  return Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : null;
+}
+// A chip's remembered voicings: { instrument: voicing }
+function readVoicings(value) {
+  const voicings = {};
+  for (const [inst, v] of Object.entries(value && typeof value === 'object' ? value : {})) {
+    if (findInstrument(inst) && VOICINGS.includes(v)) voicings[inst] = v;
+  }
+  return voicings;
+}
+// A chip's remembered shapes: { neck setting: frets }
+function readShapes(value) {
+  const shapes = {};
+  for (const [ctx, frets] of Object.entries(value && typeof value === 'object' ? value : {})) {
+    if (typeof frets === 'string' && FRETS_RE.test(frets)) shapes[ctx] = frets;
+  }
+  return shapes;
 }
 
-function linkParams() {
+/* Shareable links, made by the Share popup (the address bar stays clean:
+   what is on the neck is saved on the device, not in the address):
+     ?instrument=guitar&tuning=drop-d&capo=2&voicing=1
+     &chord=A-m7.x-0-2-0-1-0&scale=A-minor-pentatonic
+     &list=C-maj_Fs-m.2-4-4-2-2-2_F-maj
+   Each part is left out when not shared, and the tuning, capo and voicing
+   when they are the defaults. How you like to see the neck (left-handed,
+   flats, octaves, the switches) stays yours: it is not in the link.
+   A chord is written the same way alone (chord) and in the chord list
+   (list, chords split by _): its root (sharps as s, flats as b, as spelled
+   on screen), a hyphen, its type, then after a dot the shape as its frets
+   (x for a muted string), left out when it is the first shape or the link
+   has no neck. Frets, so a link keeps showing the same shape even if the
+   shape list changes. */
+const LINK_KEYS = ['instrument', 'tuning', 'capo', 'voicing', 'chord', 'scale', 'list'];
+const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
+/* A chord of the link, alone or in the list, with the shape on screen (or
+   its chip's), when not the first one and only with the neck */
+function chordToken(root, def, neck) {
+  const entry = [...recentList(), state.solo].find((r) => r && r.root === root && r.type === def.id);
+  const shown = state.chord.on && root === state.chord.root && def.id === state.chord.type;
+  const shapes = !neck ? [] : shown ? currentChord().shapes : chordShapes(root, def, chipVoicing(entry, def));
+  const at = shown ? currentChord().index : rememberedShape(entry);
+  const shape = shapes[Math.min(at, shapes.length - 1)];
+  return shape && shapes.indexOf(shape) > 0 ? `${chordText(root, def)}.${fretsText(shape.frets)}` : chordText(root, def);
+}
+
+/* What the link holds: the neck (instrument, tuning, capo), the chord, the
+   scale and the chord list, as asked */
+function linkParams({ neck = true, chord = true, scale = true, recent = false } = {}) {
   const p = new URLSearchParams();
   const inst = instrument();
-  p.set('instrument', state.instrument);
-  if (inst.tuning && inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
-  if (capo()) p.set('capo', String(capo()));
-  if (state.chord.on) {
-    const def = findChord(state.chord.type);
-    p.set('chord', `${linkNote(chordSpelling(state.chord.root, def).root)}-${def.id}`);
-    const voicing = state.voicing[state.instrument];
-    if (voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
-    const ch = currentChord();
-    if (ch && ch.shape && ch.index > 0) p.set('shape', linkFrets(ch.shape.frets));
+  if (neck) {
+    p.set('instrument', state.instrument);
+    if (inst.tuning && inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
+    if (capo()) p.set('capo', String(capo()));
   }
-  if (state.scale.on) {
+  // The voicing goes with the chord and the neck (a list's chords: their
+  // frets say it, see applyLink)
+  const voicing = state.voicing[state.instrument];
+  if (neck && chord && state.chord.on && voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
+  if (chord && state.chord.on) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
+  if (recent && state.recent.length) {
+    p.set('list', state.recent.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
+  }
+  if (scale && state.scale.on) {
     const def = findScale(state.scale.type);
-    p.set('scale', `${linkNote(scaleSpelling(state.scale.root, def).root)}-${def.id}`);
+    p.set('scale', scaleText(state.scale.root, def));
   }
   return p;
 }
 
-/* Opened from a link: show what it holds, and nothing left over from your
-   last visit (no chord, scale or capo unless the link has one). Returns
-   false for an address without a link. */
-function applyLink(search) {
+/* Puts a link on the neck. All of it (a first visit: no chord, scale or
+   capo unless the link has one), or the parts chosen in the Open link popup
+   (parts: { neck, chord, scale, recent }): what is not taken stays as it
+   was. Without the neck (instrument, tuning, capo), the chords come on your
+   neck, on their first shapes (the link's shapes are for its neck).
+   Returns false for an address without a link. */
+function applyLink(search, parts = null) {
   const p = new URLSearchParams(search);
   if (!LINK_KEYS.some((k) => p.has(k))) return false;
+  const take = (k) => !parts || parts[k];
+  const neck = take('neck') && p.has('instrument');   // (a link can leave the neck out)
   // A link without an instrument (written by hand) shows on yours, as you tuned it
-  if (findInstrument(p.get('instrument'))) {
+  if (neck && readInstrument(p.get('instrument'))) {
     state.instrument = p.get('instrument');
-    const tunings = TUNINGS[state.instrument];
-    if (tunings) state.tuning[state.instrument] = tunings.some((t) => t.id === p.get('tuning')) ? p.get('tuning') : 'standard';
+    if (TUNINGS[state.instrument]) state.tuning[state.instrument] = readTuning(state.instrument, p.get('tuning')) || 'standard';
   }
-  const c = Number(p.get('capo') || 0);
-  state.capo = Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : 0;
-  const chord = parseLinkPair(p.get('chord'));
-  if (chord && findChord(chord.id) && findChord(chord.id).id === chord.id) state.chord = { on: true, root: chord.root, type: chord.id };
-  else chordOff();
-  state.voicing[state.instrument] = VOICINGS.includes(p.get('voicing')) ? p.get('voicing') : DEFAULT_VOICING[state.instrument];
-  const scale = parseLinkPair(p.get('scale'));
-  if (scale && findScale(scale.id) && findScale(scale.id).id === scale.id) state.scale = { on: true, root: scale.root, type: scale.id };
-  else scaleOff();
+  if (neck) state.capo = readCapo(p.get('capo') || 0) || 0;
+  const chord = readChord(p.get('chord'));
+  if (take('chord')) {
+    if (chord && chord.def) state.chord = { on: true, root: chord.root, type: chord.def.id };
+    else chordOff();
+  }
+  if (neck && take('chord')) {
+    state.voicing[state.instrument] = VOICINGS.includes(p.get('voicing')) ? p.get('voicing') : DEFAULT_VOICING[state.instrument];
+  }
+  if (take('scale')) {
+    const scale = readScale(p.get('scale'));
+    if (scale && scale.def) state.scale = { on: true, root: scale.root, type: scale.def.id };
+    else scaleOff();
+  }
   state.shape = 0;
-  const ch = state.chord.on && p.get('shape') ? currentChord() : null;
-  const at = ch ? ch.shapes.findIndex((shape) => linkFrets(shape.frets) === p.get('shape')) : -1;
+  const ch = neck && take('chord') && chord && chord.frets ? currentChord() : null;
+  const at = ch ? ch.shapes.findIndex((shape) => fretsText(shape.frets) === chord.frets) : -1;
   if (at > 0) state.shape = at;
+  // The chord list: it replaces yours, each chord on the shape it was shared with
+  // (fewer than 2 chords is no list: yours stays)
+  if (take('recent') && p.has('list')) {
+    const list = [];
+    for (const item of p.get('list').split('_')) {
+      const c = readChord(item);
+      if (!c || !c.def || list.length >= RECENT_MAX) continue;
+      if (list.some((r) => r.root === c.root && r.type === c.def.id)) continue;
+      // its shape, for the neck it was shared with (without it, the first),
+      // in the voicing that lists it: the link's, the default, or another
+      const entry = { root: c.root, type: c.def.id, used: ++recentClock, shapes: {}, voicings: {} };
+      const tries = [p.get('voicing'), DEFAULT_VOICING[state.instrument], ...VOICINGS].filter((v) => VOICINGS.includes(v));
+      const voicing = c.frets && neck && tries.find((v) => chordShapes(c.root, c.def, voicingFor(c.def, v)).some((shape) => fretsText(shape.frets) === c.frets));
+      if (voicing) {
+        entry.voicings[state.instrument] = voicingFor(c.def, voicing);
+        entry.shapes[shapeContext(c.def, voicingFor(c.def, voicing))] = c.frets;
+      }
+      list.push(entry);
+    }
+    if (list.length > 1) {
+      state.recent = list;
+      state.solo = null;
+    }
+  }
+  if (!take('chord')) recallChip();   // your own chord, as its chip remembers it
   return true;
 }
 
-/* Keep the address in step with the neck, right away (a reload shows what
-   you just picked). Safari refuses too many address updates in a row: then
-   it is tried again a moment later. */
-let linkRetry = 0;
-function syncLink() {
-  if (typeof history === 'undefined' || !history.replaceState) return;
-  clearTimeout(linkRetry);
-  const query = `?${linkParams()}`;
-  if (query === location.search) return;
-  try { history.replaceState(history.state, '', `${location.pathname}${query}${location.hash}`); } catch {
-    linkRetry = setTimeout(syncLink, 1000);
+/* Opened from a link: a popup says what it holds and what it would replace,
+   and you load all of it or only some (the chord, the chord list, the
+   scale). It loads straight away when there is nothing of yours to lose: a
+   first visit, or when no row would say Replaces, Removes or Clears: for
+   the chord and the scale, you have none or the link holds the same; the
+   link's list keeps every chord of yours; the link's neck (if it has one)
+   is yours already. Until you choose, your own
+   neck is shown and the address keeps the link. */
+let pendingLink = null;   // { search, preview, parts }
+function startLink(search) {
+  const p = new URLSearchParams(search);
+  if (!LINK_KEYS.some((k) => p.has(k))) return;
+  let saved = null;
+  try { saved = localStorage.getItem(STORAGE_KEY); } catch { /* storage unavailable */ }
+  if (!saved) { applyLink(search); return; }
+  // A link with no chord (or no scale) means none: loaded, it takes yours
+  // off, so it is asked about too. A link with no chord list keeps yours:
+  // most links leave it out (it is off in the Share popup to begin with).
+  const has = { neck: p.has('instrument'), chord: p.has('chord') || state.chord.on, scale: p.has('scale') || state.scale.on, recent: p.has('list') };
+  const preview = linkPreview(search, has);   // (may find has.recent false)
+  if (!preview.loses) { applyLink(search, has); return; }
+  pendingLink = { search, preview, parts: { ...has } };   // all switched on
+}
+
+/* What a link would show, worked out on a copy of the state: the setup, the
+   chord, the scale and the chord list, and whether it is all yours already */
+function linkPreview(search, has) {
+  const mine = state;
+  const mySetup = setupText();
+  state = JSON.parse(JSON.stringify(mine));
+  state.recent = [];   // the list shown is the link's, not yours
+  try {
+    applyLink(search);
+    const ch = currentChord();
+    const sc = currentScale();
+    if (has.recent && !state.recent.length) has.recent = false;   // no list in the link after all
+    // Yours goes if you have one and the link's differs (a neck, you always have)
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const chords = (s) => s.recent.map((r) => [r.root, r.type]);
+    const loses = (has.neck && setupText() !== mySetup)
+      || (has.chord && mine.chord.on && !same(mine.chord, state.chord))
+      || (has.scale && mine.scale.on && !same(mine.scale, state.scale))
+      || (has.recent && chords(mine).some(([root, type]) => !state.recent.some((r) => r.root === root && r.type === type)));   // a chord of yours it drops
+    return {
+      setup: has.neck ? setupText() : null,
+      setupParts: has.neck ? setupParts() : null,
+      // null: not in the link (no row), '': none
+      chord: has.chord ? (ch ? ch.symbol : '') : null,
+      scale: has.scale ? (sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '') : null,
+      list: has.recent ? recentNames() : null,
+      loses,
+    };
+  } finally {
+    state = mine;
   }
 }
 
-/* A line for the share sheet: "Am7 over A minor pentatonic, on guitar (capo 2)" */
-function linkSummary() {
+function openLinkPopup() {
+  renderLinkPopup();
+  if (els.linkOpen.showModal) els.linkOpen.showModal(); else els.linkOpen.setAttribute('open', '');
+}
+/* One row per part: the switch (a tick instead when nothing would change),
+   its name, a tag for what Load does with it (Replaces, Adds, Removes,
+   Clears, Not loaded, No change), and what is on the neck now → what the link has: the
+   one you end up with bright, the other struck through (or just what
+   changes, see neckDiff). Chords show as
+   chips, so a long list wraps chip by chip; the link's part goes under the
+   current one when both do not fit on a line. */
+const lkEmpty = (v) => (Array.isArray(v) ? !v.length : !v);
+const lkValue = (v, cls) => (lkEmpty(v) ? `<span class="lk-val none ${cls}">None</span>`
+  : Array.isArray(v) ? `<span class="lk-val chips ${cls}">${v.map((n) => `<span class="lk-chip">${esc(n)}</span>`).join('')}</span>`
+    : `<span class="lk-val ${cls}">${esc(v)}</span>`);
+const CHECK_ICON = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+function renderLinkPopup() {
+  const { preview, parts } = pendingLink;
   const ch = currentChord();
   const sc = currentScale();
-  const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
-  const inst = instrument();
-  const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
-  return `${what || 'The neck'}, on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}`;
+  const rows = [   // [row, part, now, the link's]: text, or a list of chord names
+    [els.linkNeck, 'neck', setupText(), preview.setup],
+    [els.linkChord, 'chord', ch ? [ch.symbol] : [], preview.chord === null ? null : [preview.chord].filter(Boolean)],
+    [els.linkList, 'recent', recentNames(), preview.list],
+    [els.linkScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '', preview.scale],
+  ];
+  for (const [row, key, now, link] of rows) {
+    row.hidden = link === null;
+    if (link === null) continue;
+    const same = String(now) === String(link);
+    const empty = lkEmpty;
+    const show = lkValue;
+    const on = parts[key] && !same;
+    row.classList.toggle('same', same);
+    row.disabled = same;
+    row.setAttribute('aria-pressed', String(on));
+    row.querySelector('.lk-icon').innerHTML = same ? CHECK_ICON : '';
+    const tag = row.querySelector('.lk-tag');
+    // A list that only gains chords Adds; one that only drops some Removes
+    const gains = key === 'recent' && !empty(now) && now.every((n) => link.includes(n));
+    const drops = key === 'recent' && !empty(link) && link.every((n) => now.includes(n));
+    const what = empty(now) || gains ? 'Adds' : empty(link) ? 'Clears' : drops ? 'Removes' : 'Replaces';
+    tag.textContent = same ? 'No change' : !on ? 'Not loaded' : what;
+    tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
+    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on)
+      : key === 'recent' ? listDiff(now, link, on) : '');
+    row.querySelector('.lk-change').innerHTML = same ? show(link, 'win') : diff
+      || `${show(now, on ? 'lose' : 'win')}<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${show(link, on ? 'win' : 'lose')}</span>`;
+  }
 }
 
-/* Share: the phone's share sheet, or copy the link. A copied link turns the
-   button's icon into a tick for a moment. */
+/* A small change shows in place, not as the whole thing twice. On the same
+   instrument, the neck is one line where only the tuning or capo that
+   changes shows both: "Bass (Drop D, capo 3 capo 2)", the one you end up
+   with bright, the other struck through. A chord list that shares chords is
+   one row of chips: first the chords it loses, struck through, then the
+   list you end up with, the chords it gains outlined. Anything else: now → the link's. */
+function neckDiff(now, link, on) {
+  if (now[0] !== link[0]) return '';
+  const part = (a, b) => (a === b ? esc(a)
+    : `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(a)}</span> <span class="${on ? 'lk-new' : 'lk-old'}">${esc(b)}</span>`);
+  return `<span class="lk-val diff">${esc(now[0])} (${part(now[1], link[1])}, ${part(now[2], link[2])})</span>`;
+}
+function listDiff(now, link, on) {
+  if (!now.length || !link.length || !now.some((n) => link.includes(n))) return '';
+  const [kept, other] = on ? [link, now] : [now, link];
+  const chip = (n, cls = '') => `<span class="lk-chip${cls}">${esc(n)}</span>`;
+  return `<span class="lk-val chips diff">${other.filter((n) => !kept.includes(n)).map((n) => chip(n, ' gone')).join('')}`
+    + `${kept.map((n) => chip(n, on && !other.includes(n) ? ' added' : '')).join('')}</span>`;
+}
+// Load (what is switched on), or nothing (Cancel, the ×, Escape, a tap outside)
+function closeLink(load) {
+  const link = pendingLink;
+  pendingLink = null;
+  if (els.linkOpen.open) {
+    if (els.linkOpen.close) els.linkOpen.close(); else els.linkOpen.removeAttribute('open');
+  }
+  if (!link) return;
+  if (load) {
+    applyLink(link.search, link.parts);
+    shownChord = undefined;   // loaded, not picked: no chip for it
+  }
+  render();
+}
+
+/* Once a link is loaded (or left), it leaves the address: a reload shows
+   your saved neck, and does not ask again. Until you choose in the popup it
+   stays, so a reload asks again. */
+function clearLink() {
+  if (pendingLink || typeof history === 'undefined' || !history.replaceState) return;
+  const p = new URLSearchParams(location.search);
+  if (!LINK_KEYS.some((k) => p.has(k))) return;
+  for (const k of LINK_KEYS) p.delete(k);
+  const query = p.toString();
+  try { history.replaceState(history.state, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`); } catch { /* the link stays */ }
+}
+
+/* A line for the share sheet: "Am7 over A minor pentatonic, on guitar
+   (capo 2)", with the recent chords if shared: "..., chords C, G, Am and F" */
+function linkSummary({ neck = true, chord = true, scale = true, recent = false } = {}) {
+  const ch = chord ? currentChord() : null;
+  const sc = scale ? currentScale() : null;
+  const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
+  const chords = recent ? recentNames() : [];
+  const list = chords.length > 1 ? `chords ${chords.slice(0, -1).join(', ')} and ${chords[chords.length - 1]}` : '';
+  const inst = instrument();
+  const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
+  const on = neck ? ` on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}` : '';
+  return `${[what, list].filter(Boolean).join(', ') || 'The neck'}${(what || list) && on ? ',' : ''}${on}`;
+}
+const recentNames = () => state.recent.map((r) => {
+  const def = findChord(r.type);
+  return noteText(chordSpelling(r.root, def).root) + def.symbol;
+});
+
+/* Share: a popup shows what is on the neck, one row per part that is set
+   (the neck, the chord, the chord list, the scale), each switched in or out of the
+   link (all but the chord list the first time, then as you last left
+   them), then shares it: the phone's share sheet, or the link copied (the
+   Share button says so for a moment). */
 // Drawn 1 unit left of centre: its two dots on the right make it look right-heavy otherwise
 const SHARE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg>';
 const DONE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const shareSheet = () => Boolean(navigator.share) && window.matchMedia('(pointer: coarse)').matches;
+function openShare() {
+  renderShare();
+  if (els.share.showModal) els.share.showModal(); else els.share.setAttribute('open', '');
+}
+function closeShare() {
+  clearTimeout(shareTimer);
+  if (els.share.close) els.share.close(); else els.share.removeAttribute('open');
+}
+// "Guitar (Drop D, capo 2)", "Ukulele (standard tuning, no capo)"
+function setupParts() {   // [instrument, tuning, capo]
+  const inst = instrument();
+  return [inst.name, tuningName(inst) || 'standard tuning', capo() ? `capo ${capo()}` : 'no capo'];
+}
+function setupText() {
+  const [name, tuning, capoText] = setupParts();
+  return `${name} (${tuning}, ${capoText})`;
+}
+function renderShare() {
+  const ch = currentChord();
+  const sc = currentScale();
+  const rows = [   // [row, part, what is on the neck: text, or chord names]
+    [els.shareNeck, 'neck', setupText()],
+    [els.shareChord, 'chord', ch ? [ch.symbol] : []],
+    [els.shareRecent, 'recent', recentNames()],
+    [els.shareScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : ''],
+  ];
+  for (const [row, key, value] of rows) {
+    // Nothing of it on the neck: no row (its switch stays as you left it)
+    const has = !lkEmpty(value);
+    row.hidden = !has;
+    if (!has) continue;
+    const on = Boolean(state.share[key]);
+    row.setAttribute('aria-pressed', String(on));
+    const tag = row.querySelector('.lk-tag');
+    tag.textContent = on ? 'Included' : 'Not included';
+    tag.className = `lk-tag${on ? ' gain' : ''}`;
+    row.querySelector('.lk-change').innerHTML = lkValue(value, on ? 'win' : 'lose');
+  }
+  const opts = shareChoice();
+  els.shareGo.disabled = !Object.values(opts).some(Boolean);
+  els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}Share link` : 'Copy link';
+}
+function shareChoice() {
+  return {
+    neck: state.share.neck,
+    chord: state.share.chord && state.chord.on,
+    scale: state.share.scale && state.scale.on,
+    recent: state.share.recent && state.recent.length > 1,
+  };
+}
 async function shareLink() {
-  const url = new URL(`?${linkParams()}`, location.href).href;
-  if (navigator.share && window.matchMedia('(pointer: coarse)').matches) {
-    try { await navigator.share({ title: 'Frettle', text: linkSummary(), url }); } catch { /* closed */ }
+  const opts = shareChoice();
+  const url = new URL(`?${linkParams(opts)}`, location.href).href;
+  if (shareSheet()) {
+    try { await navigator.share({ title: 'Frettle', text: linkSummary(opts), url }); closeShare(); } catch { /* closed */ }
     return;
   }
   let copied = false;
@@ -833,26 +1158,39 @@ async function shareLink() {
     field.value = url;
     field.setAttribute('readonly', '');
     field.style.cssText = 'position:fixed;opacity:0';
-    document.body.append(field);
+    els.share.append(field);   // inside the popup: the page behind it cannot take focus
     field.select();
     try { copied = document.execCommand('copy'); } catch { /* not allowed */ }
     field.remove();
   }
-  shareDone(copied ? 'Link copied' : 'Could not copy: copy the address to share this view', copied);
+  shareDone(copied);
 }
 
+/* Copied: the popup closes, and the Share button says so for a moment
+   (a tick and "Copied", in the same width). Not copied: the popup stays
+   open and its button says so. */
 let shareTimer = 0;
-function shareDone(text, copied) {
-  els.shareStatus.textContent = text;
-  els.shareOpen.title = text;
-  els.shareOpen.classList.toggle('done', copied);
-  if (copied) els.shareOpen.innerHTML = `${DONE_ICON}<span class="btn-label">Copied</span>`;
-  clearTimeout(shareTimer);
-  shareTimer = setTimeout(() => {
-    els.shareOpen.classList.remove('done');
-    els.shareOpen.innerHTML = `${SHARE_ICON}<span class="btn-label">Share</span>`;
-    els.shareOpen.title = 'Share a link to what is on the neck';
+let copiedTimer = 0;
+const SHARE_BUTTON = () => `${SHARE_ICON}<span class="btn-label">Share</span>`;
+function shareDone(copied) {
+  els.shareStatus.textContent = copied ? 'Link copied' : 'Could not copy the link';
+  clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => { els.shareStatus.textContent = ''; }, 2000);
+  if (!copied) {
+    els.shareGo.textContent = 'Could not copy the link';
+    clearTimeout(shareTimer);
+    shareTimer = setTimeout(renderShare, 2000);
+    return;
+  }
+  closeShare();
+  const btn = els.shareOpen;
+  btn.innerHTML = `${DONE_ICON}<span class="btn-label">Copied</span>`;
+  btn.classList.add('done');
+  clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => {
     els.shareStatus.textContent = '';
+    btn.innerHTML = SHARE_BUTTON();
+    btn.classList.remove('done');
   }, 1600);
 }
 
@@ -886,9 +1224,21 @@ const stringNumber = (s) => instrument().strings.length - s;   // 1 = string nea
 /* The voicing set for this instrument, or its default (root position on
    guitar and bass, any bass note on the others) when the chord has no such
    bass note (a 3rd inversion on a triad) */
-function voicingFor(def) {
-  const v = state.voicing[state.instrument];
+function voicingFor(def, v = state.voicing[state.instrument]) {
   return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : DEFAULT_VOICING[state.instrument];
+}
+
+/* The shapes of any chord, here and now (the instrument, tuning, capo and
+   voicing on screen) */
+const shapesMemo = new Map();
+function chordShapes(root, def, voicing = voicingFor(def)) {
+  const inst = cappedInstrument();
+  const key = [inst.strings.join(','), capo(), mod12(root), def.id, voicing].join('|');
+  if (!shapesMemo.has(key)) {
+    if (shapesMemo.size > 200) shapesMemo.clear();
+    shapesMemo.set(key, findShapes(inst, root, def, voicing));
+  }
+  return shapesMemo.get(key);
 }
 
 /* Everything the views need about the selected chord, or null. */
@@ -924,7 +1274,7 @@ function currentScale() {
 /* Turning the chord or the scale off ("None", Deselect, a link without one)
    keeps only its root: the type is forgotten, so nothing can go on reading
    an old type (every way back on picks a new one) */
-function chordOff() { state.chord.on = false; state.chord.type = null; openEntry = null; }   // and its chip is final
+function chordOff() { state.chord.on = false; state.chord.type = null; openEntry = null; resetVoicing(); }   // and its chip is final
 function scaleOff() { state.scale.on = false; state.scale.type = null; }
 /* A root with no type picked: written as the scale on screen writes it, or
    else as the neck does (Flats setting) */
@@ -933,7 +1283,12 @@ function plainRoot(pc, sc = currentScale()) {
 }
 
 /* Change the chord and show its first shape. */
+/* A new chord type (or no chord) starts from the default voicings: an
+   inversion is chosen for a chord, not kept for the next one. A new root
+   keeps it (the same chord, moved). A chip brings back its own. */
+const resetVoicing = () => { state.voicing = { ...DEFAULT_VOICING }; };
 function updateChord(patch) {   // a chord picked from the menus (or a triad): its first shape
+  if ('type' in patch && (patch.type !== state.chord.type || !state.chord.on)) resetVoicing();
   Object.assign(state.chord, patch, { on: true });
   state.shape = 0;
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
@@ -942,7 +1297,8 @@ function updateChord(patch) {   // a chord picked from the menus (or a triad): i
 
 /* Recent chords, one list for all instruments: a chord joins it as soon as
    it is shown, in a fixed place so a song's chords stay put while switching
-   between them. Past RECENT_MAX, the one unused longest makes room.
+   between them. Past RECENT_MAX, the one unused longest makes room (saved,
+   so a reload keeps who was used last).
    The in-between chord of picking a root, then a type, does not pile up: a
    chip made by picking a root stays open, and if the very next thing you do
    is pick a type, that edits the same chip. Anything else (another root,
@@ -953,28 +1309,55 @@ function updateChord(patch) {   // a chord picked from the menus (or a triad): i
    instrument, brings that shape back. Picking the chord from the menus starts
    from its first shape, as always (and the chip remembers that). Shapes only
    change in memory when you choose them, never because a setting reset them. */
-const RECENT_MAX = 8;
+const RECENT_MAX = 10;
 let recentClock = 0;
 let shownChord;          // instrument and chord at the last render
 let openEntry = null;    // the chip a root pick made, which the next type pick may still edit
 let menuPick = '';       // how the chord on screen was just picked: 'root', 'type', 'both' or 'other' (menus)
 let chipPick = false;    // ... or from its chip
-const shapeContext = () => [instrument().strings, capo(), voicingFor(findChord(state.chord.type))].join('|');
+const shapeContext = (def = findChord(state.chord.type), voicing = voicingFor(def)) => [instrument().strings, capo(), voicing].join('|');
 const recentList = () => state.recent;
 const recentEntry = () => state.chord.on &&
-  recentList().find((r) => r.root === state.chord.root && r.type === state.chord.type);
+  [...recentList(), state.solo].find((r) => r && r.root === state.chord.root && r.type === state.chord.type);
 
-/* The shape a chip remembers for the chord on screen, here and now (or the first) */
+/* The list is never one chord: alone, the chord waits as the solo (its
+   shapes remembered), and becomes the first chip when a second one comes. */
+function settleList(s = state) {
+  if (s.recent.length === 1) [s.solo] = s.recent.splice(0);
+  else if (s.recent.length) s.solo = null;
+}
+
+/* The shape a chip remembers for the chord on screen, here and now (or the
+   first): kept as its frets, so it stays the same shape even if the shape
+   list changes */
 function rememberedShape(entry = recentEntry()) {
-  const shape = entry && entry.shapes && entry.shapes[shapeContext()];
-  return Number.isInteger(shape) ? shape : 0;
+  if (!entry) return 0;
+  const def = findChord(entry.type);
+  const voicing = chipVoicing(entry, def);
+  const frets = entry.shapes && entry.shapes[shapeContext(def, voicing)];
+  return frets ? Math.max(0, chordShapes(entry.root, def, voicing).findIndex((shape) => fretsText(shape.frets) === frets)) : 0;
+}
+// The voicing a chip was last used with on this instrument (or the one set now)
+function chipVoicing(entry, def) {
+  const v = entry && entry.voicings && entry.voicings[state.instrument];
+  return voicingFor(def, v || state.voicing[state.instrument]);
+}
+// A chip's chord back on screen: its voicing (or, with fallback, the
+// default), then its shape
+function recallChip(entry = recentEntry(), fallback = false) {
+  if (!entry) return;
+  const v = entry.voicings && entry.voicings[state.instrument];
+  if (v || fallback) state.voicing[state.instrument] = v || DEFAULT_VOICING[state.instrument];
+  state.shape = rememberedShape(entry);
 }
 function rememberShape(entry = recentEntry()) {
-  if (!entry) return;
+  const ch = currentChord();
+  if (!entry || !ch || !ch.shape) return;
+  entry.voicings = { ...entry.voicings, [state.instrument]: ch.voicing };
   const ctx = shapeContext();
   entry.shapes = { ...entry.shapes };
   delete entry.shapes[ctx];
-  entry.shapes[ctx] = state.shape;   // newest last; keep the last few settings only
+  entry.shapes[ctx] = fretsText(ch.shape.frets);   // newest last; keep the last few settings only
   const keys = Object.keys(entry.shapes);
   for (const k of keys.slice(0, Math.max(0, keys.length - 4))) delete entry.shapes[k];
 }
@@ -985,6 +1368,11 @@ function rememberShape(entry = recentEntry()) {
    must go through updateChord (menus), playRecent (chips) or set those flags,
    or it will count as a plain new chord. */
 function trackChord() {
+  if (!state.recent.length && state.solo) state.recent = [state.solo];   // as a list of one, for a moment
+  trackPick();
+  settleList();
+}
+function trackPick() {
   const list = recentList();
   const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
   const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
@@ -1004,10 +1392,11 @@ function trackChord() {
     open.root = state.chord.root;
     open.type = state.chord.type;
     open.shapes = {};
+    open.voicings = {};
     entry = open;
   } else if (!entry) {                 // a new chord: a new chip
     if (list.length >= RECENT_MAX) list.splice(list.indexOf(list.reduce((a, b) => (a.used <= b.used ? a : b))), 1);
-    entry = { root: state.chord.root, type: state.chord.type, shapes: {} };
+    entry = { root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} };
     list.push(entry);
     if (how === 'root') openEntry = entry;   // the next type pick may still edit it
   } else if (open && open !== entry) { // root, then type, landing on a chord already there
@@ -1024,24 +1413,32 @@ function playRecent(i) {
   if (!entry) return;
   keepChord();
   state.chord = { on: true, root: entry.root, type: entry.type };
-  state.shape = rememberedShape(entry);
+  recallChip(entry, true);   // as it was last used: its voicing and shape
   chipPick = true;
   ui.reveal = true;   // phones: bring the shape into view, even if this chip was already the one on screen
   ui.chipKey = '';    // ... and the chip itself, whole
   render();
 }
 
-function removeRecent(i) {   // the chord stays on screen, its chip goes
+/* Its chip goes. The chord on screen goes with it: the next chip takes
+   over (the one before at the end of the row), or no chord once the list is
+   empty. */
+function removeRecent(i) {
   const list = recentList();
-  if (openEntry === list[i]) openEntry = null;
+  const entry = list[i];
+  if (!entry) return;
+  const shown = entry === recentEntry();
+  if (openEntry === entry) openEntry = null;
   list.splice(i, 1);
+  if (shown && list.length) { playRecent(Math.min(i, list.length - 1)); return; }
+  if (shown) chordOff();
   render();
 }
 
-function clearRecent() {   // keep only the chord shown now
-  keepChord();
-  const entry = recentEntry();
-  state.recent = entry ? [entry] : [];
+function clearRecent() {   // the list empties, and the chord on screen goes with it
+  state.recent = [];
+  state.solo = null;
+  chordOff();
   render();
 }
 
@@ -1239,15 +1636,18 @@ function playNote(midi, delay = 0, level = 0.55) {
 /* Light up a note while it sounds: on the neck, or any pill (ping). */
 function ping(el) {
   if (!el) return;
-  el.classList.remove('ping');
+  const cls = el.classList.contains('out') ? 'peek' : 'ping';   // a hidden note shows for a moment
+  el.classList.remove(cls);
   void el.offsetWidth;   // restart the animation
-  el.classList.add('ping');
+  el.classList.add(cls);
+  if (cls === 'peek') el.addEventListener('animationend', () => el.classList.remove('peek'), { once: true });
 }
 function flashCell(s, f, delay = 0) {
   setTimeout(() => ping(els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`)), delay * 1000);
 }
 
-/* Tap a note on the neck to hear it (not behind the capo, not a hidden note).
+/* Tap a note on the neck to hear it (not behind the capo; a note hidden by
+   "Only scale notes" sounds too, and shows for a moment).
    With a mouse or a pen it sounds on press. On a touch screen it sounds once
    the finger has rested TAP_DELAY ms without moving (or on release, if that
    comes first), so swiping to scroll the neck never plays notes. Each finger
@@ -1258,7 +1658,7 @@ function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
   const playable = (target) => {
     const cell = target.closest('.cell');
-    return cell && !cell.matches('.behind, .empty, .no-string') ? cell : null;
+    return cell && !cell.matches('.behind, .no-string') ? cell : null;
   };
   const play = (cell) => {
     const s = Number(cell.dataset.s);
@@ -1440,8 +1840,9 @@ function render() {
   renderScalePanel(sc, ch);
   renderDock(ch, sc);
   saveState();
-  syncLink();
-  // Phones: when the shape changes, scroll the neck so it is in view
+  clearLink();
+  // When the shape changes, scroll the neck so it is in view (phones: the
+  // page up or down; wide screens: the neck sideways)
   const key = ch && ch.shape ? [instrument().strings, capo(), ch.symbol, tabOf(ch.shape)].join('|') : null;
   if (key && ui.shapeKey !== null && (key !== ui.shapeKey || ui.reveal)) revealShape();
   else if (ui.revealGroup && !key) revealGroup();   // a group picked, no chord shape to keep in view
@@ -1472,8 +1873,8 @@ function renderRecent() {
     // The chord on screen also gets an × to take it off the list
     return `<li${on ? ' class="on"' : ''}><button type="button" class="chip recent${on ? ' selected' : ''}" data-i="${i}" aria-pressed="${on}" ` +
       `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}`)}"><span class="tx">${esc(name)}</span></button>` +
-      (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the recent chords" ` +
-        `title="Remove ${esc(name)} from the recent chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>` : '') + '</li>';
+      (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the chord list" ` +
+        `title="Remove ${esc(name)} from the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>` : '') + '</li>';
   }).join('');
   els.dockRecentList.innerHTML = html;
   els.recentList.innerHTML = html;
@@ -1525,8 +1926,8 @@ function chipInView(row, smooth) {   // scroll a row of chips sideways so the se
    above it (with a capo, past the capo's fret), so the highest position
    still shows that edge. The same for a scale group (revealGroup). */
 function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
-  if (isWide()) return;
   if (!notes.length) return;
+  if (isWide()) { revealAcross(notes); return; }
   const rects = notes.map((n) => n.getBoundingClientRect());
   const top = Math.min(...rects.map((r) => r.top));
   const bottom = Math.max(...rects.map((r) => r.bottom));
@@ -1542,6 +1943,31 @@ function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
   const margin = capoCell ? 20 : parseFloat(getComputedStyle(panel).marginTop);
   const edge = (capoCell || panel).getBoundingClientRect().top;
   window.scrollTo({ top: Math.max(edge + window.scrollY - margin, window.scrollY + delta), behavior: 'smooth' });
+}
+
+/* Wide screens: the same rule sideways, when the neck is wider than its
+   panel: the shape (or group) is centred in the part of the neck you can
+   see, as far as the scroll goes; one too wide to fit starts at its end
+   nearest the nut. With a capo, the neck never scrolls past the capo's
+   fret (the frets behind it cannot be played). */
+function revealAcross(notes) {
+  const box = els.neck.closest('.neck-scroll');
+  if (box.scrollWidth <= box.clientWidth + 1) return;
+  const view = box.getBoundingClientRect();
+  const rects = notes.map((n) => n.getBoundingClientRect());
+  const left = Math.min(...rects.map((r) => r.left));
+  const right = Math.max(...rects.map((r) => r.right));
+  const pad = 24;
+  const lefty = box.classList.contains('lefty');   // the nut on the right
+  let delta = right - left > view.width - 2 * pad
+    ? (lefty ? right - (view.right - pad) : left - (view.left + pad))
+    : (left + right) / 2 - (view.left + view.right) / 2;
+  const capoCell = capo() ? els.neck.querySelector(`.cell[data-f="${capo()}"]`) : null;
+  if (capoCell) {   // the frets behind the capo stay out of view, as on phones (the capo's fret at the edge, with some room)
+    const c = capoCell.getBoundingClientRect();
+    delta = lefty ? Math.min(delta, c.right - (view.right - 20)) : Math.max(delta, c.left - (view.left + 20));
+  }
+  if (Math.abs(delta) > 1) box.scrollBy({ left: delta, behavior: 'smooth' });
 }
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
@@ -2202,9 +2628,8 @@ function renderNeck(ch, sc) {
       if (f < nut(s)) title += `, behind the ${stop}`;
       if (cls.includes(' mute')) title = `String ${num} not played`;
       const octave = octaveOf(s, f);
-      const empty = onlyScale && cls.includes(' out');
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
-        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}${empty ? ' empty' : ''}`;
+        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}`;
       const inner = cls.includes(' mute') ? MUTE_ICON : tx(text);
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
       html.push(
@@ -2238,11 +2663,9 @@ function renderNeck(ch, sc) {
   drawGroups();
 }
 
-/* Draw the group picked (ui.groups[ui.group]) in the scale's colour, and
-   with it, in white, the groups that share no note with it nor with each
-   other: every other group, going out from it both ways, as far as the
-   neck goes. Stepping to the next group shows the other half. Each is an
-   outline measured from the cells on screen: an SVG path that is inset a
+/* Draw the group picked (ui.groups[ui.group]) in the scale's colour, one
+   at a time (the arrows and chips step through them). It is an outline
+   measured from the cells on screen: an SVG path that is inset a
    little from the cells and has every corner rounded, inner ones included.
    Redrawn whenever the neck changes size. */
 const GROUP_INSET = 2;   // keeps the line clear of a root note's ring
@@ -2275,8 +2698,7 @@ function drawGroups() {
         u1: r.right - box.left - px('borderRightWidth') - px('paddingRight'),
         v0: r.top - box.top, v1: r.bottom - box.top };
   };
-  const shown = shownGroups();
-  layer.innerHTML = shown.map((g) => {
+  layer.innerHTML = [group].map((g) => {   // one group at a time: the one picked
     const bars = g.bars.map(({ s, a, b }) => {
       const first = cellBox(s, a);
       const last = cellBox(s, b);
@@ -2284,24 +2706,8 @@ function drawGroups() {
       return { u0: Math.min(first.u0, last.u0), u1: Math.max(first.u1, last.u1), v0: first.v0, v1: first.v1 };
     }).sort((p, q) => p.v0 - q.v0);
     const points = staircase(bars, GROUP_INSET).map(([u, v]) => (vertical ? [v, u] : [u, v]));
-    return `<path class="${g === group ? 'g-a' : 'g-b'}" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
+    return `<path class="g-a" d="${roundedPath(points, GROUP_RADIUS)}"/>`;
   }).join('');
-}
-
-/* The groups drawn: the one picked, then going out from it both ways, each
-   group that shares no note (no fret on the same string) with those before */
-function shownGroups() {
-  const group = ui.groups[ui.group];
-  if (!group) return [];
-  const share = (g, h) => g.bars.some((x) => h.bars.some((y) => x.s === y.s && x.a <= y.b && y.a <= x.b));
-  const shown = [group];
-  for (const step of [-1, 1]) {
-    for (let i = ui.group + step; i >= 0 && i < ui.groups.length; i += step) {
-      const g = ui.groups[i];
-      if (!shown.some((h) => share(g, h))) shown.push(g);
-    }
-  }
-  return shown;
 }
 
 /* Outline of stacked bars (one per string, each covering a range along u),
@@ -2532,13 +2938,12 @@ function renderGroupLine(sc) {
   els.groupPrev.disabled = els.groupNext.disabled = ui.groups.length < 2;
   if (!on) { els.groupList.innerHTML = ''; return; }
   const c = capo();
-  const shown = new Set(shownGroups());   // drawn on the neck: white chips, the one picked in the scale's colour
   els.groupList.dataset.empty = 'No group fits on this neck';
   els.groupList.innerHTML = ui.groups.map((g, i) => {
     const sel = i === ui.group;
     const [a, b] = groupFrets(g);
     const place = groupPlace(g, c);
-    return `<li><button type="button" class="chip group-chip${sel ? ' selected' : shown.has(g) ? ' shown' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
+    return `<li><button type="button" class="chip group-chip${sel ? ' selected' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
       `title="Group ${i + 1}, frets ${a} to ${b}"><span class="tx">${place[0].toUpperCase()}${place.slice(1)}</span></button></li>`;
   }).join('');
   requestAnimationFrame(() => keepChipVisible(els.groupList));
@@ -2637,6 +3042,8 @@ function init() {
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
+    'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
+    'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList']) {
     els[id] = document.getElementById(id);
   }
@@ -2651,7 +3058,8 @@ function init() {
   els.tabs = [...document.querySelectorAll('.tab')];
   els.sheetPanels = [...els.sheet.querySelectorAll('.panel[data-tab]')];
   state = loadState();
-  applyLink(location.search);   // opened from a shared link
+  recallChip();                 // the chord on screen as its chip remembers it (voicing, shape)
+  startLink(location.search);   // opened from a shared link
 
   // Instrument and tuning: popups, each tile showing the open strings
   els.instrumentPicker.addEventListener('click', () => openPicker({
@@ -2666,7 +3074,8 @@ function init() {
     onPick: (v) => {
       if (v === state.instrument) return;
       state.instrument = v;
-      state.shape = rememberedShape();   // the shape last chosen for this chord on that instrument
+      state.shape = 0;
+      recallChip();   // the voicing and shape last chosen for this chord on that instrument
       render();
     },
   }));
@@ -2676,7 +3085,7 @@ function init() {
     openPicker({
       title: 'Tuning', value: instrument().tuning.id,
       groups: [{ items: list.map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, t.flats) })) }],
-      onPick: (v) => { state.tuning[state.instrument] = v; state.shape = rememberedShape(); render(); },
+      onPick: (v) => { state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render(); },
     });
   });
 
@@ -2826,7 +3235,23 @@ function init() {
   });
   els.pickerClose.addEventListener('click', closePicker);
   // About popup: opened from the header, closed like the picker
-  els.shareOpen.addEventListener('click', shareLink);
+  els.shareOpen.addEventListener('click', openShare);
+  els.shareClose.addEventListener('click', closeShare);
+  els.share.addEventListener('click', (e) => { if (e.target === els.share) closeShare(); });
+  els.shareCancel.addEventListener('click', closeShare);
+  for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'recent']]) {
+    btn.addEventListener('click', () => { state.share[key] = !state.share[key]; saveState(); renderShare(); });
+  }
+  els.shareGo.addEventListener('click', shareLink);
+  // Open link popup
+  for (const [btn, key] of [[els.linkNeck, 'neck'], [els.linkChord, 'chord'], [els.linkScale, 'scale'], [els.linkList, 'recent']]) {
+    btn.addEventListener('click', () => { pendingLink.parts[key] = !pendingLink.parts[key]; renderLinkPopup(); });
+  }
+  els.linkLoad.addEventListener('click', () => closeLink(true));
+  els.linkKeep.addEventListener('click', () => closeLink(false));
+  els.linkClose.addEventListener('click', () => closeLink(false));
+  els.linkOpen.addEventListener('click', (e) => { if (e.target === els.linkOpen) closeLink(false); });
+  els.linkOpen.addEventListener('close', () => closeLink(false));   // Escape
   els.scalePlay.addEventListener('click', playScale);
   // A note of the Notes row: heard on press with a mouse, on release with a
   // finger (so swiping the row to scroll it plays nothing), and with Enter
@@ -2899,12 +3324,12 @@ function init() {
   let keyboardFocus = false;   // the focus was last moved with the keyboard
   document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
-  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
+  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !els.share.open && !els.linkOpen.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
   document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (els.picker.open || els.about.open) return;   // a popup handles its own keys (Escape closes it)
+    if (els.picker.open || els.about.open || els.share.open || els.linkOpen.open) return;   // a popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('input, textarea')) return;
     if (spaceStrums(e)) {
@@ -2923,6 +3348,7 @@ function init() {
 
   placeSettings();
   render();
+  if (pendingLink) openLinkPopup();
   keepScreenOn();
   installable();
 }

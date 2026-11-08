@@ -35,12 +35,12 @@
   /* Type scale */
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs-xs: 0.72rem;      /* uppercase labels, ruler numbers */
-  --fs-pill: 0.75rem;    /* note pills and badges */
-  --fs-sm: 0.82rem;      /* secondary text, chips, small buttons */
+  --fs-tag: 0.625rem;    /* octave tags on the neck */
+  --fs-xs: 0.75rem;      /* uppercase labels, ruler numbers, note pills and badges */
+  --fs-sm: 0.86rem;      /* secondary text, chips, small buttons */
   --fs-md: 0.92rem;      /* body, buttons */
-  --fs-input: 1rem;      /* menus: 16px on phones so iOS does not zoom in */
-  --fs-lg: 1.05rem;      /* section titles, emphasised values */
+  --fs-lg: 1rem;         /* section titles, emphasised values */
+  --fs-input: var(--fs-lg);   /* menus: 16px on phones so iOS does not zoom in */
   --fs-xl: 1.35rem;      /* app title */
   --fs-display: 1.6rem;  /* chord symbol */
 
@@ -150,7 +150,7 @@ kbd {
   border-bottom-width: 2px;
   background: var(--kbd-bg);
   color: var(--text);
-  font: 500 var(--fs-pill)/1 var(--font);
+  font: 500 var(--fs-xs)/1 var(--font);
   white-space: nowrap;
 }
 
@@ -169,7 +169,7 @@ kbd {
 .h1-sub { display: none; margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 500; color: var(--muted); letter-spacing: 0; }   /* shown on wide screens */
 .about-btn { grid-area: about; justify-self: end; }
 .share-btn { grid-area: share; }
-.share-btn.done { color: var(--accent); border-color: var(--accent); }   /* a tick for a moment: link copied */
+.share-btn.done { color: var(--ok); border-color: var(--ok); }   /* link copied, for a moment */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; }
@@ -191,6 +191,72 @@ kbd {
 .about-link { text-decoration: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
 .about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
 .about-link .heart { color: var(--chord); }
+
+/* Share and Load link popups: a little wider than the menus, Cancel and
+   the main button side by side */
+.picker.share { width: min(440px, calc(100vw - 24px)); }
+.about-links.share-actions { flex-direction: row; justify-content: center; gap: var(--sp-3); }
+.share-actions .btn { min-width: 120px; }
+
+/* Share and Load link popups: one row per part of the neck (the neck
+   itself, the chord, the chord list, the scale): a switch, the name, a tag
+   (Share: Included or not; Load: what Load does), then the value (Load:
+   now → the link's (the one you end up with bright, the
+   other struck through; the link's goes under when both do not fit).
+   Chords are small chips, so a long list wraps chip by chip. */
+.lk-body { gap: var(--sp-2); }
+.lk-row {
+  --tone: var(--accent);
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  row-gap: 8px;
+  width: 100%;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: 500 var(--fs-md)/1.3 var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+.lk-row[hidden] { display: none; }
+.lk-row.chord { --tone: var(--chord); }
+.lk-row.scale { --tone: var(--scale); }
+.lk-row[aria-pressed="true"] { border-color: var(--tone); }
+.lk-row[aria-pressed="true"] .pill-dot { background: var(--tone); }
+.lk-row[aria-pressed="true"] .pill-dot::after { transform: translateX(12px); }
+.lk-row .pill-dot, .lk-row .lk-icon { grid-row: 1; grid-column: 1; }
+.lk-row.same { cursor: default; }
+.lk-row.same .pill-dot { display: none; }   /* nothing to switch: no switch */
+.lk-icon { display: none; justify-self: center; color: var(--muted); }
+.lk-icon .ico { width: 16px; height: 16px; }
+.lk-row.same .lk-icon { display: block; }
+.lk-what { grid-row: 1; grid-column: 2; font-weight: 600; }
+.lk-tag { grid-row: 1; grid-column: 3; justify-self: end; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; color: var(--muted); white-space: nowrap; }
+.lk-tag.lose { color: var(--warn); }
+.lk-tag.gain { color: var(--tone); }
+.lk-change { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; font-size: var(--fs-sm); }
+.lk-to { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.lk-arrow { flex: none; line-height: 22px; color: var(--muted); }   /* by the first line of chips */
+.lk-val:not(.chips) { line-height: 22px; }
+.lk-val { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.lk-val.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.lk-chip { padding: 0 8px; line-height: 22px; border-radius: var(--r-pill); background: var(--kbd-bg); white-space: nowrap; }
+.lk-val.win { color: var(--text); }
+.lk-val.lose { color: var(--muted); font-weight: 500; }
+.lk-val.lose:not(.chips), .lk-val.lose .lk-chip { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.lk-val.lose .lk-chip { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
+.lk-val.none { font-style: italic; font-weight: 500; }
+/* Changes shown in place: the neck's tuning or capo, a list's chords */
+.lk-val.diff { color: color-mix(in srgb, var(--text) 80%, transparent); font-weight: 500; }
+.lk-val.diff .lk-new { color: var(--text); font-weight: 700; }
+.lk-val.diff .lk-old { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.lk-chip.added { color: var(--text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--tone); }
+.lk-chip.gone { background: transparent; box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); font-weight: 500; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.lk-row.same .lk-val.win { color: color-mix(in srgb, var(--text) 75%, transparent); font-weight: 500; }   /* nothing changes: quieter */
 
 /* Instrument: a button that opens the picker popup (the neck's title on wide
    screens). The tuning (when not the standard one) follows in grey, then a
@@ -426,7 +492,6 @@ kbd {
 .chip.selected { background: var(--chord); color: var(--chord-text); }
 .chip.selected .chip-num { color: var(--chord-text); opacity: 0.8; }
 .group-chip.selected { background: var(--scale); color: var(--scale-text); }   /* scale groups: the scale's colour */
-.group-chip.shown { background: color-mix(in srgb, var(--pk-white) 82%, var(--bg)); color: var(--pk-black); }   /* drawn in white on the neck */
 
 /* ==========================================================================
    Neck. Phones: vertical (nut on top, low string on the left, frets going
@@ -523,7 +588,7 @@ kbd {
   border-radius: var(--r-pill);
   background: var(--border);
   color: var(--text);
-  font: 700 10px/15px var(--font);
+  font: 700 var(--fs-tag)/15px var(--font);
   text-align: center;
   pointer-events: none;
 }
@@ -588,7 +653,7 @@ kbd {
   background: var(--kbd-bg);
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--border);
-  font: 700 var(--fs-pill)/1 var(--font);
+  font: 700 var(--fs-xs)/1 var(--font);
   white-space: nowrap;
 }
 .note.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }
@@ -625,14 +690,20 @@ kbd {
 .mute-ico { width: 15px; height: 15px; }
 
 /* Notes outside the shown scale are a little darker; with "Only scale
-   notes" they disappear (and stay silent) */
-.note.off { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
+   notes" they are hidden, but still sound when tapped: the note shows for a
+   moment, darker, as it rings */
+.note.off, .note.out { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.out { visibility: hidden; }
-.cell.empty { cursor: default; }
+.note.out.peek { visibility: visible; animation: peek 900ms ease-out forwards; }
+@keyframes peek {
+  0% { opacity: 1; box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
+  50% { opacity: 1; box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
 
 /* Scale groups: rounded outlines (an SVG drawn by script.js), above the
-   strings and fret wires, below the note pills: the group picked in the
-   scale's colour, the others shown with it in white */
+   strings and fret wires, below the note pills: one at a time, the group
+   picked, in the scale's colour */
 .group-layer {
   position: absolute;
   left: 0;
@@ -643,7 +714,6 @@ kbd {
 }
 .group-layer path { fill: none; stroke-width: 2; stroke-linejoin: round; }
 .group-layer .g-a { stroke: var(--scale); }   /* the group picked */
-.group-layer .g-b { stroke: color-mix(in srgb, var(--pk-white) 70%, transparent); }   /* the others shown with it */
 /* A note lights up in amber while it sounds */
 @keyframes ping {
   0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
@@ -740,7 +810,7 @@ kbd {
   border-radius: var(--r-pill);
   background: var(--chord);
   color: var(--chord-text);
-  font: 800 var(--fs-pill)/1 var(--font);
+  font: 800 var(--fs-xs)/1 var(--font);
 }
 .np-role {
   grid-column: 1 / -1;
@@ -1238,10 +1308,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
   .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
+  .lk-row:not(:disabled):hover { border-color: var(--tone); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
   .group-chip:hover { box-shadow: inset 0 0 0 1px var(--scale); }   /* scale groups: the scale's colour */
   .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
-  .cell.behind:hover, .cell.empty:hover, .cell.no-string:hover { box-shadow: none; }
+  .cell.behind:hover, .cell.no-string:hover { box-shadow: none; }
   .np-note:hover { border-color: var(--accent); }
   .dock-shape-info:hover { color: var(--text); }
   .tab:hover { border-color: var(--border); color: var(--text); }
@@ -1287,7 +1358,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .h1-sub { display: inline; }
   .btn.deselect { width: auto; padding: 0 14px; }
   .btn-label { display: inline; }
-  .btn.share-btn { width: auto; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play */
+  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }
