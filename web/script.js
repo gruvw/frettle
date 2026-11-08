@@ -2459,7 +2459,10 @@ function keepChipVisible(list = els.shapeList) {
 }
 
 function renderScalePanel(sc, ch) {
-  els.scaleRoot.textContent = sc ? sc.rootName : noteText(plainNote(state.scale.root, state.flats));
+  // The root as the menu lists it (Flats setting), and in brackets as the
+  // scale writes it when that differs: C♯ (D♭) for C♯ major
+  const listed = noteText(plainNote(state.scale.root, state.flats));
+  els.scaleRoot.textContent = sc && sc.rootName !== listed ? `${listed} (${sc.rootName})` : listed;
   els.scaleType.textContent = sc ? sc.def.name : 'None';
   els.scaleClear.disabled = !sc;
   // The chromatic scale has every note: nothing to hide or to group
@@ -2792,7 +2795,9 @@ function init() {
   }));
   els.scaleRoot.addEventListener('click', () => openPicker({
     title: 'Scale root', layout: 'roots', value: state.scale.root,
-    groups: rootItems((pc) => (state.scale.on ? scaleSpelling(pc, findScale(state.scale.type)).root : plainNote(pc, state.flats))),
+    // Plain names (Flats setting): picking a root starts a new scale, unrelated
+    // to the one shown, which then names its root its own way (C♯ major: D♭)
+    groups: rootItems((pc) => plainNote(pc, state.flats)),
     onPick: (v) => { state.scale.root = Number(v); render(); },
   }));
   els.scaleType.addEventListener('click', () => openPicker({

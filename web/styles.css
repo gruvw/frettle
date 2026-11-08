@@ -247,7 +247,7 @@ kbd {
 .field { display: grid; gap: 7px; min-width: 0; }
 .field > span { margin-left: -2px; } /* optical alignment with the rounded box */
 .field.root { flex: none; }
-.field.root .select-btn { width: var(--root-w); min-width: 0; }
+.field.root .select-btn { width: auto; min-width: var(--root-w); white-space: nowrap; }   /* grows for C♯ (D♭) */
 .field.grow { flex: 1 1 150px; }
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
