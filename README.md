@@ -19,7 +19,8 @@ A fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. P
 - Shows every note on the neck for guitar (6 or 7 strings), bass (4 or 5 strings), ukulele (standard and baritone), mandolin, mandola and 5-string banjo (its short drone string included)
 - Common alternate tunings: guitar Drop D, DADGAD, open G, half step down and a few more, ukulele high or low G, banjo double C, G modal and open D
 - Chords: pick a root and a type, then flip through the shapes up the neck. Each note shows its interval (R, 3, 5...) and barres are drawn in
-- Recent chords stay in a row, so you can jump between the chords of a song. Each one keeps the shape you picked
+- The chords you play stay in a chord list, so you can jump between the chords of a song. Each one keeps the shape you picked
+- Share a link to what's on the neck: the chord, the scale and, if you want, your chord list with its shapes. Save it or send it to a friend to bring a song's chords back later. Opening a link asks what to load before it replaces anything of yours
 - Scales: the modes, minors, pentatonics, blues and a few more, with their formula, the scales that share their notes and the triads that fit. You can step through it one hand-sized group at a time (the pentatonic boxes, the CAGED positions) or hide the notes outside it
 - Capo, octave shading, a left-handed mode, and tap any note to hear it or strum the whole chord
 - Tells you when a chord fits the scale you picked

@@ -35,9 +35,9 @@
   /* Type scale */
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs-xs: 0.72rem;      /* uppercase labels, ruler numbers */
+  --fs-xs: 0.75rem;      /* uppercase labels, ruler numbers */
   --fs-pill: 0.75rem;    /* note pills and badges */
-  --fs-sm: 0.82rem;      /* secondary text, chips, small buttons */
+  --fs-sm: 0.86rem;      /* secondary text, chips, small buttons */
   --fs-md: 0.92rem;      /* body, buttons */
   --fs-input: 1rem;      /* menus: 16px on phones so iOS does not zoom in */
   --fs-lg: 1.05rem;      /* section titles, emphasised values */
@@ -169,7 +169,6 @@ kbd {
 .h1-sub { display: none; margin-left: var(--sp-2); font-size: var(--fs-md); font-weight: 500; color: var(--muted); letter-spacing: 0; }   /* shown on wide screens */
 .about-btn { grid-area: about; justify-self: end; }
 .share-btn { grid-area: share; }
-.share-btn.done { color: var(--accent); border-color: var(--accent); }   /* a tick for a moment: link copied */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; }
@@ -191,6 +190,25 @@ kbd {
 .about-link { text-decoration: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
 .about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
 .about-link .heart { color: var(--chord); }
+
+/* Share and Open link popups: what the link holds, one switch a line (its name, then what
+   is on screen, cut short if long), and the button that shares it */
+.picker.share { width: min(440px, calc(100vw - 24px)); }
+.share-setup { margin: 0 0 var(--sp-1); font-size: var(--fs-sm); color: var(--muted); }
+.share-setup span { color: var(--text); }
+.pill-toggle.share-row { width: 100%; min-width: 0; --tone: var(--accent); }
+/* In the colours of the neck: the chord and the chord list pink, the scale teal */
+.pill-toggle.share-row.chord { --tone: var(--chord); }
+.pill-toggle.share-row.scale { --tone: var(--scale); }
+.pill-toggle.share-row[aria-pressed="true"] { border-color: var(--tone); }
+.pill-toggle.share-row[aria-pressed="true"] .pill-dot { background: var(--tone); }
+.share-what { flex: none; }
+.share-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--muted); font-weight: 400; }
+.share-go { min-width: 150px; }
+.share-setup #linkWith { color: inherit; }   /* ", with:" stays muted */
+.share-note { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--muted); }
+.about-links.share-actions { flex-direction: row; justify-content: center; gap: var(--sp-3); }
+.share-actions .btn { min-width: 120px; }
 
 /* Instrument: a button that opens the picker popup (the neck's title on wide
    screens). The tuning (when not the standard one) follows in grey, then a
@@ -1238,6 +1256,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
   .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
+  .pill-toggle.share-row:not(:disabled):hover { border-color: var(--tone); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
   .group-chip:hover { box-shadow: inset 0 0 0 1px var(--scale); }   /* scale groups: the scale's colour */
   .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
