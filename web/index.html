@@ -199,7 +199,7 @@
                 <span class="pill-dot" aria-hidden="true"></span>Only scale notes
               </button>
               <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
-                      title="Outline the scale in hand-sized groups of a few notes per string">
+                      title="Outline the scale in hand-sized groups, a few notes per string, and step from one to the next">
                 <span class="pill-dot" aria-hidden="true"></span>Groups
               </button>
             </div>
@@ -219,6 +219,12 @@
               <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
               <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
             </div>
+          </div>
+          <div id="groupLine" class="line group-line" hidden>
+            <span class="label">Groups</span>
+            <button type="button" id="groupPrev" class="btn small" title="Previous group (←)" aria-label="Previous group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+            <ol id="groupList" class="chip-list" aria-label="Scale groups, from the nut up the neck"></ol>
+            <button type="button" id="groupNext" class="btn small" title="Next group (→)" aria-label="Next group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
           </div>
           <div class="line">
             <span class="label">Triads</span>
@@ -280,7 +286,7 @@
     <div class="picker-body about-body">
       <p>Frettle is a free, open source app that shows every note, chord shape and scale on the neck of a guitar, bass, ukulele, mandolin, mandola or banjo.</p>
       <p>Pick a chord to see all the ways to play it up the neck, with the root and intervals marked and barres drawn in.
-        Pick a scale to see it across the whole fretboard, split into hand-sized groups, along with the chords that fit it.
+        Pick a scale to see it across the whole fretboard, in hand-sized groups you can step through, and see the chords that fit it.
         Tap any note to hear it.</p>
       <p>It covers 6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola
         and 5-string banjo, in standard tuning or Drop D, DADGAD, open G, double C and other alternate tunings, with or without a capo.
