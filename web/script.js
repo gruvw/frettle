@@ -741,20 +741,22 @@ function saveState() {
 
 /* Shareable links, made by the Share popup (the address bar stays clean:
    what is on the neck is saved on the device, not in the address):
-     ?instrument=guitar&tuning=drop-d&capo=2&chord=A-m7&voicing=1
-     &shape=x-0-2-0-1-0&scale=A-minor-pentatonic
-   Only what differs from the defaults is written (the instrument always).
-   How you like to see the neck (left-handed, flats, octaves, the switches)
-   stays yours: it is not in the link. A shape is written as its frets, so a
-   link keeps showing the same shape even if the shape list changes.
-   A link can also hold the chord list (the recent chords), each
-   with the shape its chip remembers here (a chord progression to come back
-   to): &recent=C-maj_A-m.5-7-7-5-5-5_F-maj (chords split by _, a shape
-   after a dot, left out when it is the first one). */
-const LINK_KEYS = ['instrument', 'tuning', 'capo', 'chord', 'voicing', 'shape', 'scale', 'recent'];
+     ?instrument=guitar&tuning=drop-d&capo=2&voicing=1
+     &chord=A-m7.x-0-2-0-1-0&scale=A-minor-pentatonic
+     &list=C-maj_Fs-m.2-4-4-2-2-2_F-maj
+   Each part is left out when not shared, and the tuning, capo and voicing
+   when they are the defaults. How you like to see the neck (left-handed,
+   flats, octaves, the switches) stays yours: it is not in the link.
+   A chord is written the same way alone (chord) and in the chord list
+   (list, chords split by _): its root (sharps as s, flats as b, as spelled
+   on screen), a hyphen, its type, then after a dot the shape as its frets
+   (x for a muted string), left out when it is the first shape or the link
+   has no neck. Frets, so a link keeps showing the same shape even if the
+   shape list changes. */
+const LINK_KEYS = ['instrument', 'tuning', 'capo', 'voicing', 'chord', 'scale', 'list'];
 const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
-const linkNote = (n) => LETTERS[n.letter] + (n.acc > 0 ? '#'.repeat(n.acc) : 'b'.repeat(-n.acc));
-function parseLinkNote(text) {   // "A", "Bb", "F#" (or "Fs", "F♯") → pitch class
+const linkNote = (n) => LETTERS[n.letter] + (n.acc > 0 ? 's'.repeat(n.acc) : 'b'.repeat(-n.acc));   // s: a # would be escaped (%23)
+function parseLinkNote(text) {   // "A", "Bb", "Fs" (or "F#", "F♯") → pitch class
   const m = /^([A-Ga-g])([#s♯]{1,2}|[b♭]{1,2})?$/.exec(text || '');
   if (!m) return null;
   const acc = m[2] ? (/[#s♯]/.test(m[2]) ? 1 : -1) * m[2].length : 0;
@@ -766,6 +768,23 @@ function parseLinkPair(text) {
   const m = /^([^-]+)-(.+)$/.exec(text || '');
   const root = m && parseLinkNote(m[1]);
   return root === null || !m ? null : { root, id: m[2] };
+}
+/* A chord, alone or in the list: "A-m7", or "A-m7.x-0-2-0-1-0" with its
+   shape (when not the first one, and only with the neck) */
+function chordToken(root, def, neck) {
+  const shapes = neck ? chordShapes(root, def) : [];
+  const entry = recentList().find((r) => r.root === root && r.type === def.id) || (state.solo && state.solo.root === root && state.solo.type === def.id ? state.solo : null);
+  const at = root === state.chord.root && def.id === state.chord.type && state.chord.on ? currentChord().index : rememberedShape(entry);
+  const shape = shapes[Math.min(at, shapes.length - 1)];
+  const name = `${linkNote(chordSpelling(root, def).root)}-${def.id}`;
+  return shape && shapes.indexOf(shape) > 0 ? `${name}.${linkFrets(shape.frets)}` : name;
+}
+// → { root, def, frets } or null; frets: the shape's, or ''
+function parseChordToken(text) {
+  const [name, frets = ''] = String(text || '').split('.');
+  const pair = parseLinkPair(name);
+  const def = pair && findChord(pair.id);
+  return def && def.id === pair.id ? { root: pair.root, def, frets } : null;
 }
 
 /* What the link holds: the neck (instrument, tuning, capo), the chord, the
@@ -783,20 +802,9 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   if (neck && ((chord && state.chord.on) || (recent && state.recent.length))) {
     if (voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
   }
-  if (chord && state.chord.on) {
-    const def = findChord(state.chord.type);
-    p.set('chord', `${linkNote(chordSpelling(state.chord.root, def).root)}-${def.id}`);
-    const ch = currentChord();
-    if (neck && ch && ch.shape && ch.index > 0) p.set('shape', linkFrets(ch.shape.frets));
-  }
+  if (chord && state.chord.on) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
   if (recent && state.recent.length) {
-    p.set('recent', state.recent.map((r) => {
-      const def = findChord(r.type);
-      const shapes = chordShapes(r.root, def);
-      const shape = shapes[Math.min(rememberedShape(r), shapes.length - 1)];
-      const name = `${linkNote(chordSpelling(r.root, def).root)}-${def.id}`;
-      return neck && shape && shapes.indexOf(shape) > 0 ? `${name}.${linkFrets(shape.frets)}` : name;
-    }).join('_'));
+    p.set('list', state.recent.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
   }
   if (scale && state.scale.on) {
     const def = findScale(state.scale.type);
@@ -824,9 +832,9 @@ function applyLink(search, parts = null) {
   }
   const c = Number(p.get('capo') || 0);
   if (neck) state.capo = Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : 0;
+  const chord = parseChordToken(p.get('chord'));
   if (take('chord')) {
-    const chord = parseLinkPair(p.get('chord'));
-    if (chord && findChord(chord.id) && findChord(chord.id).id === chord.id) state.chord = { on: true, root: chord.root, type: chord.id };
+    if (chord) state.chord = { on: true, root: chord.root, type: chord.def.id };
     else chordOff();
   }
   if (neck && (take('chord') || take('recent'))) {
@@ -838,21 +846,19 @@ function applyLink(search, parts = null) {
     else scaleOff();
   }
   state.shape = 0;
-  const ch = neck && take('chord') && state.chord.on && p.get('shape') ? currentChord() : null;
-  const at = ch ? ch.shapes.findIndex((shape) => linkFrets(shape.frets) === p.get('shape')) : -1;
+  const ch = neck && take('chord') && chord && chord.frets ? currentChord() : null;
+  const at = ch ? ch.shapes.findIndex((shape) => linkFrets(shape.frets) === chord.frets) : -1;
   if (at > 0) state.shape = at;
   // The chord list: it replaces yours, each chord on the shape it was shared with
   // (fewer than 2 chords is no list: yours stays)
-  if (take('recent') && p.has('recent')) {
+  if (take('recent') && p.has('list')) {
     const list = [];
-    for (const item of p.get('recent').split('_')) {
-      const [name, frets] = item.split('.');
-      const pair = parseLinkPair(name);
-      const def = pair && findChord(pair.id);
-      if (!def || def.id !== pair.id || list.length >= RECENT_MAX) continue;
-      if (list.some((r) => r.root === pair.root && r.type === def.id)) continue;
-      const index = frets && neck ? chordShapes(pair.root, def).findIndex((shape) => linkFrets(shape.frets) === frets) : 0;
-      list.push({ root: pair.root, type: def.id, used: ++recentClock, shapes: { [shapeContext(def)]: Math.max(0, index) } });
+    for (const item of p.get('list').split('_')) {
+      const c = parseChordToken(item);
+      if (!c || list.length >= RECENT_MAX) continue;
+      if (list.some((r) => r.root === c.root && r.type === c.def.id)) continue;
+      const index = c.frets && neck ? chordShapes(c.root, c.def).findIndex((shape) => linkFrets(shape.frets) === c.frets) : 0;
+      list.push({ root: c.root, type: c.def.id, used: ++recentClock, shapes: { [shapeContext(c.def)]: Math.max(0, index) } });
     }
     if (list.length > 1) {
       state.recent = list;
@@ -881,7 +887,7 @@ function startLink(search) {
   // A link with no chord (or no scale) means none: loaded, it takes yours
   // off, so it is asked about too. A link with no chord list keeps yours:
   // most links leave it out (it is off in the Share popup to begin with).
-  const has = { neck: p.has('instrument'), chord: p.has('chord') || state.chord.on, scale: p.has('scale') || state.scale.on, recent: p.has('recent') };
+  const has = { neck: p.has('instrument'), chord: p.has('chord') || state.chord.on, scale: p.has('scale') || state.scale.on, recent: p.has('list') };
   const preview = linkPreview(search, has);   // (may find has.recent false)
   if (!preview.loses) { applyLink(search, has); return; }
   pendingLink = { search, preview, parts: { ...has } };   // all switched on
@@ -1880,9 +1886,9 @@ function revealAcross(notes) {
     ? (lefty ? right - (view.right - pad) : left - (view.left + pad))
     : (left + right) / 2 - (view.left + view.right) / 2;
   const capoCell = capo() ? els.neck.querySelector(`.cell[data-f="${capo()}"]`) : null;
-  if (capoCell) {   // keep the capo's fret in view, with the same room as on phones
+  if (capoCell) {   // the frets behind the capo stay out of view, as on phones (the capo's fret at the edge, with some room)
     const c = capoCell.getBoundingClientRect();
-    delta = lefty ? Math.max(delta, c.right - (view.right - 20)) : Math.min(delta, c.left - (view.left + 20));
+    delta = lefty ? Math.min(delta, c.right - (view.right - 20)) : Math.max(delta, c.left - (view.left + 20));
   }
   if (Math.abs(delta) > 1) box.scrollBy({ left: delta, behavior: 'smooth' });
 }
