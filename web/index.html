@@ -305,45 +305,65 @@
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <div class="picker-body share-body">
-      <p class="share-setup">The link opens <span id="shareSetup"></span>, with:</p>
-      <button type="button" id="shareChord" class="pill-toggle share-row chord" aria-pressed="false">
-        <span class="pill-dot" aria-hidden="true"></span><span class="share-what">Chord</span><span class="share-detail"></span>
+    <div class="picker-body lk-body">
+      <button type="button" id="shareNeck" class="lk-row neck" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Neck</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
       </button>
-      <button type="button" id="shareRecent" class="pill-toggle share-row chord" aria-pressed="false">
-        <span class="pill-dot" aria-hidden="true"></span><span class="share-what">Chord list</span><span class="share-detail"></span>
+      <button type="button" id="shareChord" class="lk-row chord" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
       </button>
-      <button type="button" id="shareScale" class="pill-toggle share-row scale" aria-pressed="false">
-        <span class="pill-dot" aria-hidden="true"></span><span class="share-what">Scale</span><span class="share-detail"></span>
+      <button type="button" id="shareRecent" class="lk-row chord" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord list</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
+      <button type="button" id="shareScale" class="lk-row scale" aria-pressed="false">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Scale</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
       </button>
     </div>
-    <div class="about-links">
-      <button type="button" id="shareGo" class="btn primary share-go">Copy link</button>
+    <div class="about-links share-actions">
+      <button type="button" id="shareCancel" class="btn">Cancel</button>
+      <button type="button" id="shareGo" class="btn primary">Copy link</button>
     </div>
   </dialog>
 
   <dialog id="linkOpen" class="picker share" aria-labelledby="linkTitle">
     <div class="picker-head">
-      <h2 id="linkTitle">Open shared link</h2>
+      <h2 id="linkTitle">Load link</h2>
       <button type="button" id="linkClose" class="btn icon" aria-label="Close">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
-    <div class="picker-body share-body">
-      <p class="share-setup">This link opens <span id="linkSetup"></span><span id="linkWith"></span></p>
-      <button type="button" id="linkChord" class="pill-toggle share-row chord" aria-pressed="true">
-        <span class="pill-dot" aria-hidden="true"></span><span class="share-what">Chord</span><span class="share-detail"></span>
+    <div class="picker-body lk-body">
+      <button type="button" id="linkNeck" class="lk-row neck" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Neck</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
       </button>
-      <button type="button" id="linkList" class="pill-toggle share-row chord" aria-pressed="true">
-        <span class="pill-dot" aria-hidden="true"></span><span class="share-what">Chord list</span><span class="share-detail"></span>
+      <button type="button" id="linkChord" class="lk-row chord" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
       </button>
-      <button type="button" id="linkScale" class="pill-toggle share-row scale" aria-pressed="true">
-        <span class="pill-dot" aria-hidden="true"></span><span class="share-what">Scale</span><span class="share-detail"></span>
+      <button type="button" id="linkList" class="lk-row chord" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Chord list</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
       </button>
-      <p id="linkNote" class="share-note" hidden></p>
+      <button type="button" id="linkScale" class="lk-row scale" aria-pressed="true">
+        <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
+        <span class="lk-what">Scale</span><span class="lk-tag"></span>
+        <span class="lk-change"></span>
+      </button>
     </div>
     <div class="about-links share-actions">
-      <button type="button" id="linkKeep" class="btn">Keep mine</button>
+      <button type="button" id="linkKeep" class="btn">Cancel</button>
       <button type="button" id="linkLoad" class="btn primary" autofocus>Load</button>
     </div>
   </dialog>
