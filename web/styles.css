@@ -177,7 +177,20 @@ kbd {
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
 .about-body p { margin: 0; color: color-mix(in srgb, var(--text) 85%, transparent); }
-.about-link { justify-self: center; text-decoration: none; }
+/* The links stay in view under the text (which scrolls on short screens):
+   stacked on phones, side by side on wide screens */
+.about-links {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.about-link { text-decoration: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
+.about-link .heart { color: var(--chord); }
 
 /* Instrument: a button that opens the picker popup (the neck's title on wide
    screens). The tuning (when not the standard one) follows in grey, then a
@@ -1220,6 +1233,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 @media (hover: hover) {
   .btn:not(:disabled):hover { border-color: var(--accent); }
   .btn.primary:not(:disabled):hover { filter: brightness(1.08); }
+  .about-link.support:hover { border-color: var(--chord); background: color-mix(in srgb, var(--chord) 12%, transparent); }   /* stays pink */
   .btn:not(:disabled):active { filter: none; }
   .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
@@ -1240,6 +1254,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
    Keep in sync with WIDE_QUERY in script.js.
    ========================================================================== */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
+  .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
   body { --dock-h: 0px; }   /* no dock bar: the panels are part of the page */
   :root {
     --gutter: 20px;
