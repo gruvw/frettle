@@ -1468,7 +1468,10 @@ function setupChipDrag(row) {
     drag.on = true;
     swallowClick = true;
     if (navigator.vibrate) try { navigator.vibrate(10); } catch { /* not allowed */ }
-    try { drag.li.setPointerCapture(drag.id); } catch { /* already released */ }
+    // A mouse keeps the drag even off the row; a finger needs nothing: its
+    // events already go to the chip it pressed (moving that capture, as
+    // Android browsers do, would end the drag at once)
+    if (!drag.touch) try { drag.li.setPointerCapture(drag.id); } catch { /* already released */ }
     drag.items = [...row.children];
     drag.rects = drag.items.map((it) => it.getBoundingClientRect());
     drag.scroll = row.scrollLeft;
@@ -1542,7 +1545,7 @@ function setupChipDrag(row) {
     if (on) moveRecent(from, at);
   });
   row.addEventListener('pointercancel', stop);
-  row.addEventListener('lostpointercapture', (e) => { if (drag && drag.on && e.pointerId === drag.id) stop(); });
+  row.addEventListener('lostpointercapture', (e) => { if (drag && drag.on && !drag.touch && e.target === drag.li && e.pointerId === drag.id) stop(); });
   // While dragging, a finger does not scroll the page or the row
   row.addEventListener('touchmove', (e) => { if (drag && drag.on) e.preventDefault(); }, { passive: false });
   row.addEventListener('contextmenu', (e) => { if (drag) e.preventDefault(); });   // a long press is a drag here
