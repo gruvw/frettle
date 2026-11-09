@@ -17,10 +17,10 @@ A fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. P
 ## What it does
 
 - Every note on the neck: guitar, bass, ukulele, mandolin, mandola and banjo
-- Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more
+- Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more, or a custom one
 - Chords in any key, every shape up the neck, with intervals on each note
 - Scales and modes, one hand-sized group at a time (pentatonic boxes, CAGED positions)
-- Tells you when a chord fits the scale
+- Shows when a chord fits the scale
 - Notes spelled for the key: F♯ in D major, B♭ in F major
 - Tap a note to hear it, strum a chord, play a scale
 - Capo, octave shading and a left-handed mode
@@ -37,12 +37,12 @@ cd web
 python3 -m http.server
 ```
 
-Then open http://localhost:8000. Opening `index.html` straight from disk works too, you just don't get offline mode.
+Then open http://localhost:8000. Opening `index.html` straight from disk works too, without offline mode.
 
-No frameworks or libraries. The sound is synthesized in the browser, and your settings are saved in localStorage.
+No frameworks or libraries. The sound is synthesized in the browser, and settings are saved in localStorage.
 
 ## Support
 
-Frettle is free, with no ads. If it helps you play, you can support it on Ko-fi:
+Frettle is free, with no ads. It can be supported on Ko-fi:
 
 [![Support Frettle on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/gruvw)

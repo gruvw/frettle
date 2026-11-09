@@ -76,12 +76,23 @@ const TUNINGS = {
     { id: 'open-d', name: 'Open D', strings: [66, 50, 54, 57, 62] },
   ],
 };
+/* An instrument's tunings: its common ones, or just its standard one */
+const tuningsOf = (id) => TUNINGS[id] || [{ id: 'standard', name: 'Standard', strings: findInstrument(id).strings }];
+/* Your own tuning for an instrument (one each, kept in state.custom), named
+   by its notes: "C G D G B D". Each string within an octave of standard. */
+const CUSTOM_RANGE = 12;
+function customTuning(id) {
+  const strings = typeof state === 'object' && state && state.custom && state.custom[id];
+  return strings ? { id: 'custom', name: tuningNotes(strings, state.flats), short: 'Custom', custom: true, strings } : null;
+}
+/* The preset tuning with these open strings, if any (a custom tuning that
+   lands on one is that one) */
+const matchPreset = (id, strings) => tuningsOf(id).find((t) => t.strings.length === strings.length && t.strings.every((m, i) => m === strings[i])) || null;
 /* An instrument in one of its tunings (the standard one if none or unknown) */
 function tunedInstrument(id, tuningId = 'standard') {
   const inst = findInstrument(id);
-  const list = TUNINGS[id];
-  if (!list) return inst;
-  const tuning = list.find((t) => t.id === tuningId) || list[0];
+  const list = tuningsOf(id);
+  const tuning = (tuningId === 'custom' && customTuning(id)) || list.find((t) => t.id === tuningId) || list[0];
   return { ...inst, strings: tuning.strings, tuning };
 }
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
@@ -656,7 +667,8 @@ function defaultState() {
     scaleGroups: true,                // outline the scale one hand-sized group at a time
     leftHanded: false,                // mirror the neck
     octaves: false,
-    tuning: {},                       // tuning id per instrument that has several
+    tuning: {},                       // tuning id per instrument ('custom': your own)
+    custom: {},                       // your own tuning per instrument: open string pitches
     chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
     recent: [],                       // the chord list [{ root, type, shapes }], shared by all instruments: none, or 2 or more
     solo: null,                       // the chord before there is a list (its shapes), the list's first chip to be
@@ -687,9 +699,13 @@ function loadState() {
       if (prefs.share && typeof prefs.share[k] === 'boolean') s.share[k] = prefs.share[k];
     }
     if (readInstrument(work.instrument)) s.instrument = work.instrument;
-    for (const id of Object.keys(TUNINGS)) {
-      const t = readTuning(id, work.tuning && work.tuning[id]);
-      if (t) s.tuning[id] = t;
+    for (const { id } of INSTRUMENTS) {
+      const strings = readCustom(id, work.custom && work.custom[id]);
+      if (strings) s.custom[id] = strings;
+      const t = work.tuning && work.tuning[id];
+      if (t === 'custom' ? strings : readTuning(id, t)) s.tuning[id] = t;
+      const preset = strings && matchPreset(id, strings);
+      if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset: that one
     }
     const c = readCapo(work.capo);
     if (c !== null) s.capo = c;
@@ -728,6 +744,7 @@ function saveState() {
     work: {
       instrument: state.instrument,
       tuning: state.tuning,
+      custom: Object.fromEntries(Object.entries(state.custom).map(([id, strings]) => [id, customText(strings)])),
       capo: state.capo,
       chord: state.chord.on ? chordText(state.chord.root, findChord(state.chord.type)) : noteToken(plainNote(state.chord.root, state.flats)),
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
@@ -778,7 +795,25 @@ function readScale(text) {   // → { root, def (null: none) }, or null when wro
 }
 // The neck: each value, or null when wrong
 const readInstrument = (id) => (findInstrument(id) ? id : null);
-const readTuning = (inst, id) => (TUNINGS[inst] && TUNINGS[inst].some((t) => t.id === id) ? id : null);
+const readTuning = (inst, id) => (tuningsOf(inst).some((t) => t.id === id) ? id : null);
+/* A custom tuning: each open string as a note and octave, low to high (as
+   the strings are listed): "D2-A2-D3-G3-B3-E4" */
+const pitchToken = (m) => `${noteToken(plainNote(m, false))}${Math.floor(m / 12) - 1}`;
+const customText = (strings) => strings.map(pitchToken).join('-');
+function readCustom(inst, text) {   // → open string pitches, or null when wrong
+  const base = tuningsOf(inst)[0].strings;
+  const parts = String(text || '').split('-');
+  if (parts.length !== base.length) return null;
+  const strings = parts.map((part) => {
+    const m = /^(.+?)(\d)$/.exec(part);
+    const pc = m && readNote(m[1]);
+    if (pc === null || !m) return null;
+    const letter = m[1][0].toUpperCase();
+    const acc = mod12(pc - LETTER_PC[LETTERS.indexOf(letter)] + 6) - 6;   // -2..+2
+    return (Number(m[2]) + 1) * 12 + LETTER_PC[LETTERS.indexOf(letter)] + acc;
+  });
+  return strings.every((m, i) => m !== null && Math.abs(m - base[i]) <= CUSTOM_RANGE) ? strings : null;
+}
 function readCapo(value) {
   const c = Number(value);
   return Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : null;
@@ -834,7 +869,8 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   const inst = instrument();
   if (neck) {
     p.set('instrument', state.instrument);
-    if (inst.tuning && inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
+    if (inst.tuning.custom) p.set('tuning', customText(inst.strings));   // your own: its notes
+    else if (inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
     if (capo()) p.set('capo', String(capo()));
   }
   // The voicing goes with the chord and the neck (a list's chords: their
@@ -866,7 +902,12 @@ function applyLink(search, parts = null) {
   // A link without an instrument (written by hand) shows on yours, as you tuned it
   if (neck && readInstrument(p.get('instrument'))) {
     state.instrument = p.get('instrument');
-    if (TUNINGS[state.instrument]) state.tuning[state.instrument] = readTuning(state.instrument, p.get('tuning')) || 'standard';
+    // A custom tuning (its notes) takes the custom tuning's place, unless it
+    // is a preset's notes: then that preset
+    const strings = readCustom(state.instrument, p.get('tuning'));
+    const preset = strings && matchPreset(state.instrument, strings);
+    if (strings && !preset) state.custom[state.instrument] = strings;
+    state.tuning[state.instrument] = preset ? preset.id : strings ? 'custom' : readTuning(state.instrument, p.get('tuning')) || 'standard';
   }
   if (neck) state.capo = readCapo(p.get('capo') || 0) || 0;
   const chord = readChord(p.get('chord'));
@@ -919,7 +960,7 @@ function applyLink(search, parts = null) {
    scale). It loads straight away when there is nothing of yours to lose: a
    first visit, or when no row would say Replaces, Removes or Clears: for
    the chord and the scale, you have none or the link holds the same; the
-   link's list keeps every chord of yours; the link's neck (if it has one)
+   link's list keeps every chord already in the list; the link's neck (if it has one)
    is yours already. Until you choose, your own
    neck is shown and the address keeps the link. */
 let pendingLink = null;   // { search, preview, parts }
@@ -960,6 +1001,8 @@ function linkPreview(search, has) {
     return {
       setup: has.neck ? setupText() : null,
       setupParts: has.neck ? setupParts() : null,
+      // the link's custom tuning: it takes the custom tuning's place
+      custom: has.neck && state.tuning[state.instrument] === 'custom' ? { inst: state.instrument, strings: state.custom[state.instrument] } : null,
       // null: not in the link (no row), '': none
       chord: has.chord ? (ch ? ch.symbol : '') : null,
       scale: has.scale ? (sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '') : null,
@@ -1015,10 +1058,11 @@ function renderLinkPopup() {
     const what = empty(now) || gains ? 'Adds' : empty(link) ? 'Clears' : drops ? 'Removes' : 'Replaces';
     tag.textContent = same ? 'No change' : !on ? 'Not loaded' : what;
     tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
-    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on)
+    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)))
       : key === 'recent' ? listDiff(now, link, on) : '');
-    row.querySelector('.lk-change').innerHTML = same ? show(link, 'win') : diff
-      || `${show(now, on ? 'lose' : 'win')}<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${show(link, on ? 'win' : 'lose')}</span>`;
+    row.querySelector('.lk-change').innerHTML = (same ? show(link, 'win') : diff
+      || `${show(now, on ? 'lose' : 'win')}<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${show(link, on ? 'win' : 'lose')}</span>`)
+      + (key === 'neck' ? customLine(preview.custom, on) : '');
   }
 }
 
@@ -1028,11 +1072,31 @@ function renderLinkPopup() {
    with bright, the other struck through. A chord list that shares chords is
    one row of chips: first the chords it loses, struck through, then the
    list you end up with, the chords it gains outlined. Anything else: now → the link's. */
-function neckDiff(now, link, on) {
+/* The custom tuning a link replaces without it being on the neck (on a
+   preset, or another instrument): its notes, or null */
+function customOff(custom) {
+  if (!custom) return null;
+  const { inst, strings } = custom;
+  const mine = state.custom[inst];
+  if (!mine || String(mine) === String(strings) || (state.instrument === inst && state.tuning[inst] === 'custom')) return null;
+  return mine;
+}
+// Its line under the neck's: the custom tuning now → the link's
+function customLine(custom, on) {
+  const mine = customOff(custom);
+  if (!mine) return '';
+  const notes = (list) => tuningNotes(list, state.flats);
+  return `<span class="lk-extra">${lkValue(notes(mine), on ? 'lose' : 'win')}`
+    + `<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${lkValue(notes(custom.strings), on ? 'win' : 'lose')}</span></span>`;
+}
+function neckDiff(now, link, on, customLater = false) {
   if (now[0] !== link[0]) return '';
   const part = (a, b) => (a === b ? esc(a)
     : `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(a)}</span> <span class="${on ? 'lk-new' : 'lk-old'}">${esc(b)}</span>`);
-  return `<span class="lk-val diff">${esc(now[0])} (${part(now[1], link[1])}, ${part(now[2], link[2])})</span>`;
+  // the link's custom tuning replaces the one kept aside: here only the
+  // preset that goes (the line under it shows the custom tuning's change)
+  const tuning = customLater ? `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(now[1])}</span>` : part(now[1], link[1]);
+  return `<span class="lk-val diff">${esc(now[0])} (${tuning}, ${part(now[2], link[2])})</span>`;
 }
 function listDiff(now, link, on) {
   if (!now.length || !link.length || !now.some((n) => link.includes(n))) return '';
@@ -1131,7 +1195,7 @@ function renderShare() {
     const tag = row.querySelector('.lk-tag');
     tag.textContent = on ? 'Included' : 'Not included';
     tag.className = `lk-tag${on ? ' gain' : ''}`;
-    row.querySelector('.lk-change').innerHTML = lkValue(value, on ? 'win' : 'lose');
+    row.querySelector('.lk-change').innerHTML = lkValue(value, on ? 'win' : 'off');   // left out: dimmed, not struck through
   }
   const opts = shareChoice();
   els.shareGo.disabled = !Object.values(opts).some(Boolean);
@@ -1778,7 +1842,10 @@ function ping(el) {
   el.classList.remove(cls);
   void el.offsetWidth;   // restart the animation
   el.classList.add(cls);
-  if (cls === 'peek') el.addEventListener('animationend', () => el.classList.remove('peek'), { once: true });
+  if (cls === 'peek') {   // hidden again once its fade is over (not when the ring's ends)
+    const done = (e) => { if (e.animationName === 'peek') { el.classList.remove('peek'); el.removeEventListener('animationend', done); } };
+    el.addEventListener('animationend', done);
+  }
 }
 function flashCell(s, f, delay = 0) {
   setTimeout(() => ping(els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`)), delay * 1000);
@@ -1831,6 +1898,47 @@ function setupNeckTaps() {
   });
   els.neck.addEventListener('pointercancel', cancel);   // the browser started scrolling
   els.neck.addEventListener('contextmenu', (e) => e.preventDefault());   // no long-press menu
+}
+
+/* Anything that sounds plays on press, like the neck: at once with a mouse
+   or a pen; with a finger after TAP_DELAY (or on lifting it, if sooner), and
+   not at all if it moves past TAP_SLOP first (it was a swipe to scroll).
+   Enter or Space on a focused one plays it too. */
+function onPress(box, selector, act) {
+  const taps = new Map();
+  const target = (e) => {
+    const el = e.target.closest(selector);
+    return el && box.contains(el) && !el.disabled ? el : null;
+  };
+  const cancel = (e) => {
+    const tap = taps.get(e.pointerId);
+    if (tap) { clearTimeout(tap.timer); taps.delete(e.pointerId); }
+  };
+  box.addEventListener('pointerdown', (e) => {
+    if (e.button > 0) return;
+    const el = target(e);
+    if (!el) return;
+    if (e.pointerType !== 'touch') { act(el); return; }
+    const tap = { el, x: e.clientX, y: e.clientY, done: false };
+    tap.timer = setTimeout(() => { tap.done = true; act(el); }, TAP_DELAY);
+    taps.set(e.pointerId, tap);
+  });
+  box.addEventListener('pointermove', (e) => {
+    const tap = taps.get(e.pointerId);
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > TAP_SLOP) cancel(e);
+  });
+  box.addEventListener('pointerup', (e) => {
+    const tap = taps.get(e.pointerId);
+    if (!tap) return;
+    clearTimeout(tap.timer);
+    if (!tap.done) act(tap.el);
+    taps.delete(e.pointerId);
+  });
+  box.addEventListener('pointercancel', cancel);
+  box.addEventListener('click', (e) => {   // the keyboard (a pointer played it on press)
+    const el = e.detail === 0 && target(e);
+    if (el) act(el);
+  });
 }
 
 /* Browsers only let sound start after a tap or a key press, and some only
@@ -2138,6 +2246,90 @@ function placeSettings() {
 /* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
    [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick.
    An optional `note` is a line of help under the tiles. */
+/* Custom tuning: a popup with each string laid out as on the neck (phones:
+   columns, the lowest string on the left, mirrored left-handed; wide
+   screens: rows, the highest string on top), each a semitone up or down at
+   a time, within an octave of standard. A note tuned away from standard is
+   in the accent colour, and its string number turns into a button that puts
+   that string back; tapping a note plays it. The neck follows as you
+   tune; landing on a preset (Drop D...) names it and picks it. Done keeps
+   the tuning; Cancel (Escape, a tap outside) puts back the one you had. It
+   starts from the custom tuning, or the one on the neck. */
+let tune = null;   // { before: { tuning, custom }, draft: open string pitches }
+function openTuneEdit() {
+  const id = state.instrument;
+  tune = { before: { tuning: state.tuning[id], custom: state.custom[id] }, draft: (state.custom[id] || instrument().strings).slice() };
+  tuneSet(tune.draft);
+  if (els.tuneEdit.showModal) els.tuneEdit.showModal(); else els.tuneEdit.setAttribute('open', '');
+}
+function tuneSet(strings) {
+  const id = state.instrument;
+  tune.draft = strings;
+  const preset = matchPreset(id, strings);
+  if (preset) {   // a preset's notes: that preset (the custom tuning stays as it was)
+    state.tuning[id] = preset.id;
+    if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
+  } else {
+    state.tuning[id] = 'custom';
+    state.custom[id] = strings;
+  }
+  state.shape = 0;
+  recallChip();
+  render();
+  renderTuneEdit();
+}
+function tuneStep(s, step) {
+  const base = tuningsOf(state.instrument)[0].strings;
+  const m = tune.draft[s] + step;
+  if (Math.abs(m - base[s]) > CUSTOM_RANGE) return;
+  const strings = tune.draft.slice();
+  strings[s] = m;
+  tuneSet(strings);
+}
+const RESET_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/></svg>';
+/* The strings in neck order, laid out by styles.css for the screen's width
+   (as the neck itself): each with its number (a reset button when it is
+   tuned away from standard), + and −, and its note (tap: hear it) */
+function renderTuneEdit() {
+  const id = state.instrument;
+  const base = tuningsOf(id)[0].strings;
+  const strings = tune.draft;
+  const preset = matchPreset(id, strings);
+  els.tuneName.textContent = preset ? preset.name : 'Custom';
+  els.tuneName.classList.toggle('custom', !preset);
+  els.tuneList.classList.toggle('lefty', state.leftHanded);
+  els.tuneList.style.setProperty('--n', strings.length);
+  els.tuneList.innerHTML = strings.map((m, s) => {
+    const n = strings.length - s;   // string 1: the highest
+    const off = m - base[s];
+    const name = noteText(plainNote(m, state.flats));
+    const oct = Math.floor(m / 12) - 1;
+    const num = off
+      ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${noteText(plainNote(base[s], state.flats))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
+      : `<span class="tune-num">${n}</span>`;
+    return `<li class="tune-string">${num}` +
+      `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' disabled' : ''}>+</button>` +
+      `<button type="button" class="tune-note${off ? ' changed' : ''}" data-play="${m}" aria-label="String ${n}: ${name}${oct}, play it">${name}<span class="tune-oct">${oct}</span></button>` +
+      `<button type="button" class="tune-step down" data-string="${s}" data-step="-1" aria-label="String ${n} down a semitone"${off <= -CUSTOM_RANGE ? ' disabled' : ''}>−</button></li>`;
+  }).join('');
+  els.tuneReset.disabled = strings.every((m, i) => m === base[i]);
+}
+// Done keeps it; Cancel puts back what you had
+function closeTuneEdit(keep) {
+  const t = tune;
+  tune = null;
+  if (els.tuneEdit.open) {
+    if (els.tuneEdit.close) els.tuneEdit.close(); else els.tuneEdit.removeAttribute('open');
+  }
+  if (!t || keep) return;
+  const id = state.instrument;
+  state.tuning[id] = t.before.tuning;
+  if (t.before.custom) state.custom[id] = t.before.custom; else delete state.custom[id];
+  state.shape = 0;
+  recallChip();
+  render();
+}
+
 let pickerPick = null;
 function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
   els.pickerTitle.textContent = title;
@@ -2242,11 +2434,9 @@ function renderDock(ch, sc) {
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
   // What the Neck sheet sets: the capo if there is one, else the tuning
-  // (the instrument has its own menu above the neck), or "No capo" for an
-  // instrument with no other tuning to pick
+  // (the instrument has its own menu above the neck)
   const tuning = instrument().tuning;
-  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}`
-    : !tuning ? 'No capo' : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
+  els.tabNeckValue.textContent = capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
@@ -2329,7 +2519,6 @@ function renderHeader() {
     (tuned ? `<span class="inst-tuning">${esc(tuned)}</span>` : '');
   els.instrumentPicker.setAttribute('aria-label', `Instrument: ${inst.name}${tuned ? `, ${tuned}` : ''}`);
   const c = capo();
-  els.tuningSelect.hidden = !inst.tuning;
   els.tuningSelect.textContent = tuned || 'Standard tuning';
   els.tuningSelect.classList.toggle('on', Boolean(tuned));
   els.capoSelect.textContent = c ? `Capo ${c}` : 'No capo';
@@ -2339,7 +2528,7 @@ function renderHeader() {
   }
 }
 
-/* "Drop D", or '' for the standard tuning (and instruments with only one) */
+/* "Drop D", "C G D G B D" (custom), or '' for the standard tuning */
 const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? inst.tuning.name : '');
 /* Open string names, low to high: "D A D G B E" */
 const tuningNotes = (strings, flats = false) => strings.map((m) => noteText(plainNote(m, flats))).join(' ');
@@ -3182,6 +3371,7 @@ function init() {
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
+    'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList']) {
@@ -3208,7 +3398,10 @@ function init() {
       label: family,
       items: INSTRUMENTS.filter((i) => i.family === family).map((i) => {
         const t = tunedInstrument(i.id, state.tuning[i.id]);
-        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, t.tuning && t.tuning.flats) };
+        // a preset in its usual spelling (Open D's F♯, E♭ for half step down);
+        // a custom tuning as the Flats switch says
+        const flats = t.tuning.custom ? state.flats : Boolean(t.tuning.flats);
+        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats) };
       }),
     })),
     onPick: (v) => {
@@ -3220,14 +3413,39 @@ function init() {
     },
   }));
   els.tuningSelect.addEventListener('click', () => {
-    const list = TUNINGS[state.instrument];
-    if (!list) return;
+    const own = state.custom[state.instrument];
     openPicker({
       title: 'Tuning', value: instrument().tuning.id,
-      groups: [{ items: list.map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, t.flats) })) }],
-      onPick: (v) => { state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render(); },
+      groups: [{ items: [
+        ...tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })),
+        { value: 'custom', label: 'Custom', sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
+      ] }],
+      onPick: (v) => {
+        if (v === 'custom') { openTuneEdit(); return; }
+        state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render();
+      },
     });
   });
+  // Custom tuning popup
+  els.tuneList.addEventListener('click', (e) => {
+    const step = e.target.closest('[data-step]');
+    if (step) { tuneStep(Number(step.dataset.string), Number(step.dataset.step)); return; }
+    const reset = e.target.closest('[data-reset]');   // one string back to standard
+    if (reset) {
+      const s = Number(reset.dataset.reset);
+      const strings = tune.draft.slice();
+      strings[s] = tuningsOf(state.instrument)[0].strings[s];
+      tuneSet(strings);
+      return;
+    }
+  });
+  onPress(els.tuneList, '[data-play]', (note) => { playNote(Number(note.dataset.play)); ping(note); });   // heard, with the amber flash
+  els.tuneReset.addEventListener('click', () => tuneSet(tuningsOf(state.instrument)[0].strings.slice()));
+  els.tuneDone.addEventListener('click', () => closeTuneEdit(true));
+  els.tuneCancel.addEventListener('click', () => closeTuneEdit(false));
+  els.tuneClose.addEventListener('click', () => closeTuneEdit(false));
+  els.tuneEdit.addEventListener('click', (e) => { if (e.target === els.tuneEdit) closeTuneEdit(false); });
+  els.tuneEdit.addEventListener('close', () => closeTuneEdit(false));   // Escape
 
   for (const [id, key] of TOGGLES) {
     els[id].addEventListener('click', () => {
@@ -3237,9 +3455,7 @@ function init() {
   }
 
   setupNeckTaps();
-  els.chordTones.addEventListener('click', (e) => {
-    const card = e.target.closest('[data-midi]');
-    if (!card) return;
+  onPress(els.chordTones, '[data-midi]', (card) => {
     playNote(Number(card.dataset.midi));
     ping(card.querySelector('.np-deg'));   // its interval pill, like the note on the neck
     flashCell(card.dataset.s, card.dataset.f);
@@ -3398,25 +3614,11 @@ function init() {
   els.linkClose.addEventListener('click', () => closeLink(false));
   els.linkOpen.addEventListener('click', (e) => { if (e.target === els.linkOpen) closeLink(false); });
   els.linkOpen.addEventListener('close', () => closeLink(false));   // Escape
-  els.scalePlay.addEventListener('click', playScale);
-  // A note of the Notes row: heard on press with a mouse, on release with a
-  // finger (so swiping the row to scroll it plays nothing), and with Enter
-  let pressedNote = null;
-  els.scaleNotes.addEventListener('pointerdown', (e) => {
-    pressedNote = null;
-    const note = e.target.closest('.scale-note');
-    if (!note || e.pointerType === 'touch' || e.button > 0) return;
-    pressedNote = note;
-    playScaleNote(Number(note.dataset.i));
-  });
-  els.scaleNotes.addEventListener('click', (e) => {
-    const note = e.target.closest('.scale-note');
-    if (!note) return;
-    const pressed = pressedNote;
-    pressedNote = null;
-    if (note === pressed && e.detail > 0) return;   // heard on press already (a key press is not)
-    playScaleNote(Number(note.dataset.i));
-  });
+  // Play (Stop) on press, like the strum buttons; from the keyboard too
+  els.scalePlay.addEventListener('pointerdown', (e) => { if (e.button === 0 && !els.scalePlay.disabled) playScale(); });
+  els.scalePlay.addEventListener('click', (e) => { if (e.detail === 0) playScale(); });
+  // A note of the Notes row: heard on press (a swipe to scroll the row plays nothing)
+  onPress(els.scaleNotes, '.scale-note', (note) => playScaleNote(Number(note.dataset.i)));
   els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
   const closeAbout = () => { if (els.about.close) els.about.close(); else els.about.removeAttribute('open'); };
   els.aboutClose.addEventListener('click', closeAbout);
@@ -3470,12 +3672,12 @@ function init() {
   let keyboardFocus = false;   // the focus was last moved with the keyboard
   document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
-  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !els.share.open && !els.linkOpen.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
+  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !els.share.open && !els.linkOpen.open && !els.tuneEdit.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
   document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (els.picker.open || els.about.open || els.share.open || els.linkOpen.open) return;   // a popup handles its own keys (Escape closes it)
+    if (els.picker.open || els.about.open || els.share.open || els.linkOpen.open || els.tuneEdit.open) return;   // a popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('input, textarea')) return;
     if (spaceStrums(e)) {
