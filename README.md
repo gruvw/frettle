@@ -16,20 +16,16 @@ A fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. P
 
 ## What it does
 
-- Every note on the neck: guitar (6 or 7 strings), bass (4 or 5), ukulele, baritone ukulele, mandolin, mandola, 5-string banjo
-- Alternate tunings: Drop D, DADGAD, open tunings, half or whole step down, low G ukulele, banjo double C and more
-- Chords in any key, every shape up the neck, with intervals on each note and barres drawn in
-- Voicings: root position, any inversion, or any bass note
-- Chord list: the chords you play, each keeping its shape and voicing, to jump around a song
-- Scales: modes, minors, pentatonics, blues and more, with formula, related scales and fitting triads
-- Scale groups: one hand-sized box at a time (pentatonic boxes, CAGED positions)
-- Only the scale's notes, or every note on the neck
-- Capo, octave shading, left-handed mode
-- Tap a note to hear it, strum a chord, play a scale
-- Warns when a chord has notes outside the scale
+- Every note on the neck: guitar, bass, ukulele, mandolin, mandola and banjo
+- Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more
+- Chords in any key, every shape up the neck, with intervals on each note
+- Scales and modes, one hand-sized group at a time (pentatonic boxes, CAGED positions)
+- Tells you when a chord fits the scale
 - Notes spelled for the key: F♯ in D major, B♭ in F major
-- Share links: neck, chord, scale and chord list, you pick what goes in
-- Opening a link shows what it changes before loading anything
+- Tap a note to hear it, strum a chord, play a scale
+- Capo, octave shading and a left-handed mode
+- Chord list: the chords of a song, each keeping its shape
+- Share links: pick what goes in (neck, chord, scale, chord list)
 - Phone first, works offline, installable (PWA)
 
 ## Running it yourself

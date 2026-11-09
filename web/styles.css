@@ -1029,6 +1029,33 @@ kbd {
   cursor: pointer;
 }
 .recent-remove .ico { width: 12px; height: 12px; }
+/* Reordering: hold a chip (or drag it with a mouse). It lifts out of the
+   row, bigger and with a shadow, and follows the pointer (a copy above
+   everything, so the row does not clip it); a dashed slot shows where it
+   will land, and the other chips slide aside. */
+.recent-chips li { transition: transform 150ms ease; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.recent-chips.reordering li { cursor: grabbing; }
+.recent-chips li.dragging { border-radius: var(--r-pill); background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--chord) 70%, transparent); }
+.recent-chips li.dragging > * { visibility: hidden; }
+.chip-ghost {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  list-style: none;
+  border-radius: var(--r-pill);
+  background: var(--kbd-bg);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.55), 0 0 0 2px var(--chord);
+  pointer-events: none;
+  transform-origin: center;
+  cursor: grabbing;
+}
+.chip-ghost.on { background: var(--chord); }
+.chip-ghost .chip { background: transparent; color: var(--text); }
+.chip-ghost.on .chip { color: var(--chord-text); }
+.chip-ghost.dock .chip.recent { padding: 0 10px; }
+.chip-ghost.on .chip.recent { padding-right: 6px; }
 .recent-clear {   /* a bin: start the list over (not an ×, which removes one chord) */
   flex: none;
   display: grid;
