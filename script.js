@@ -1435,6 +1435,141 @@ function removeRecent(i) {
   render();
 }
 
+/* Move a chip to another place in the row (by dragging it, or Shift+← / →).
+   Its place only: which chord is on screen, and which was used last, stay. */
+function moveRecent(from, to) {
+  const list = recentList();
+  if (from === to || !list[from] || to < 0 || to >= list.length) return;
+  list.splice(to, 0, ...list.splice(from, 1));
+  ui.keepRow = true;
+  render();
+}
+
+/* Drag a chip to reorder the row. With a finger: press and hold it still
+   (HOLD_MS), then drag; a quick tap still picks the chord and a swipe still
+   scrolls the row. With a mouse or a pen: press and move a few pixels. The
+   chip follows the pointer, the others slide aside to show where it will
+   land, and the row scrolls when the chip nears either end. */
+const HOLD_MS = 350;
+function setupChipDrag(row) {
+  let drag = null;   // { li, from, id, x, y, touch, timer, on, items, at, scroll, frame }
+  let swallowClick = false;
+  const stop = () => {
+    if (!drag) return;
+    clearTimeout(drag.timer);
+    cancelAnimationFrame(drag.frame);
+    for (const it of drag.items || []) it.style.transform = '';
+    if (drag.ghost) drag.ghost.remove();
+    drag.li.classList.remove('dragging');
+    row.classList.remove('reordering');
+    drag = null;
+  };
+  const begin = () => {
+    drag.on = true;
+    swallowClick = true;
+    if (navigator.vibrate) try { navigator.vibrate(10); } catch { /* not allowed */ }
+    try { drag.li.setPointerCapture(drag.id); } catch { /* already released */ }
+    drag.items = [...row.children];
+    drag.rects = drag.items.map((it) => it.getBoundingClientRect());
+    drag.scroll = row.scrollLeft;
+    drag.at = drag.from;
+    // The chip lifts out of the row (a copy above everything, so nothing
+    // clips it) and leaves an outlined slot where it will land
+    const r = drag.rects[drag.from];
+    drag.ghost = drag.li.cloneNode(true);
+    drag.ghost.className = `${drag.li.className} chip-ghost${row === els.dockRecentList ? ' dock' : ''}`;
+    drag.ghost.removeAttribute('id');
+    Object.assign(drag.ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    document.body.append(drag.ghost);
+    drag.li.classList.add('dragging');
+    row.classList.add('reordering');
+    const edge = () => {   // near an end: scroll that way
+      if (!drag) return;
+      const box = row.getBoundingClientRect();
+      const speed = drag.px < box.left + 32 ? -8 : drag.px > box.right - 32 ? 8 : 0;
+      if (speed) { row.scrollLeft += speed; place(); }
+      drag.frame = requestAnimationFrame(edge);
+    };
+    drag.px = drag.x;
+    place();   // lifted right away
+    drag.frame = requestAnimationFrame(edge);
+  };
+  const place = () => {
+    const shift = row.scrollLeft - drag.scroll;   // the row scrolled since the drag began
+    const { rects, from } = drag;
+    const dx = drag.px - drag.x + shift;
+    drag.ghost.style.transform = `translateX(${drag.px - drag.x}px) translateY(-3px) scale(1.12)`;
+    // Where it lands: past the middle of each chip it is dragged over; its
+    // slot moves there
+    const mid = rects[from].left + rects[from].width / 2 + dx;
+    let at = from;
+    while (at < rects.length - 1 && mid > rects[at + 1].left + rects[at + 1].width / 2) at++;
+    while (at > 0 && mid < rects[at - 1].left + rects[at - 1].width / 2) at--;
+    drag.at = at;
+    const slot = at > from ? rects[at].right - rects[from].width : rects[at].left;
+    drag.li.style.transform = at === from ? '' : `translateX(${slot - rects[from].left}px)`;
+    const gap = rects.length > 1 ? rects[1].left - rects[0].right : 6;
+    const size = rects[from].width + gap;
+    drag.items.forEach((it, i) => {
+      if (i === from) return;
+      const by = from < at && i > from && i <= at ? -size : from > at && i < from && i >= at ? size : 0;
+      it.style.transform = by ? `translateX(${by}px)` : '';
+    });
+  };
+  row.addEventListener('pointerdown', (e) => {
+    if (e.button > 0 || drag || e.target.closest('.recent-remove')) return;
+    const li = e.target.closest('li');
+    const chip = li && li.querySelector('[data-i]');
+    if (!chip || recentList().length < 2) return;
+    drag = { li, from: Number(chip.dataset.i), id: e.pointerId, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', on: false };
+    if (drag.touch) drag.timer = setTimeout(() => { if (drag && !drag.on) begin(); }, HOLD_MS);
+  });
+  row.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.on) {
+      const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+      if (drag.touch) { if (moved > 8) stop(); return; }   // moved before the hold: a swipe
+      if (moved < 5) return;
+      begin();
+    }
+    drag.px = e.clientX;
+    place();
+  });
+  row.addEventListener('pointerup', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { on, from, at } = drag;
+    stop();
+    if (on) moveRecent(from, at);
+  });
+  row.addEventListener('pointercancel', stop);
+  row.addEventListener('lostpointercapture', (e) => { if (drag && drag.on && e.pointerId === drag.id) stop(); });
+  // While dragging, a finger does not scroll the page or the row
+  row.addEventListener('touchmove', (e) => { if (drag && drag.on) e.preventDefault(); }, { passive: false });
+  row.addEventListener('contextmenu', (e) => { if (drag) e.preventDefault(); });   // a long press is a drag here
+  // The click that ends a drag picks nothing
+  row.addEventListener('click', (e) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
+  row.addEventListener('pointerdown', () => { swallowClick = false; }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drag && drag.on) { e.stopPropagation(); stop(); } }, true);
+  // Shift+← / → moves the focused chip
+  row.addEventListener('keydown', (e) => {
+    const chip = e.target.closest('[data-i]');
+    if (!chip || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const from = Number(chip.dataset.i);
+    const to = from + (e.key === 'ArrowRight' ? 1 : -1);
+    if (to < 0 || to >= recentList().length) return;
+    moveRecent(from, to);
+    const moved = row.querySelector(`[data-i="${to}"]`);
+    if (moved) moved.focus();
+  });
+}
+
 function clearRecent() {   // the list empties, and the chord on screen goes with it
   state.recent = [];
   state.solo = null;
@@ -1883,6 +2018,8 @@ function renderRecent() {
   // When the chips change (one picked, added, edited or removed), scroll the
   // row so the selected one shows whole
   const chipKey = html;
+  if (chipKey !== ui.chipKey && ui.keepRow) ui.chipKey = chipKey;   // a chip moved: the row stays where it is
+  ui.keepRow = false;
   if (chipKey !== ui.chipKey) {
     const smooth = ui.chipKey !== undefined;
     ui.chipKey = chipKey;
@@ -3117,14 +3254,20 @@ function init() {
 
   // Recent chords: tap to switch, × on the current one to remove it, Clear to start over
   for (const list of [els.dockRecentList, els.recentList]) {
+    // The × removes only when the press started on it (a drag ending over
+    // it, or a press that slid onto it, removes nothing)
+    let pressed = null;
+    list.addEventListener('pointerdown', (e) => { pressed = e.target.closest('[data-remove]'); }, true);
     list.addEventListener('click', (e) => {
       const remove = e.target.closest('[data-remove]');
-      if (remove) { removeRecent(Number(remove.dataset.remove)); return; }
+      if (remove && (e.detail === 0 || remove === pressed)) { removeRecent(Number(remove.dataset.remove)); return; }
+      if (remove) return;
       const chip = e.target.closest('[data-i]');
       if (chip) playRecent(Number(chip.dataset.i));
     });
   }
   for (const list of [els.dockRecentList, els.recentList]) {
+    setupChipDrag(list);
     list.addEventListener('scroll', () => scrollHint(list), { passive: true });
     if (window.ResizeObserver) new ResizeObserver(() => scrollHint(list)).observe(list);   // shown, rotated, resized
   }
