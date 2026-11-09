@@ -192,6 +192,84 @@ kbd {
 .about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
 .about-link .heart { color: var(--chord); }
 
+/* Custom tuning popup: the tuning's name (a preset's when it lands on
+   one) and Reset, then the strings laid out as on the neck, by the screen's
+   width like the neck itself. Phones: one column per string, the lowest on
+   the left (mirrored left-handed), + above the note and − below it. Wide
+   screens: one row per string, the highest on top, − note +. A note away
+   from standard is in the accent colour, and its number becomes a small
+   button that puts the string back. Tapping a note plays it. */
+.tune-body { gap: var(--sp-4); }
+.tune-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.tune-name { font: 700 var(--fs-lg)/1.2 var(--font); color: var(--text); }
+.tune-name.custom { color: var(--accent); }
+.tune-reset { flex: none; }
+.tune-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 6px; }
+.tune-list.lefty { direction: rtl; }
+.tune-string {
+  display: grid;
+  grid-template-areas: "num" "up" "note" "down";
+  grid-template-columns: minmax(0, 1fr);   /* never wider than its column */
+  grid-template-rows: 28px 40px 48px 40px;
+  justify-items: stretch;
+  align-items: center;
+  row-gap: 4px;
+  min-width: 0;
+}
+.tune-num { grid-area: num; justify-self: center; display: inline-flex; align-items: center; gap: 4px; font: 700 var(--fs-sm)/1 var(--font); color: var(--muted); }
+.tune-num.reset {
+  height: 28px;
+  padding: 0 10px 0 9px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+}
+.tune-num .ico { width: 13px; height: 13px; }
+.tune-step {
+  height: 40px;
+  border: 0;
+  border-radius: var(--r-sm, 8px);
+  background: var(--kbd-bg);
+  color: var(--text);
+  font: 600 var(--fs-lg)/1 var(--font);
+  cursor: pointer;
+}
+.tune-step.up { grid-area: up; }
+.tune-step.down { grid-area: down; }
+.tune-step:disabled { opacity: 0.3; cursor: default; }
+/* The note: just its name, large (the octave small beside it), in the
+   accent colour when tuned away from standard */
+.tune-note {
+  grid-area: note;
+  position: relative;
+  height: 48px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text);
+  font: 700 var(--fs-xl)/1 var(--font);
+  font-size: min(var(--fs-xl), calc((100vw - 80px) / var(--n) / 2.5));   /* 7 strings on a phone: a little smaller */
+  white-space: nowrap;
+  cursor: pointer;
+  direction: ltr;
+}
+.tune-note.changed { color: var(--accent); }
+.tune-oct { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); margin-left: 1px; }
+@media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
+  .tune-list, .tune-list.lefty { grid-template-columns: none; display: flex; flex-direction: column-reverse; direction: ltr; }   /* the highest string on top */
+  .tune-note { font-size: var(--fs-xl); }
+  .tune-num { justify-self: end; }   /* the numbers in a column; a reset pops out to their left */
+  .tune-num:not(.reset) { padding-right: 10px; }   /* lined up with the numbers in reset pills */
+  .tune-string { grid-template-areas: "num down note up"; grid-template-columns: 64px 44px 88px 44px; grid-template-rows: 44px; justify-content: center; column-gap: var(--sp-2); }
+  .tune-step { height: 44px; }
+}
+@media (hover: hover) {
+  .tune-step:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 22%, var(--kbd-bg)); }
+  .tune-note:hover { background: var(--kbd-bg); }
+}
+
 /* Share and Load link popups: a little wider than the menus, Cancel and
    the main button side by side */
 .picker.share { width: min(440px, calc(100vw - 24px)); }
@@ -250,6 +328,10 @@ kbd {
 .lk-val.lose:not(.chips), .lk-val.lose .lk-chip { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
 .lk-val.lose .lk-chip { background: transparent; box-shadow: inset 0 0 0 1px var(--border); }
 .lk-val.none { font-style: italic; font-weight: 500; }
+.lk-val.off { color: var(--muted); font-weight: 500; }   /* Share: left out of the link */
+.lk-val.off .lk-chip { color: var(--muted); }
+/* A custom tuning the link replaces, off the neck: a second line */
+.lk-extra { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 /* Changes shown in place: the neck's tuning or capo, a list's chords */
 .lk-val.diff { color: color-mix(in srgb, var(--text) 80%, transparent); font-weight: 500; }
 .lk-val.diff .lk-new { color: var(--text); font-weight: 700; }
@@ -426,6 +508,11 @@ kbd {
   cursor: pointer;
 }
 .pill-toggle[hidden], .select-btn[hidden] { display: none; }
+/* A switch's label (and a settings menu's text) has its box trimmed to its
+   capitals and baseline, so it sits in the middle whatever the font (system fonts leave more room
+   above or below their letters); browsers without text-box keep the usual box */
+.pill-label, .pill-select { text-box: trim-both cap alphabetic; }
+.pill-label { white-space: nowrap; }
 .pill-toggle:disabled { opacity: 0.45; cursor: default; }
 .pill-select { width: 100%; }
 .pill-select.on { border-color: var(--accent); color: var(--text); }
@@ -694,10 +781,11 @@ kbd {
    moment, darker, as it rings */
 .note.off, .note.out { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.out { visibility: hidden; }
-.note.out.peek { visibility: visible; animation: peek 900ms ease-out forwards; }
+.note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
-  0% { opacity: 1; box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
-  50% { opacity: 1; box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+  0% { opacity: 1; transform: scale(1.18); }
+  25% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; }
   100% { opacity: 0; transform: scale(1); }
 }
 
@@ -715,16 +803,20 @@ kbd {
 .group-layer path { fill: none; stroke-width: 2; stroke-linejoin: round; }
 .group-layer .g-a { stroke: var(--scale); }   /* the group picked */
 /* A note lights up in amber while it sounds */
-@keyframes ping {
-  0% { box-shadow: 0 0 0 0 var(--warn); transform: scale(1.18); }
-  100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); }
+/* A note that sounds pops, and an amber ring spreads from it. The ring is
+   its own layer on top (::after), so the note keeps its look (its border,
+   ring, colours) all along. */
+.note.ping, .scale-note.ping, .np-deg.ping, .tune-note.ping { animation: ping-pop 450ms ease-out; }
+.note.ping::after, .scale-note.ping::after, .np-deg.ping::after, .tune-note.ping::after, .note.out.peek::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: ping-ring 450ms ease-out forwards;
 }
-.note.ping, .scale-note.ping, .np-deg.ping { animation: ping 450ms ease-out; }
-.scale-note.octave.ping { animation-name: ping-octave; }   /* keeps its ring */
-@keyframes ping-octave {
-  0% { box-shadow: inset 0 0 0 2px var(--scale), 0 0 0 0 var(--warn); transform: scale(1.18); }
-  100% { box-shadow: inset 0 0 0 2px var(--scale), 0 0 0 10px transparent; transform: scale(1); }
-}
+@keyframes ping-pop { 0% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes ping-ring { 0% { box-shadow: 0 0 0 0 var(--warn); } 100% { box-shadow: 0 0 0 10px transparent; } }
 
 /* ==========================================================================
    Chords panel
@@ -801,6 +893,7 @@ kbd {
 }
 .np-note-name { font-size: var(--fs-lg); font-weight: 800; line-height: 22px; }
 .np-deg {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
