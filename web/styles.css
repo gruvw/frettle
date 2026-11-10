@@ -1197,6 +1197,7 @@ button, a { scroll-margin: 6px; }
 }
 .recent-clear .ico { width: 15px; height: 15px; }
 .recent-line { display: none; }   /* phones: the dock has the recent chords */
+.quick-bar { display: none; }   /* phones: the dock is the quick bar */
 .dock-shape { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-1); }
 .dock-shape[hidden] { display: none; }   /* no chord selected: only the tabs */
 .dock-shape-info {
@@ -1361,10 +1362,11 @@ button, a { scroll-margin: 6px; }
   overscroll-behavior: contain;   /* scrolling the list to its end does not scroll the page */
 }
 /* A list that runs down to the popup's bottom edge stops short of its round
-   corners (the room under the last tiles, outside the scrolling list rather
-   than inside it), so its scrollbar is never cut by them. The other popups
-   end with their buttons, under the list. */
-.picker-body:last-child { padding-bottom: 0; margin-bottom: var(--r-xl); }
+   corners (most of the room under the last tiles is outside the scrolling
+   list rather than inside it), so its scrollbar is never cut by them; what
+   stays inside is the room for a tile's focus ring. The other popups end
+   with their buttons, under the list. */
+.picker-body:last-child { padding-bottom: 4px; margin-bottom: calc(var(--r-xl) - 1px); }   /* the corner's radius, inside the popup's border */
 /* While a popup is open the page behind it stays put (the gutter keeps a
    desktop scrollbar's room, so nothing shifts) */
 html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
@@ -1534,6 +1536,83 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   /* Before script.js draws the neck, its room is kept (six strings, the
      usual case), so the panels below do not jump down when it appears */
   .neck:empty { min-height: calc(var(--ruler-row) + 6 * var(--row-h)); }
+
+  /* Quick bar: the bottom of the neck panel, edge to edge (the panel's side
+     and bottom padding taken back), with the chord list, the chord's shapes
+     and the scale's groups (the phone dock's list and shape bar, moved here
+     by placeSettings, and the groups' own bar). It stays in its place: on
+     a short window the whole screen is left to the neck. */
+  .quick-bar:not([hidden]) {
+    display: block;
+    container-type: inline-size;
+    margin: var(--sp-2) -20px calc(-1 * var(--sp-4));
+    padding: var(--sp-3) 20px;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);   /* the panel's corners, inside its border */
+    background: var(--panel);
+  }
+  /* Room for it: the list on its own row, the steppers under it, side by
+     side (one row when there is room, below) */
+  .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button scrolls its panel to the top, with this room above */
+  .quick-inner { display: grid; grid-template-columns: minmax(0, auto) minmax(var(--sp-5), 1fr) minmax(0, auto); align-items: center; gap: var(--sp-3) 0; }
+  .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; }
+  /* A stepper keeps its arrows close to what they step through: the shape
+     (or group) takes up to 200px. The chord's on the left, the groups' on
+     the right, under the end of the list */
+  .quick-inner .dock-shape { min-width: 0; margin: 0; }
+  .quick-inner .dock-shape-info { flex: 0 1 auto; width: 200px; }   /* (a width, not a flex basis: the steppers' columns are sized from it) */
+  .quick-inner #dockShapeBar { grid-column: 1; order: 1; }
+  .quick-inner #quickGroupBar { grid-column: 3; order: 3; }
+  /* Alone on its row, a stepper has the whole row, from the left */
+  .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]), .quick-inner #dockShapeBar[hidden] + #quickGroupBar { grid-column: 1 / -1; justify-self: start; }
+  /* When the two come close (a narrow window), a thin line halfway between
+     them keeps the chord's buttons apart from the groups' (on their row:
+     placed between them, see order) */
+  .quick-inner::after { content: ""; grid-column: 2; order: 2; justify-self: center; width: 1px; height: 28px; background: var(--border); visibility: hidden; }
+  .quick-inner:has(> #dockShapeBar[hidden], > #quickGroupBar[hidden])::after { display: none; }
+  /* One row: the list, then the steppers, each after a thin line. With
+     both steppers, once everything fits at its full width; with only one,
+     on narrower windows already (a phone on its side), rather than leave
+     half of the second row empty */
+  @container (min-width: 1100px) {
+    .quick-inner { display: flex; gap: var(--sp-4); }
+    .quick-inner::after { display: none; }   /* the lines are the steppers' own */
+    .quick-inner .dock-recent { flex: 1 1 0; min-width: 0; }
+    .quick-inner #dockShapeBar, .quick-inner #quickGroupBar,
+    .quick-inner #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--border); }
+    .quick-inner .dock-shape-info { flex: none; width: 200px; }
+    .quick-inner #dockRecent[hidden] + #dockShapeBar,
+    .quick-inner #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
+  }
+  @container (min-width: 600px) {
+    .quick-inner:has(> .dock-shape[hidden]) { display: flex; gap: var(--sp-4); }
+    .quick-inner:has(> .dock-shape[hidden])::after { display: none; }   /* the lines are the steppers' own */
+    .quick-inner:has(> .dock-shape[hidden]) .dock-recent { flex: 1 1 0; min-width: 0; }
+    .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar, .quick-inner:has(> .dock-shape[hidden]) #quickGroupBar,
+    .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--border); }
+    .quick-inner:has(> .dock-shape[hidden]) .dock-shape-info { flex: none; width: 200px; }
+    .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar,
+    .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
+  }
+  /* Both steppers less than about 120px apart (their full width is about
+     760px): the line shows between them */
+  @container (max-width: 879px) {
+    .quick-inner::after { visibility: visible; }
+  }
+  /* Short of room (a small window, a phone on its side): Strum and Play
+     become square buttons, as on phones held upright, and the shapes' and
+     groups' names give way if they must. With both steppers, when they no
+     longer fit side by side at their full width; with one, while it shares
+     its row with the list */
+  @container (max-width: 779px) {
+    .quick-inner:not(:has(> .dock-shape[hidden])) .strum-label { display: none; }
+    .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
+    .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape-info { flex: 1 1 auto; }
+  }
+  @container (min-width: 600px) and (max-width: 699px) {
+    .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .strum-label { display: none; }
+    .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
+  }
 
   /* Settings as a row of compact pills in the neck's header */
   .settings, .switch-row { display: flex; flex-wrap: wrap; align-items: center; }

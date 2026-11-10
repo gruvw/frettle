@@ -2156,6 +2156,7 @@ function renderRecent() {
   const show = list.length >= 2;
   els.dockRecent.hidden = !show;
   els.recentLine.hidden = !show;
+  updateQuickBar();
   if (!show) return;
   const html = list.map((r, i) => {
     const def = findChord(r.type);
@@ -2281,14 +2282,20 @@ function placeSettings() {
   // under the menus on phones. Play the scale: before Deselect on wide
   // screens (as Strum is for chords), on the Notes line on phones.
   const put = (el, parent, before = null) => { if (el.parentElement !== parent || el.nextElementSibling !== before) parent.insertBefore(el, before); };
+  // The phone dock's chord list and shape bar: in the quick bar under the
+  // neck on wide screens, before the groups' bar (which only exists there)
   if (wide) {
     put(els.chordSwitches, els.chordHead);
     put(els.scaleSwitches, els.scaleHead);
     put(els.scalePlay, els.scaleBar, els.scaleClear);
+    put(els.dockRecent, els.quickInner, els.quickGroupBar);
+    put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.scaleSwitches, els.scaleBar, els.scaleClear);
     put(els.scalePlay, els.notesLine);
+    put(els.dockRecent, els.dockBar, els.dockTabs);
+    put(els.dockShapeBar, els.dockBar, els.dockTabs);
   }
 }
 
@@ -2450,42 +2457,67 @@ function fitText(el) {
   if (width > room) el.style.fontSize = `${Math.floor((size * room) / width)}px`;
 }
 
-/* Phones: the shape bar, the tab values and which sheet is open. With no
-   chord but a scale in groups, the bar steps through the groups instead
-   (and plays the one shown). */
+/* The steppers: a chord's shapes or a scale's groups, one at a time, with
+   arrows, a button to hear it and one to show its panel.
+   Phones: one, in the dock, for the chord's shapes; with no chord but a
+   scale in groups, for the groups instead. Wide screens: in the quick bar
+   under the neck, one for each, shown when there is something to step
+   through (the chord's, as soon as a chord is picked). */
 const DOCK_LABELS = {
-  chord: ['Previous shape', 'Next shape', 'Open the chord panel', 'Strum', 'Strum'],
-  group: ['Previous group', 'Next group', 'Open the scale panel', 'Play the group', 'Play'],
+  chord: ['Previous shape', 'Next shape', 'Show the chord panel', 'Strum', 'Strum'],
+  group: ['Previous group', 'Next group', 'Show the scale panel', 'Play the group', 'Play'],
 };
-function renderDock(ch, sc) {
-  const group = !ch && sc ? ui.groups[ui.group] : null;
-  els.dockShapeBar.hidden = !ch && !group;   // no chord and no group: just the tabs
-  els.dockShapeBar.classList.toggle('groups', Boolean(group));
-  const [prevLabel, nextLabel, openLabel, playLabel, playText] = DOCK_LABELS[group ? 'group' : 'chord'];
-  els.dockPrev.setAttribute('aria-label', prevLabel);
-  els.dockNext.setAttribute('aria-label', nextLabel);
-  els.dockShape.setAttribute('aria-label', openLabel);
-  els.dockStrum.setAttribute('aria-label', playLabel);
-  els.dockStrum.querySelector('.strum-label').textContent = playText;
+function fillStepper(bar, mode, ch, sc) {
+  const group = mode === 'group' ? ui.groups[ui.group] : null;
+  bar.root.classList.toggle('groups', mode === 'group');
+  const [prevLabel, nextLabel, openLabel, playLabel, playText] = DOCK_LABELS[mode];
+  bar.prev.setAttribute('aria-label', prevLabel);
+  bar.next.setAttribute('aria-label', nextLabel);
+  bar.info.setAttribute('aria-label', openLabel);
+  bar.play.setAttribute('aria-label', playLabel);
+  bar.play.querySelector('.strum-label').textContent = playText;
   if (group) {
     const [a, b] = groupFrets(group).map((f) => f - capo());   // counted from the capo
-    els.dockPrev.disabled = els.dockNext.disabled = ui.groups.length < 2;
-    els.dockStrum.disabled = false;
-    els.dockSymbol.textContent = sc.rootName;
-    els.dockTab.innerHTML = `<span class="dock-count">Group ${ui.group + 1}/${ui.groups.length}, ${groupPlace(group, capo())}</span>` +
+    bar.prev.disabled = bar.next.disabled = ui.groups.length < 2;
+    bar.play.disabled = false;
+    bar.symbol.textContent = sc.rootName;
+    bar.tab.innerHTML = `<span class="dock-count">Group ${ui.group + 1}/${ui.groups.length}, ${groupPlace(group, capo())}</span>` +
       `<span class="dock-words">Frets ${a} to ${b}</span>`;
   } else {
     const many = Boolean(ch && ch.shapes.length > 1);
-    els.dockPrev.disabled = els.dockNext.disabled = !many;
-    els.dockStrum.disabled = !ch || !ch.shape;
-    els.dockSymbol.textContent = ch ? ch.symbol : '';
-    if (!ch) els.dockTab.innerHTML = '<span class="dock-msg">No chord selected</span>';
-    else if (!ch.shape) els.dockTab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
+    bar.prev.disabled = bar.next.disabled = !many;
+    bar.play.disabled = !ch || !ch.shape;
+    bar.symbol.textContent = ch ? ch.symbol : '';
+    if (!ch) bar.tab.innerHTML = '<span class="dock-msg">No chord selected</span>';
+    else if (!ch.shape) bar.tab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
     else {
-      els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapePlace(ch.shape)}</span>` +
+      bar.tab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapePlace(ch.shape)}</span>` +
         `<span>${esc(shortTab(ch.shape))}</span>`;
     }
   }
+  for (const btn of [bar.prev, bar.next, bar.play]) btn.title = btn.getAttribute('aria-label');
+  bar.info.title = openLabel;
+}
+const dockStepper = () => ({ root: els.dockShapeBar, prev: els.dockPrev, next: els.dockNext, info: els.dockShape, play: els.dockStrum, symbol: els.dockSymbol, tab: els.dockTab });
+const groupStepper = () => ({ root: els.quickGroupBar, prev: els.quickGroupPrev, next: els.quickGroupNext, info: els.quickGroupInfo, play: els.quickGroupPlay, symbol: els.quickGroupSymbol, tab: els.quickGroupTab });
+/* The quick bar shows when it has something in it */
+function updateQuickBar() {
+  els.quickBar.hidden = !isWide() || (els.dockRecent.hidden && els.dockShapeBar.hidden && els.quickGroupBar.hidden);
+}
+function renderDock(ch, sc) {
+  const group = sc ? ui.groups[ui.group] : null;
+  if (isWide()) {
+    els.dockShapeBar.hidden = !ch;
+    fillStepper(dockStepper(), 'chord', ch, sc);
+    els.quickGroupBar.hidden = !group;
+    if (group) fillStepper(groupStepper(), 'group', ch, sc);
+  } else {
+    const mode = !ch && group ? 'group' : 'chord';
+    els.dockShapeBar.hidden = !ch && !group;   // no chord and no group: just the tabs
+    fillStepper(dockStepper(), mode, ch, sc);
+    els.quickGroupBar.hidden = true;
+  }
+  updateQuickBar();
 
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
@@ -2551,6 +2583,13 @@ function setupSheetDrag() {
   }
 }
 
+/* A stepper's middle button: the panel it steps through. Phones: its
+   sheet opens; wide screens: the page scrolls down to it. */
+function showPanel(tab) {
+  if (!isWide()) { openTab(tab); return; }
+  const panel = tab === 'chord' ? els.panelChord : els.panelScale;
+  panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
 function openTab(tab) {
   const wasOpen = ui.tab !== null;
   ui.tab = ui.tab === tab ? null : tab;
@@ -3439,10 +3478,14 @@ function init() {
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
-    'groupLine', 'groupPrev', 'groupNext', 'groupList']) {
+    'groupLine', 'groupPrev', 'groupNext', 'groupList',
+    'quickBar', 'quickInner', 'quickGroupBar', 'quickGroupPrev', 'quickGroupNext', 'quickGroupInfo', 'quickGroupSymbol', 'quickGroupTab', 'quickGroupPlay']) {
     els[id] = document.getElementById(id);
   }
   els.dockBar = document.querySelector('.dock-bar');
+  els.dockTabs = document.querySelector('.dock-bar .tabs');
+  els.panelChord = document.getElementById('panelChord');
+  els.panelScale = document.getElementById('panelScale');
   els.chordBar = document.querySelector('.chord-bar');
   els.scaleBar = document.querySelector('.scale-bar');
   els.chordSwitches = document.querySelector('#panelChord .switch-row');
@@ -3530,8 +3573,8 @@ function init() {
   // keyboard (Enter, or Space on a button reached with Tab) still strums.
   // With no chord, the dock's button plays the scale group shown.
   const strumOrPlay = () => (currentChord() ? strum() : playGroup());
-  for (const btn of [els.chordStrum, els.dockStrum]) {
-    const act = btn === els.dockStrum ? strumOrPlay : strum;
+  for (const btn of [els.chordStrum, els.dockStrum, els.quickGroupPlay]) {
+    const act = btn === els.dockStrum ? strumOrPlay : btn === els.quickGroupPlay ? playGroup : strum;
     btn.addEventListener('pointerdown', (e) => { if (e.button === 0 && !btn.disabled) act(); });
     btn.addEventListener('click', (e) => { if (e.detail === 0) act(); });
   }
@@ -3562,7 +3605,11 @@ function init() {
   // (no chord: the scale's groups)
   els.dockPrev.addEventListener('click', () => (currentChord() ? selectShape(state.shape - 1) : selectGroup(ui.group - 1)));
   els.dockNext.addEventListener('click', () => (currentChord() ? selectShape(state.shape + 1) : selectGroup(ui.group + 1)));
-  els.dockShape.addEventListener('click', () => openTab(currentChord() ? 'chord' : 'scale'));
+  els.dockShape.addEventListener('click', () => showPanel(currentChord() ? 'chord' : 'scale'));
+  // The groups' stepper (wide screens, in the quick bar)
+  els.quickGroupPrev.addEventListener('click', () => selectGroup(ui.group - 1));
+  els.quickGroupNext.addEventListener('click', () => selectGroup(ui.group + 1));
+  els.quickGroupInfo.addEventListener('click', () => showPanel('scale'));
   for (const tab of els.tabs) tab.addEventListener('click', () => openTab(tab.dataset.tab));
   setupSheetDrag();
 
