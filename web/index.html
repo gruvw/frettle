@@ -57,6 +57,7 @@
     "featureList": [
       "Every note on the fretboard, open strings included",
       "Chord shapes with intervals for any root and chord type",
+      "Name a chord from notes placed on the neck",
       "Scales with their notes, steps and triads",
       "Capo, octave map, left-handed mode and click-to-hear notes",
       "6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola and 5-string banjo",
@@ -151,6 +152,10 @@
                       title="Also mark every other place the chord's notes appear on the neck">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
               </button>
+              <button type="button" id="namerOpen" class="pill-toggle namer-open"
+                      title="Place notes on the neck and see which chord they make">
+                <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg><span class="pill-label">Name a chord</span>
+              </button>
             </div>
           </div>
 
@@ -177,6 +182,7 @@
               <div class="np-desc">
                 <div id="chordName" class="np-title"></div>
                 <div id="chordMeta" class="np-meta"></div>
+                <div id="chordShapeNote" class="np-meta narrow-only"></div>
                 <div id="chordAlt" class="np-alt"></div>
                 <div id="chordCapo" class="np-meta np-capo" hidden></div>
                 <div id="chordKey" class="np-key" hidden></div>
@@ -247,7 +253,7 @@
             <ol id="groupList" class="chip-list" aria-label="Scale groups, from the nut up the neck"></ol>
             <button type="button" id="groupNext" class="btn small" title="Next group (→)" aria-label="Next group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
           </div>
-          <div class="line">
+          <div class="line triads-line">
             <span class="label">Triads</span>
             <div id="scaleTriads" class="chip-wrap"></div>
           </div>
@@ -277,6 +283,32 @@
         </button>
         <button type="button" id="dockNext" class="btn icon" aria-label="Next shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
         <button type="button" id="dockStrum" class="btn primary" aria-label="Strum"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="strum-label">Strum</span></button>
+      </div>
+      <!-- Name a chord (script.js): while it is on, this takes the place of
+           the chord list, the shape bar and the tabs, at the same heights
+           (phones); on wide screens it is moved under the neck, in place of
+           the quick bar -->
+      <div id="namer" class="namer" role="group" aria-label="Name a chord" tabindex="-1" hidden>
+        <div class="namer-head">
+          <span class="namer-title"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg><span class="tx">Name a chord</span></span>
+          <button type="button" id="namerMute" class="btn small namer-mute" aria-pressed="false" aria-label="Mute the notes placed"
+                  title="Mute the notes placed (Play still sounds)"><svg class="ico sound-on" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg><svg class="ico sound-off" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg><span class="tx">Mute taps</span></button>
+          <button type="button" id="namerClear" class="btn small" title="Lift every note"><span class="tx">Clear</span></button>
+        </div>
+        <p id="namerCaption" class="namer-caption" aria-live="polite"></p>
+        <div class="namer-result">
+          <button type="button" id="namerPrev" class="btn icon namer-step" aria-label="Previous name for these notes" title="Previous name for these notes (←)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+          <span class="namer-name">
+            <span id="namerSymbol" class="dock-symbol"></span>
+            <span id="namerText" class="dock-tab" aria-live="polite"></span>
+          </span>
+          <button type="button" id="namerNext" class="btn icon namer-step" aria-label="Next name for these notes" title="Next name for these notes (→)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+          <button type="button" id="namerPlay" class="btn primary" aria-label="Play the notes" title="Play the notes (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="strum-label">Play</span></button>
+        </div>
+        <div class="namer-actions">
+          <button type="button" id="namerCancel" class="btn" title="Leave without changing the chord (Escape)"><span class="tx">Cancel</span></button>
+          <button type="button" id="namerSelect" class="btn primary" title="Select this chord with this shape"><span class="tx">Select</span></button>
+        </div>
       </div>
       <nav class="tabs" aria-label="Panels">
         <button type="button" class="tab" data-tab="chord" aria-pressed="false">
@@ -309,7 +341,7 @@
         It has no ads and works offline.</p>
       <p>Pick a chord to see all the ways to play it up the neck, with the root and intervals marked and barres drawn in.
         Pick a scale to see it across the whole fretboard, in hand-sized groups to step through, and see the chords that fit it.
-        Tap any note to hear it.</p>
+        Tap any note to hear it, or place notes on the neck to name the chord they make.</p>
       <p>It covers 6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola
         and 5-string banjo, in standard tuning, Drop D, DADGAD, open G, double C and other alternate tunings, or custom ones saved by name, with or without a capo.</p>
     </div>

@@ -133,6 +133,8 @@ input { -webkit-user-select: text; user-select: text; }   /* (a field you could 
 
 body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
 body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* no chord in the list or the recent ones: no row */
+/* Name a chord: its rows in their place, at their heights (see .namer) */
+body.naming:has(#namer) { --dock-recent-h: calc(var(--recent-h) + var(--sp-2)); --dock-shape-h: calc(var(--control-h) + var(--sp-1)); }
 
 /* While a sheet is open, leave enough room to scroll the end of the neck above it */
 body.sheet-open { padding-bottom: calc(var(--dock-h) + 60vh); }
@@ -470,7 +472,9 @@ kbd {
 .scale-bar .field.scale-type { order: 2; }
 .scale-bar .deselect { order: 3; }
 .switch-row { order: 4; flex: 1 0 100%; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-.chord-bar .switch-row { grid-template-columns: 1fr; }   /* phones: one switch, full width */
+.chord-bar .switch-row { grid-template-columns: 1fr 1fr; }   /* phones: All chord tones and Name a chord, side by side */
+@media (max-width: 359px) { .chord-bar .switch-row { grid-template-columns: 1fr; } }
+.namer-open .ico { flex: none; width: 16px; height: 16px; color: var(--accent); }
 .switch-row .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
 /* Buttons that open a picker popup, styled as menus */
@@ -1303,14 +1307,72 @@ button, a { scroll-margin: 6px; }
   font: 800 var(--fs-md)/1 var(--font);
   max-width: 50%;
   overflow: hidden;
+  white-space: nowrap;   /* one line: a long name gets a smaller font instead (fitText) */
 }
 .dock-symbol:empty { display: none; }
+.dock-symbol .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0.35em 0; margin: -0.35em 0; }   /* (the padding keeps j and brackets whole, as .inst-name) */   /* (past the smallest size: cut short, the whole name in its tooltip) */
 .dock-shape.groups .dock-symbol { background: var(--scale); color: var(--scale-text); }   /* no chord: the scale's groups */
 .dock-tab { display: grid; min-width: 0; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
 .dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Its lines trimmed to their capitals and baseline (as .pill-label), so
+   they sit in the middle of the name beside them whatever the font; the
+   padding keeps g and y whole within the cut */
+@supports (text-box: trim-both cap alphabetic) {
+  .dock-tab { row-gap: 5px; }
+  .dock-tab > * { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
+}
 .dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* shape number above the tab */
 .dock-msg { font: 500 var(--fs-sm)/1.3 var(--font); color: var(--muted); }
 .dock-words { font-family: var(--font); }   /* a group's frets: words, not tab */
+
+/* Name a chord. Phones: its bar takes the place of the chord list, the
+   shape bar and the tabs, each row at the height of the one it replaces
+   (so --dock-h holds): its title, Mute and Clear; the name with its arrows
+   (other names for the same notes) and Play; then Cancel and Select where
+   the tabs were. What cannot be used meanwhile is hidden (on wide screens,
+   less: see there); the instrument menu stays as plain text (the neck the
+   notes are on) and the neck panel is outlined in the accent colour, so
+   the mode shows. */
+.namer[hidden] { display: none; }
+.namer:focus { outline: none; }
+.namer-head { display: flex; align-items: center; gap: var(--sp-2); height: var(--recent-h); margin-bottom: var(--sp-1); }
+.namer-title { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; margin-right: auto; color: var(--accent); font: 700 var(--fs-xs)/1 var(--font); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.namer-title .ico { flex: none; width: 16px; height: 16px; }
+.namer-title .tx { text-box: trim-both cap alphabetic; }   /* (centred on its capitals, with the icon, as .pill-label) */
+/* Mute: an icon on phones (a speaker, crossed out when on), with its word on wide screens */
+.namer-mute { gap: 6px; }
+.namer-mute .ico { width: 16px; height: 16px; }
+.namer-mute .tx, .namer-mute .sound-off, .namer-mute[aria-pressed="true"] .sound-on { display: none; }
+.namer-mute[aria-pressed="true"] .sound-off { display: block; }
+.namer-mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.btn.small.namer-mute { width: var(--chip-h); padding: 0; }
+.namer-result { display: flex; align-items: center; gap: 6px; height: var(--control-h); }
+.namer-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1); }
+.namer-name .dock-tab { flex: 1 1 0; min-width: 72px; }   /* (the name first: its number and its bass take what is left) */
+.namer .dock-symbol { max-width: calc(100% - 72px - var(--sp-2)); }
+/* What the name means, on its own line above it. With Cancel and Select
+   at a small button's height, the rows add up to those they replace (the
+   shape bar and the tabs, see --dock-h). */
+.namer-caption {
+  --h: calc(2 * var(--sp-1) + var(--tab-h) - var(--chip-h) - var(--sp-2));
+  height: var(--h);
+  margin: 0 0 calc(var(--sp-2) - var(--sp-1));   /* (the room the title row leaves under it, see .namer-head) */
+  overflow: hidden;
+  font: 600 var(--fs-sm)/var(--h) var(--font);
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.namer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); padding: var(--sp-2) 0; }
+.namer-actions .btn { height: var(--chip-h); }
+body.naming .dock-recent, body.naming .dock-shape, body.naming .tabs, body.naming .sheet,
+body.naming .share-btn, body.naming .neck.vertical .group-layer { display: none; }
+body.naming .inst-btn { border-color: transparent; background: transparent; cursor: default; }
+body.naming .inst-btn::after { display: none; }   /* no arrow: not a menu meanwhile */
+body.naming .neck-panel { border-color: var(--accent); }
+/* A custom shape (kept from Name a chord): a bookmark before its place, as a saved tuning's */
+.chip.custom .ico { flex: none; width: 13px; height: 13px; margin-right: -2px; color: var(--muted); }
+.chip.custom.selected .ico { color: var(--chord-text); opacity: 0.8; }
 
 .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); padding: var(--sp-1) 0 var(--sp-2); }
 /* Each tab is a soft rounded button; the open one is tinted purple */
@@ -1392,11 +1454,23 @@ button, a { scroll-margin: 6px; }
 /* Phones in portrait: Strum becomes a square play button to leave room for the tab */
 @media (max-width: 429px) {
   .strum-label { display: none; }
-  #dockStrum { width: var(--control-h); padding: 0; }
+  #dockStrum, #namerPlay { width: var(--control-h); padding: 0; }
+}
+/* Phones in portrait, naming: slimmer arrows and pill, to leave the name
+   whole; the smallest leave out its number and bass (the bass is in the
+   name, after its slash) */
+@media (max-width: 429px) {
+  .namer-step.btn.icon { width: 34px; }
+  .namer .dock-symbol { padding: 0 8px; }
+}
+@media (max-width: 349px) {
+  .namer-name .dock-tab:has(.namer-main) { display: none; }
+  .namer .dock-symbol { max-width: 100%; }
 }
 /* Very small phones: the chord name is already in the Chord tab below */
 @media (max-width: 349px) {
   .dock-symbol { display: none; }
+  .namer .dock-symbol:not(:empty) { display: inline-flex; }   /* (naming: the name is what matters) */
   .tabs { gap: var(--sp-1); }
   .tab { padding-left: 2px; padding-right: 2px; }
   .tab-value { font-size: var(--fs-xs); }
@@ -1676,24 +1750,66 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);   /* the panel's corners, inside its border */
     background: var(--panel);
   }
+  /* Name a chord: its bar in the quick bar's place. Two rows: the title,
+     Mute and Clear, with Cancel and Select at the end; under them, the
+     name with its arrows and Play. One row when the panel has room for it
+     all: the name, after a space, next to Cancel and Select (a line between
+     them). What the name means is beside it, and the arrows keep their
+     places from one name to the next (the name has a fixed room).
+     The chord panel and the quick bar are hidden meanwhile (they would
+     change the chord); the scale, the tuning, the capo and the neck's
+     switches stay, to try the notes against them. */
+  .neck-panel { container: neck-panel / inline-size; }
+  .namer:not([hidden]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "head actions" "result result";
+    align-items: center;
+    gap: var(--sp-3) var(--sp-4);
+    margin: var(--sp-2) -20px calc(-1 * var(--sp-4));
+    padding: var(--sp-3) 20px;
+    border-top: 1px solid var(--divider);
+    border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
+    background: var(--panel);
+  }
+  .namer-head { grid-area: head; height: auto; margin: 0; gap: var(--sp-3); }
+  .namer-title { margin-right: var(--sp-2); }
+  .btn.small.namer-mute { width: auto; padding: 0 12px; }
+  .namer-mute .tx { display: block; }
+  .namer-result { grid-area: result; justify-self: start; width: 100%; max-width: 540px; }
+  .namer-caption { display: none; }
+  .namer .dock-symbol { max-width: 50%; }   /* (what it means beside it) */
+  .namer-actions { grid-area: actions; display: flex; padding: 0; }
+  .namer-actions .btn { height: var(--control-h); min-width: 96px; }
+  @container neck-panel (max-width: 579.98px) {
+    .btn.small.namer-mute { width: var(--chip-h); padding: 0; }   /* (its word left out: one row with Cancel and Select) */
+    .namer-mute .tx { display: none; }
+  }
+  @container neck-panel (min-width: 1140px) {
+    .namer:not([hidden]) { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "head result actions"; }
+    .namer-result { justify-self: end; }
+    .namer-actions { padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
+  }
+  body.naming .sheet { display: block; }
+  body.naming #panelChord, body.naming .triads-line { display: none; }   /* (a triad would change the chord) */
+
   /* Room for it: the list on its own row, the steppers under it, side by
      side (one row when there is room, below) */
   .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button scrolls its panel to the top, with this room above */
-  .quick-inner { display: grid; grid-template-columns: minmax(0, auto) minmax(var(--sp-5), 1fr) minmax(0, auto); align-items: center; gap: var(--sp-3) 0; }
+  .quick-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--sp-3) var(--sp-4); }
   .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; }
-  /* A stepper keeps its arrows close to what they step through: the shape
-     (or group) takes up to 200px. The chord's on the left, the groups' on
-     the right, under the end of the list */
+  /* The two steppers share their row, half each, a thin line between them
+     (placed there, see order): the shape (or group) takes what its arrows
+     and button leave, a width set by the window, not by the name, so the
+     arrows keep their places */
   .quick-inner .dock-shape { min-width: 0; margin: 0; }
-  .quick-inner .dock-shape-info { flex: 0 1 auto; width: 200px; }   /* (a width, not a flex basis: the steppers' columns are sized from it) */
+  .quick-inner .dock-shape-info { flex: 1 1 0; width: auto; }
   .quick-inner #dockShapeBar { grid-column: 1; order: 1; }
   .quick-inner #quickGroupBar { grid-column: 3; order: 3; }
-  /* Alone on its row, a stepper has the whole row, from the left */
+  /* Alone on its row, a stepper is at the left, its shape 200px wide */
   .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]), .quick-inner #dockShapeBar[hidden] + #quickGroupBar { grid-column: 1 / -1; justify-self: start; }
-  /* When the two come close (a narrow window), a thin line halfway between
-     them keeps the chord's buttons apart from the groups' (on their row:
-     placed between them, see order) */
-  .quick-inner::after { content: ""; grid-column: 2; order: 2; justify-self: center; width: 1px; height: 28px; background: var(--divider); visibility: hidden; }
+  .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]) .dock-shape-info, .quick-inner #dockShapeBar[hidden] + #quickGroupBar .dock-shape-info { flex: none; width: 200px; }
+  .quick-inner::after { content: ""; grid-column: 2; order: 2; width: 1px; height: 28px; background: var(--divider); }
   .quick-inner:has(> #dockShapeBar[hidden], > #quickGroupBar[hidden])::after { display: none; }
   /* One row: the list, then the steppers, each after a thin line. With
      both steppers, once everything fits at its full width; with only one,
@@ -1719,20 +1835,13 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar,
     .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
   }
-  /* Both steppers less than about 120px apart (their full width is about
-     760px): the line shows between them */
-  @container (max-width: 879px) {
-    .quick-inner::after { visibility: visible; }
-  }
   /* Short of room (a small window, a phone on its side): Strum and Play
-     become square buttons, as on phones held upright, and the shapes' and
-     groups' names give way if they must. With both steppers, when they no
+     become square buttons, as on phones held upright. With both steppers, when they no
      longer fit side by side at their full width; with one, while it shares
      its row with the list */
   @container (max-width: 779px) {
     .quick-inner:not(:has(> .dock-shape[hidden])) .strum-label { display: none; }
     .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
-    .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape-info { flex: 1 1 auto; }
   }
   @container (min-width: 600px) and (max-width: 699px) {
     .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .strum-label { display: none; }
