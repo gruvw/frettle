@@ -700,7 +700,7 @@ function defaultState() {
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
     scale: { on: false, root: 0, type: null },
-    share: { neck: true, chord: true, scale: true, recent: false },   // what the Share popup puts in the link
+    share: { neck: true, chord: true, scale: true, list: true },   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
   };
 }
 
@@ -1225,7 +1225,7 @@ function renderShare() {
   const rows = [   // [row, part, what is on the neck: text, or chord names]
     [els.shareNeck, 'neck', setupText()],
     [els.shareChord, 'chord', ch ? [ch.symbol] : []],
-    [els.shareRecent, 'recent', listNames()],
+    [els.shareRecent, 'list', listNames()],
     [els.shareScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : ''],
   ];
   for (const [row, key, value] of rows) {
@@ -1249,7 +1249,7 @@ function shareChoice() {
     neck: state.share.neck,
     chord: state.share.chord && state.chord.on,
     scale: state.share.scale && state.scale.on,
-    recent: state.share.recent && state.list.length > 0,
+    recent: state.share.list && state.list.length > 0,
   };
 }
 async function shareLink() {
@@ -4021,7 +4021,7 @@ function init() {
   els.shareClose.addEventListener('click', closeShare);
   els.share.addEventListener('click', (e) => { if (e.target === els.share) closeShare(); });
   els.shareCancel.addEventListener('click', closeShare);
-  for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'recent']]) {
+  for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'list']]) {
     btn.addEventListener('click', () => { state.share[key] = !state.share[key]; saveState(); renderShare(); });
   }
   els.shareGo.addEventListener('click', shareLink);
