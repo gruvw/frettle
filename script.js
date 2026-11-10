@@ -700,7 +700,7 @@ function defaultState() {
     recent: [],                       // the last chords used that are not in it (RECENT_KEEP kept, RECENT_MAX shown), newest first
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
-    scale: { on: false, root: 0, type: null },
+    scale: { on: true, root: 0, type: 'major' },   // off: type null (see scaleOff)
     share: { neck: true, chord: true, scale: true, list: true },   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
   };
 }
@@ -893,6 +893,7 @@ function readShapes(value) {
    (x for a muted string), left out when it is the first shape or the link
    has no neck. Frets, so a link keeps showing the same shape even if the
    shape list changes. */
+const NONE = 'none';   // a link's chord or scale: none on the neck it was shared from
 const LINK_KEYS = ['instrument', 'tuning', 'capo', 'voicing', 'chord', 'scale', 'list'];
 const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
 /* A chord of the link, alone or in the list, with the shape on screen (or
@@ -921,24 +922,26 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   // frets say it, see applyLink)
   const voicing = state.voicing[state.instrument];
   if (neck && chord && state.chord.on && voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
-  if (chord && state.chord.on) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
+  // No chord on the neck: the link says so (loaded, it clears theirs); one
+  // left out (its switch off): not in the link (theirs stays). The scale too.
+  if (!state.chord.on) p.set('chord', NONE);
+  else if (chord) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
   if (recent && state.list.length) {
     p.set('list', state.list.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
   }
-  if (scale && state.scale.on) {
-    const def = findScale(state.scale.type);
-    p.set('scale', scaleText(state.scale.root, def));
-  }
+  if (!state.scale.on) p.set('scale', NONE);
+  else if (scale) p.set('scale', scaleText(state.scale.root, findScale(state.scale.type)));
   return p;
 }
 
-/* Puts a link on the neck. All of it (a first visit: no chord, scale or
-   capo unless the link has one), or the parts chosen in the Open link popup
+/* Puts a link on the neck. All of it (fresh, a first visit: no chord, scale
+   or capo unless the link has one), or the parts chosen in the Open link popup
    (parts: { neck, chord, scale, recent }): what is not taken stays as it
-   was. Without the neck (instrument, tuning, capo), the chords come on your
+   was. A chord or scale left out of the link stays as it was too; "none"
+   takes it off. Without the neck (instrument, tuning, capo), the chords come on your
    neck, on their first shapes (the link's shapes are for its neck).
    Returns false for an address without a link. */
-function applyLink(search, parts = null) {
+function applyLink(search, parts = null, fresh = false) {
   const p = new URLSearchParams(search);
   if (!LINK_KEYS.some((k) => p.has(k))) return false;
   const take = (k) => !parts || parts[k];
@@ -955,20 +958,17 @@ function applyLink(search, parts = null) {
   }
   if (neck) setCapo(readCapo(p.get('capo') || 0, state.instrument) || 0);
   const chord = readChord(p.get('chord'));
-  if (take('chord')) {
-    if (chord && chord.def) state.chord = { on: true, root: chord.root, type: chord.def.id };
-    else chordOff();
-  }
-  if (neck && take('chord')) {
+  const linkChord = take('chord') && chord && chord.def;
+  if (linkChord) state.chord = { on: true, root: chord.root, type: chord.def.id };
+  else if (take('chord') && (fresh || p.get('chord') === NONE)) chordOff();
+  if (neck && linkChord) {
     state.voicing[state.instrument] = VOICINGS.includes(p.get('voicing')) ? p.get('voicing') : DEFAULT_VOICING[state.instrument];
   }
-  if (take('scale')) {
-    const scale = readScale(p.get('scale'));
-    if (scale && scale.def) state.scale = { on: true, root: scale.root, type: scale.def.id };
-    else scaleOff();
-  }
+  const scale = readScale(p.get('scale'));
+  if (take('scale') && scale && scale.def) state.scale = { on: true, root: scale.root, type: scale.def.id };
+  else if (take('scale') && (fresh || p.get('scale') === NONE)) scaleOff();
   state.shape = 0;
-  const ch = neck && take('chord') && chord && chord.frets ? currentChord() : null;
+  const ch = neck && linkChord && chord.frets ? currentChord() : null;
   const at = ch ? ch.shapes.findIndex((shape) => fretsText(shape.frets) === chord.frets) : -1;
   if (at > 0) state.shape = at;
   // The chord list: it replaces yours, each chord on the shape it was shared
@@ -996,7 +996,7 @@ function applyLink(search, parts = null) {
       state.recent = state.recent.filter((r) => !list.some((x) => x.root === r.root && x.type === r.type));
     }
   }
-  if (!take('chord')) recallChip();   // your own chord, as its chip remembers it
+  if (!linkChord) recallChip();   // your own chord, as its chip remembers it
   return true;
 }
 
@@ -1014,11 +1014,11 @@ function startLink(search) {
   if (!LINK_KEYS.some((k) => p.has(k))) return;
   let saved = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch { /* storage unavailable */ }
-  if (!saved) { applyLink(search); return; }
-  // A link with no chord (or no scale) means none: loaded, it takes yours
-  // off, so it is asked about too. A link with no chord list keeps yours:
-  // the sharer's list was empty, or left out in the Share popup.
-  const has = { neck: p.has('instrument'), chord: p.has('chord') || state.chord.on, scale: p.has('scale') || state.scale.on, recent: p.has('list') };
+  if (!saved) { applyLink(search, null, true); return; }
+  // A chord or scale left out of the link (or a list) keeps yours: no row.
+  // "None" takes yours off, so it is asked about (no row when you have none).
+  const asks = (k, on) => p.has(k) && (p.get(k) !== NONE || on);
+  const has = { neck: p.has('instrument'), chord: asks('chord', state.chord.on), scale: asks('scale', state.scale.on), recent: p.has('list') };
   const preview = linkPreview(search, has);   // (may find has.recent false)
   if (!preview.loses) { applyLink(search, has); return; }
   pendingLink = { search, preview, parts: { ...has } };   // all switched on
@@ -1085,6 +1085,7 @@ function renderLinkPopup() {
     [els.linkList, 'recent', listNames(), preview.list],
     [els.linkScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '', preview.scale],
   ];
+  let loads = false;   // Load: only with something switched on
   for (const [row, key, now, link] of rows) {
     row.hidden = link === null;
     if (link === null) continue;
@@ -1105,10 +1106,12 @@ function renderLinkPopup() {
     tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
     const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)))
       : key === 'recent' ? listDiff(now, link, on) : '');
+    if (on) loads = true;
     row.querySelector('.lk-change').innerHTML = (same ? show(link, 'win') : diff
       || `${show(now, on ? 'lose' : 'win')}<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${show(link, on ? 'win' : 'lose')}</span>`)
       + (key === 'neck' ? customLine(preview.custom, on) : '');
   }
+  els.linkLoad.disabled = !loads;
 }
 
 /* A small change shows in place, not as the whole thing twice. On the same
