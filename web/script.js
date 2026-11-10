@@ -695,8 +695,8 @@ function defaultState() {
     custom: {},                       // your own tuning per instrument: open string pitches
     saved: {},                        // saved tunings per instrument: [{ name, strings }]
     chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
-    recent: [],                       // the chord list [{ root, type, shapes }], shared by all instruments: none, or 2 or more
-    solo: null,                       // the chord before there is a list (its shapes), the list's first chip to be
+    list: [],                         // the chord list, as built [{ root, type, voicings, shapes }], shared by all instruments
+    recent: [],                       // the last chords used that are not in it (RECENT_KEEP kept, RECENT_MAX shown), newest first
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
     scale: { on: false, root: 0, type: null },
@@ -751,17 +751,22 @@ function loadState() {
       const r = e && readChord(e.chord);
       return r && r.def ? { root: r.root, type: r.def.id, used: Number(e.used) || 0, voicings: readVoicings(e.voicings), shapes: readShapes(e.shapes) } : null;
     };
+    const known = (r) => [...s.list, ...s.recent].some((x) => x.root === r.root && x.type === r.type);
+    // As saved before there were recent chords, every chord kept was in the
+    // list (made as you went): they all stay in it, the lone chord before a
+    // list (solo) is the recent one
+    const recent = Array.isArray(work.recent) ? work.recent : work.solo ? [work.solo] : [];
     for (const e of Array.isArray(work.list) ? work.list : []) {
       const r = entry(e);
-      if (!r || s.recent.length >= RECENT_MAX || s.recent.some((x) => x.root === r.root && x.type === r.type)) continue;
-      s.recent.push(r);
+      if (r && s.list.length < LIST_MAX && !known(r)) s.list.push(r);
+    }
+    for (const e of recent) {
+      const r = entry(e);
+      if (r && s.recent.length < RECENT_KEEP && !known(r)) s.recent.push(r);
     }
     // Which was used last, as saved: all before this visit's picks (negative)
     s.recent.map((r, i) => [r, i]).sort(([a, i], [b, j]) => a.used - b.used || i - j)
-      .forEach(([r], rank) => { r.used = rank - RECENT_MAX; });
-    s.solo = entry(work.solo);
-    if (s.solo) s.solo.used = -RECENT_MAX - 1;
-    settleList(s);   // never a list of one
+      .forEach(([r], rank) => { r.used = rank - RECENT_KEEP; });
   } catch {
     /* storage unavailable or corrupt: keep defaults */
   }
@@ -770,7 +775,7 @@ function loadState() {
 
 function saveState() {
   const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, share } = state;
-  const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the chip unused longest
+  const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
   const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), voicings: r.voicings, shapes: r.shapes });
   const saved = {
     v: SAVE_VERSION,
@@ -784,8 +789,8 @@ function saveState() {
       capo: state.capo,
       chord: state.chord.on ? chordText(state.chord.root, findChord(state.chord.type)) : noteToken(plainNote(state.chord.root, state.flats)),
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
-      list: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
-      solo: state.solo && entry(state.solo),
+      list: state.list.map(entry),
+      recent: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
     },
   };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
@@ -891,7 +896,7 @@ const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
 /* A chord of the link, alone or in the list, with the shape on screen (or
    its chip's), when not the first one and only with the neck */
 function chordToken(root, def, neck) {
-  const entry = [...recentList(), state.solo].find((r) => r && r.root === root && r.type === def.id);
+  const entry = chipEntry(root, def.id);
   const shown = state.chord.on && root === state.chord.root && def.id === state.chord.type;
   const shapes = !neck ? [] : shown ? currentChord().shapes : chordShapes(root, def, chipVoicing(entry, def));
   const at = shown ? currentChord().index : rememberedShape(entry);
@@ -915,8 +920,8 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   const voicing = state.voicing[state.instrument];
   if (neck && chord && state.chord.on && voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
   if (chord && state.chord.on) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
-  if (recent && state.recent.length) {
-    p.set('list', state.recent.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
+  if (recent && state.list.length) {
+    p.set('list', state.list.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
   }
   if (scale && state.scale.on) {
     const def = findScale(state.scale.type);
@@ -964,17 +969,18 @@ function applyLink(search, parts = null) {
   const ch = neck && take('chord') && chord && chord.frets ? currentChord() : null;
   const at = ch ? ch.shapes.findIndex((shape) => fretsText(shape.frets) === chord.frets) : -1;
   if (at > 0) state.shape = at;
-  // The chord list: it replaces yours, each chord on the shape it was shared with
-  // (fewer than 2 chords is no list: yours stays)
+  // The chord list: it replaces yours, each chord on the shape it was shared
+  // with (no chord in it: yours stays). The recent chords stay, less those
+  // now in the list.
   if (take('recent') && p.has('list')) {
     const list = [];
     for (const item of p.get('list').split('_')) {
       const c = readChord(item);
-      if (!c || !c.def || list.length >= RECENT_MAX) continue;
+      if (!c || !c.def || list.length >= LIST_MAX) continue;
       if (list.some((r) => r.root === c.root && r.type === c.def.id)) continue;
       // its shape, for the neck it was shared with (without it, the first),
       // in the voicing that lists it: the link's, the default, or another
-      const entry = { root: c.root, type: c.def.id, used: ++recentClock, shapes: {}, voicings: {} };
+      const entry = { root: c.root, type: c.def.id, shapes: {}, voicings: {} };
       const tries = [p.get('voicing'), DEFAULT_VOICING[state.instrument], ...VOICINGS].filter((v) => VOICINGS.includes(v));
       const voicing = c.frets && neck && tries.find((v) => chordShapes(c.root, c.def, voicingFor(c.def, v)).some((shape) => fretsText(shape.frets) === c.frets));
       if (voicing) {
@@ -983,9 +989,9 @@ function applyLink(search, parts = null) {
       }
       list.push(entry);
     }
-    if (list.length > 1) {
-      state.recent = list;
-      state.solo = null;
+    if (list.length) {
+      state.list = list;
+      state.recent = state.recent.filter((r) => !list.some((x) => x.root === r.root && x.type === r.type));
     }
   }
   if (!take('chord')) recallChip();   // your own chord, as its chip remembers it
@@ -1022,19 +1028,19 @@ function linkPreview(search, has) {
   const mine = state;
   const mySetup = setupText();
   state = JSON.parse(JSON.stringify(mine));
-  state.recent = [];   // the list shown is the link's, not yours
+  state.list = [];   // the list shown is the link's, not yours
   try {
     applyLink(search);
     const ch = currentChord();
     const sc = currentScale();
-    if (has.recent && !state.recent.length) has.recent = false;   // no list in the link after all
+    if (has.recent && !state.list.length) has.recent = false;   // no list in the link after all
     // Yours goes if you have one and the link's differs (a neck, you always have)
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    const chords = (s) => s.recent.map((r) => [r.root, r.type]);
+    const chords = (s) => s.list.map((r) => [r.root, r.type]);
     const loses = (has.neck && setupText() !== mySetup)
       || (has.chord && mine.chord.on && !same(mine.chord, state.chord))
       || (has.scale && mine.scale.on && !same(mine.scale, state.scale))
-      || (has.recent && chords(mine).some(([root, type]) => !state.recent.some((r) => r.root === root && r.type === type)));   // a chord of yours it drops
+      || (has.recent && chords(mine).some(([root, type]) => !state.list.some((r) => r.root === root && r.type === type)));   // a chord of yours it drops
     return {
       setup: has.neck ? setupText() : null,
       setupParts: has.neck ? setupParts() : null,
@@ -1043,7 +1049,7 @@ function linkPreview(search, has) {
       // null: not in the link (no row), '': none
       chord: has.chord ? (ch ? ch.symbol : '') : null,
       scale: has.scale ? (sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '') : null,
-      list: has.recent ? recentNames() : null,
+      list: has.recent ? listNames() : null,
       loses,
     };
   } finally {
@@ -1074,7 +1080,7 @@ function renderLinkPopup() {
   const rows = [   // [row, part, now, the link's]: text, or a list of chord names
     [els.linkNeck, 'neck', setupText(), preview.setup],
     [els.linkChord, 'chord', ch ? [ch.symbol] : [], preview.chord === null ? null : [preview.chord].filter(Boolean)],
-    [els.linkList, 'recent', recentNames(), preview.list],
+    [els.linkList, 'recent', listNames(), preview.list],
     [els.linkScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '', preview.scale],
   ];
   for (const [row, key, now, link] of rows) {
@@ -1175,14 +1181,14 @@ function linkSummary({ neck = true, chord = true, scale = true, recent = false }
   const ch = chord ? currentChord() : null;
   const sc = scale ? currentScale() : null;
   const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
-  const chords = recent ? recentNames() : [];
-  const list = chords.length > 1 ? `chords ${chords.slice(0, -1).join(', ')} and ${chords[chords.length - 1]}` : '';
+  const chords = recent ? listNames() : [];
+  const list = chords.length > 1 ? `chords ${chords.slice(0, -1).join(', ')} and ${chords[chords.length - 1]}` : chords.length ? `chord list ${chords[0]}` : '';
   const inst = instrument();
   const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
   const on = neck ? ` on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}` : '';
   return `${[what, list].filter(Boolean).join(', ') || 'The neck'}${(what || list) && on ? ',' : ''}${on}`;
 }
-const recentNames = () => state.recent.map((r) => {
+const listNames = () => state.list.map((r) => {
   const def = findChord(r.type);
   return noteText(chordSpelling(r.root, def).root) + def.symbol;
 });
@@ -1219,7 +1225,7 @@ function renderShare() {
   const rows = [   // [row, part, what is on the neck: text, or chord names]
     [els.shareNeck, 'neck', setupText()],
     [els.shareChord, 'chord', ch ? [ch.symbol] : []],
-    [els.shareRecent, 'recent', recentNames()],
+    [els.shareRecent, 'recent', listNames()],
     [els.shareScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : ''],
   ];
   for (const [row, key, value] of rows) {
@@ -1243,7 +1249,7 @@ function shareChoice() {
     neck: state.share.neck,
     chord: state.share.chord && state.chord.on,
     scale: state.share.scale && state.scale.on,
-    recent: state.share.recent && state.recent.length > 1,
+    recent: state.share.recent && state.list.length > 0,
   };
 }
 async function shareLink() {
@@ -1401,36 +1407,58 @@ function updateChord(patch) {   // a chord picked from the menus (or a triad): i
   render();
 }
 
-/* Recent chords, one list for all instruments: a chord joins it as soon as
-   it is shown, in a fixed place so a song's chords stay put while switching
-   between them. Past RECENT_MAX, the one unused longest makes room (saved,
-   so a reload keeps who was used last).
+/* The chord list and the recent chords, for all instruments. The list is
+   the one you build (a song's chords): a chord goes in when you tap the +
+   on its recent chip and out with its × (Clear empties it); nothing joins
+   or leaves it by itself, and Share sends it. The recent chords are the
+   last chords used that are not in it (the chord on screen among them), so
+   you can go back to one: a new one goes first. RECENT_KEEP are kept; the
+   row shows about that many chords in all, so the ones used last fill what
+   the list leaves (a short list, a longer history), never fewer than
+   RECENT_MAX. When one goes into the list, the one used before them shows
+   in its place; past RECENT_KEEP the one unused longest goes (saved, so a
+   reload keeps who was used last). They are never shared.
    The in-between chord of picking a root, then a type, does not pile up: a
-   chip made by picking a root stays open, and if the very next thing you do
-   is pick a type, that edits the same chip. Anything else (another root,
-   strumming or tapping its notes, a shape, a chip, a triad) makes the chip
-   final. Picking only a type always makes a new chip.
+   recent chord made by picking a root stays open, and if the very next
+   thing you do is pick a type, that edits it. Anything else (another root,
+   strumming or tapping its notes, a shape, a chip, a triad, the +) makes it
+   final. Picking only a type always makes a new one.
    Each chip remembers the shape you chose for it, per instrument, tuning,
    capo and voicing (`shapes`): tapping the chip, or coming back to this
    instrument, brings that shape back. Picking the chord from the menus starts
    from its first shape, as always (and the chip remembers that). Shapes only
    change in memory when you choose them, never because a setting reset them. */
-const RECENT_MAX = 10;
+const LIST_MAX = 16;
+const RECENT_MAX = 3;    // recent chords shown, at least
+const RECENT_KEEP = 6;   // ... kept, and the chords the row aims to show in all
 let recentClock = 0;
 let shownChord;          // instrument and chord at the last render
-let openEntry = null;    // the chip a root pick made, which the next type pick may still edit
+let openEntry = null;    // the recent chord a root pick made, which the next type pick may still edit
 let menuPick = '';       // how the chord on screen was just picked: 'root', 'type', 'both' or 'other' (menus)
 let chipPick = false;    // ... or from its chip
 const shapeContext = (def = findChord(state.chord.type), voicing = voicingFor(def)) => [instrument().strings, capo(), voicing].join('|');
-const recentList = () => state.recent;
-const recentEntry = () => state.chord.on &&
-  [...recentList(), state.solo].find((r) => r && r.root === state.chord.root && r.type === state.chord.type);
+// A chord's chip, in the list or the recent chords
+const chipEntry = (root, type) => [...state.list, ...state.recent].find((r) => r.root === root && r.type === type) || null;
+const recentEntry = () => (state.chord.on ? chipEntry(state.chord.root, state.chord.type) : null);   // the chord on screen's
 
-/* The list is never one chord: alone, the chord waits as the solo (its
-   shapes remembered), and becomes the first chip when a second one comes. */
-function settleList(s = state) {
-  if (s.recent.length === 1) [s.solo] = s.recent.splice(0);
-  else if (s.recent.length) s.solo = null;
+// A chord into the recent ones, first; past RECENT_KEEP the one unused longest goes
+function addRecent(entry) {
+  if (!state.recent.includes(entry)) state.recent.unshift(entry);
+  entry.used = ++recentClock;
+  trimRecent();
+}
+function trimRecent() {
+  while (state.recent.length > RECENT_KEEP) {
+    const old = state.recent.reduce((a, b) => (a.used <= b.used ? a : b));
+    state.recent.splice(state.recent.indexOf(old), 1);
+  }
+}
+// The recent chords shown, those used last (in their order): what the list
+// leaves of RECENT_KEEP chords, at least RECENT_MAX
+function shownRecent() {
+  const room = Math.max(RECENT_MAX, RECENT_KEEP - state.list.length);
+  const last = [...state.recent].sort((a, b) => b.used - a.used).slice(0, room);
+  return state.recent.filter((r) => last.includes(r));
 }
 
 /* The shape a chip remembers for the chord on screen, here and now (or the
@@ -1471,15 +1499,9 @@ function rememberShape(entry = recentEntry()) {
 /* Called on every render: what you did is worked out from what changed on
    screen since the last render (the chord, and how it was picked: menuPick,
    chipPick), not reported by each control. Anything that changes the chord
-   must go through updateChord (menus), playRecent (chips) or set those flags,
+   must go through updateChord (menus), playChip (chips) or set those flags,
    or it will count as a plain new chord. */
 function trackChord() {
-  if (!state.recent.length && state.solo) state.recent = [state.solo];   // as a list of one, for a moment
-  trackPick();
-  settleList();
-}
-function trackPick() {
-  const list = recentList();
   const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
   const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
   const setup = [state.instrument, instrument().strings, capo()].join('|');
@@ -1487,11 +1509,14 @@ function trackPick() {
   const how = menuPick;
   const changed = sameInst && (shownChord.key !== key || how !== '');
   const fromChip = chipPick;
+  const first = shownChord === undefined;
   menuPick = '';
   chipPick = false;
   shownChord = { inst: state.instrument, key, setup };
+  // The chord the page opens on (saved, or a link's) has its chip too
+  if (first && state.chord.on && !recentEntry()) addRecent({ root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} });
   if (!changed || !state.chord.on) return;
-  const open = how === 'type' && openEntry && list.includes(openEntry) ? openEntry : null;
+  const open = how === 'type' && openEntry && state.recent.includes(openEntry) ? openEntry : null;
   openEntry = null;
   let entry = recentEntry();
   if (!entry && open) {                // root, then type: the same chip, edited
@@ -1500,22 +1525,22 @@ function trackPick() {
     open.shapes = {};
     open.voicings = {};
     entry = open;
-  } else if (!entry) {                 // a new chord: a new chip
-    if (list.length >= RECENT_MAX) list.splice(list.indexOf(list.reduce((a, b) => (a.used <= b.used ? a : b))), 1);
+  } else if (!entry) {                 // a new chord: a new recent chip
     entry = { root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} };
-    list.push(entry);
     if (how === 'root') openEntry = entry;   // the next type pick may still edit it
   } else if (open && open !== entry) { // root, then type, landing on a chord already there
-    list.splice(list.indexOf(open), 1);
+    state.recent.splice(state.recent.indexOf(open), 1);
   }
-  entry.used = ++recentClock;
+  // Not in the list: one of the recent chords, first when new (a recent
+  // chip tapped stays where it is)
+  if (!state.list.includes(entry)) addRecent(entry);
   if (!fromChip) rememberShape(entry);   // picked from the menus: its first shape
 }
 
 function keepChord() { openEntry = null; }   // strummed, cycled, its notes played: this chip is final
 
-function playRecent(i) {
-  const entry = recentList()[i];
+// A chip tapped: its chord on screen (in the list: data-i, recent: data-r)
+function playChip(entry) {
   if (!entry) return;
   keepChord();
   state.chord = { on: true, root: entry.root, type: entry.type };
@@ -1526,39 +1551,80 @@ function playRecent(i) {
   render();
 }
 
-/* Its chip goes. The chord on screen goes with it: the next chip takes
-   over (the one before at the end of the row), or no chord once the list is
-   empty. */
-function removeRecent(i) {
-  const list = recentList();
-  const entry = list[i];
+/* The + on a recent chip: its chord joins the end of the list (it leaves
+   the recent ones). The chord on screen stays. */
+function pinChord(i) {
+  const entry = state.recent[i];
+  if (!entry || state.list.length >= LIST_MAX) return;
+  if (openEntry === entry) openEntry = null;   // final
+  state.recent.splice(i, 1);
+  state.list.push(entry);
+  render();
+  focusChip(`[data-i="${state.list.length - 1}"]`);
+}
+// The keyboard focus, after a + or an ×: on the chord's chip where it went
+function focusChip(selector) {
+  const row = document.activeElement && document.activeElement.closest && document.activeElement.closest('.recent-chips');
+  const chip = row && row.querySelector(selector);
+  if (chip) chip.focus({ preventScroll: true });
+}
+/* The × on the list's chip of the chord on screen: it leaves the list. The
+   chord stays on screen, so it is back with the recent ones, first. */
+function unpinChord(i) {
+  const entry = state.list[i];
   if (!entry) return;
   const shown = entry === recentEntry();
-  if (openEntry === entry) openEntry = null;
-  list.splice(i, 1);
-  if (shown && list.length) { playRecent(Math.min(i, list.length - 1)); return; }
-  if (shown) chordOff();
+  state.list.splice(i, 1);
+  if (shown) addRecent(entry);
   render();
+  if (shown) focusChip(`[data-r="${state.recent.indexOf(entry)}"]`);
 }
 
-/* Move a chip to another place in the row (by dragging it, or Shift+← / →).
-   Its place only: which chord is on screen, and which was used last, stay. */
+/* Chips dropped in a new order (a drag): the chips before the line are the
+   list, those after it the recent chords. A recent chip dropped among the
+   list's chips joins the list there (as its + would, if there is room); a
+   list chip dropped past the line leaves it, and is one of the recent
+   chords there (the one unused longest making room). `order`: the entries,
+   with LINE where the line is. */
+const LINE = 'line';
+function dropChips(order) {
+  const cut = order.indexOf(LINE);
+  const list = order.slice(0, cut);
+  const recent = order.slice(cut + 1);
+  if (list.length > LIST_MAX) return;   // no room: it goes back
+  for (const r of recent) if (!state.recent.includes(r)) r.used = ++recentClock;   // just put there
+  for (const r of list) if (r === openEntry) openEntry = null;   // in the list: final
+  // (the ones kept out of sight stay, after those shown)
+  const hidden = state.recent.filter((r) => !recent.includes(r) && !list.includes(r));
+  state.list = list;
+  state.recent = [...recent, ...hidden];
+  trimRecent();
+  ui.keepRow = true;
+  render();
+}
+/* Move a list chip to another place in the list (Shift+← / →). Its place
+   only: which chord is on screen, and which was used last, stay. */
 function moveRecent(from, to) {
-  const list = recentList();
+  const list = state.list;
   if (from === to || !list[from] || to < 0 || to >= list.length) return;
   list.splice(to, 0, ...list.splice(from, 1));
   ui.keepRow = true;
   render();
 }
 
-/* Drag a chip to reorder the row. With a finger: press and hold it still
+/* Drag a chip to reorder the row, or across the line between the list and
+   the recent chords (dropChips). With a finger: press and hold it still
    (HOLD_MS), then drag; a quick tap still picks the chord and a swipe still
    scrolls the row. With a mouse or a pen: press and move a few pixels. The
-   chip follows the pointer, the others slide aside to show where it will
-   land, and the row scrolls when the chip nears either end. */
+   chip lifts and moves along the row with the pointer, held where it was
+   pressed, the others
+   slide aside to show where it will land, and the row scrolls when the
+   pointer nears either end. While dragging, the line is there even when one
+   side is empty (at the end of the list, or before the recent chords), so a
+   chip can always cross it. */
 const HOLD_MS = 350;
 function setupChipDrag(row) {
-  let drag = null;   // { li, from, id, x, y, touch, timer, on, items, at, scroll, frame }
+  let drag = null;   // { li, entry, id, x, y, touch, timer, on, items, from, at, scroll, frame, ghost, line }
   let swallowClick = false;
   const stop = () => {
     if (!drag) return;
@@ -1566,6 +1632,7 @@ function setupChipDrag(row) {
     cancelAnimationFrame(drag.frame);
     for (const it of drag.items || []) it.style.transform = '';
     if (drag.ghost) drag.ghost.remove();
+    if (drag.line) drag.line.remove();
     drag.li.classList.remove('dragging');
     row.classList.remove('reordering');
     drag = null;
@@ -1578,17 +1645,31 @@ function setupChipDrag(row) {
     // events already go to the chip it pressed (moving that capture, as
     // Android browsers do, would end the drag at once)
     if (!drag.touch) try { drag.li.setPointerCapture(drag.id); } catch { /* already released */ }
+    if (!row.querySelector(':scope > .recent-sep')) {   // no line: one for the drag
+      drag.line = document.createElement('li');
+      drag.line.className = 'recent-sep';
+      drag.line.setAttribute('aria-hidden', 'true');
+      if (drag.li.classList.contains('trail')) row.prepend(drag.line); else row.append(drag.line);
+    }
     drag.items = [...row.children];
+    drag.from = drag.items.indexOf(drag.li);
     drag.rects = drag.items.map((it) => it.getBoundingClientRect());
     drag.scroll = row.scrollLeft;
     drag.at = drag.from;
     // The chip lifts out of the row (a copy above everything, so nothing
-    // clips it) and leaves an outlined slot where it will land
+    // clips it), held where it was pressed, and leaves an outlined slot
+    // where it will land. The copy sits in a row of its own with the same
+    // classes as its row's (the dock's or the panel's), so it keeps its
+    // look exactly (list or recent, lit or not) until it is dropped.
     const r = drag.rects[drag.from];
-    drag.ghost = drag.li.cloneNode(true);
-    drag.ghost.className = `${drag.li.className} chip-ghost${row === els.dockRecentList ? ' dock' : ''}`;
-    drag.ghost.removeAttribute('id');
-    Object.assign(drag.ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    drag.grab = drag.x - r.left;
+    drag.ghost = document.createElement('div');
+    drag.ghost.className = `chip-lift${row.closest('.dock-recent') ? ' dock-recent' : ''}`;
+    const copyRow = document.createElement('ol');
+    copyRow.className = 'recent-chips';
+    copyRow.append(drag.li.cloneNode(true));
+    drag.ghost.append(copyRow);
+    Object.assign(drag.ghost.style, { top: `${r.top}px`, transformOrigin: `${drag.grab}px 50%` });
     document.body.append(drag.ghost);
     drag.li.classList.add('dragging');
     row.classList.add('reordering');
@@ -1599,25 +1680,25 @@ function setupChipDrag(row) {
       if (speed) { row.scrollLeft += speed; place(); }
       drag.frame = requestAnimationFrame(edge);
     };
-    drag.px = drag.x;
-    place();   // lifted right away
+    place();   // lifted right away, under the pointer
     drag.frame = requestAnimationFrame(edge);
   };
   const place = () => {
     const shift = row.scrollLeft - drag.scroll;   // the row scrolled since the drag began
-    const { rects, from } = drag;
-    const dx = drag.px - drag.x + shift;
-    drag.ghost.style.transform = `translateX(${drag.px - drag.x}px) translateY(-3px) scale(1.12)`;
+    const { rects, from, grab } = drag;
+    // The copy: along the row, the point it is held by under the pointer
+    // (the scale grows it around that point, so it stays there)
+    drag.ghost.style.transform = `translate(${drag.px - grab}px, -3px) scale(1.12)`;
     // Where it lands: past the middle of each chip it is dragged over; its
     // slot moves there
-    const mid = rects[from].left + rects[from].width / 2 + dx;
+    const mid = drag.px - grab + rects[from].width / 2 + shift;
     let at = from;
     while (at < rects.length - 1 && mid > rects[at + 1].left + rects[at + 1].width / 2) at++;
     while (at > 0 && mid < rects[at - 1].left + rects[at - 1].width / 2) at--;
     drag.at = at;
     const slot = at > from ? rects[at].right - rects[from].width : rects[at].left;
     drag.li.style.transform = at === from ? '' : `translateX(${slot - rects[from].left}px)`;
-    const gap = rects.length > 1 ? rects[1].left - rects[0].right : 6;
+    const gap = parseFloat(getComputedStyle(row).columnGap) || 6;
     const size = rects[from].width + gap;
     drag.items.forEach((it, i) => {
       if (i === from) return;
@@ -1625,12 +1706,17 @@ function setupChipDrag(row) {
       it.style.transform = by ? `translateX(${by}px)` : '';
     });
   };
+  // The entries in the row's order, with LINE for the line
+  const entryOf = (li) => {
+    if (li.classList.contains('recent-sep')) return LINE;
+    const chip = li.querySelector('[data-i], [data-r]');
+    return chip.dataset.i !== undefined ? state.list[Number(chip.dataset.i)] : state.recent[Number(chip.dataset.r)];
+  };
   row.addEventListener('pointerdown', (e) => {
-    if (e.button > 0 || drag || e.target.closest('.recent-remove')) return;
+    if (e.button > 0 || drag || e.target.closest('.recent-remove, .recent-pin')) return;
     const li = e.target.closest('li');
-    const chip = li && li.querySelector('[data-i]');
-    if (!chip || recentList().length < 2) return;
-    drag = { li, from: Number(chip.dataset.i), id: e.pointerId, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', on: false };
+    if (!li || !li.querySelector('[data-i], [data-r]')) return;
+    drag = { li, id: e.pointerId, x: e.clientX, y: e.clientY, px: e.clientX, touch: e.pointerType === 'touch', on: false };
     if (drag.touch) drag.timer = setTimeout(() => { if (drag && !drag.on) begin(); }, HOLD_MS);
   });
   row.addEventListener('pointermove', (e) => {
@@ -1639,16 +1725,21 @@ function setupChipDrag(row) {
       const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
       if (drag.touch) { if (moved > 8) stop(); return; }   // moved before the hold: a swipe
       if (moved < 5) return;
+      drag.px = e.clientX;
       begin();
+      return;
     }
     drag.px = e.clientX;
     place();
   });
   row.addEventListener('pointerup', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    const { on, from, at } = drag;
+    const { on, from, at, items } = drag;
+    const order = on ? items.map(entryOf) : null;
     stop();
-    if (on) moveRecent(from, at);
+    if (!on || from === at) return;
+    order.splice(at, 0, ...order.splice(from, 1));
+    dropChips(order);
   });
   row.addEventListener('pointercancel', stop);
   row.addEventListener('lostpointercapture', (e) => { if (drag && drag.on && !drag.touch && e.target === drag.li && e.pointerId === drag.id) stop(); });
@@ -1664,7 +1755,7 @@ function setupChipDrag(row) {
   }, true);
   row.addEventListener('pointerdown', () => { swallowClick = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drag && drag.on) { e.stopPropagation(); stop(); } }, true);
-  // Shift+← / → moves the focused chip
+  // Shift+← / → moves the focused list chip
   row.addEventListener('keydown', (e) => {
     const chip = e.target.closest('[data-i]');
     if (!chip || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
@@ -1672,16 +1763,36 @@ function setupChipDrag(row) {
     e.stopPropagation();
     const from = Number(chip.dataset.i);
     const to = from + (e.key === 'ArrowRight' ? 1 : -1);
-    if (to < 0 || to >= recentList().length) return;
+    if (to < 0 || to >= state.list.length) return;
     moveRecent(from, to);
     const moved = row.querySelector(`[data-i="${to}"]`);
     if (moved) moved.focus();
   });
 }
 
-function clearRecent() {   // the list empties, and the chord on screen goes with it
+/* The bin: the list and the recent chords empty, and the chord on screen
+   goes with them. A list of more than two chords is asked about first. */
+function askClearRecent() {
+  if (state.list.length <= 2) { clearRecent(); return; }
+  const names = state.list.map((r) => {
+    const def = findChord(r.type);
+    return noteText(chordSpelling(r.root, def).root) + def.symbol;
+  });
+  els.listClearCount.textContent = `${names.length} chords`;
+  els.listClearNames.innerHTML = lkValue(names, 'win');   // chips, as in the share popup
+  els.listClearRecent.hidden = !shownRecent().length;
+  if (els.listClear.showModal) els.listClear.showModal(); else els.listClear.setAttribute('open', '');
+  els.listClearCancel.focus();
+}
+function closeClearRecent() {
+  if (els.listClear.open) {
+    if (els.listClear.close) els.listClear.close(); else els.listClear.removeAttribute('open');
+  }
+}
+function clearRecent() {
+  closeClearRecent();
+  state.list = [];
   state.recent = [];
-  state.solo = null;
   chordOff();
   render();
 }
@@ -2183,30 +2294,47 @@ function revealGroup() {
   revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`))).filter(Boolean));
 }
 
-/* The recent chords, as chips in the dock (phones) and the chord panel
-   (wide screens); shown once there are two to switch between */
+/* The chord list's chips, then (after a thin line) the recent chords',
+   dashed, in the dock (phones), the quick bar (wide screens) and the chord
+   panel. The chord on screen's chip is lit: a list chip has an × to take
+   it out, a recent chip a + to put it in the list. */
+const X_CHIP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+const TRAIL_EDGE = '<svg class="trail-edge" aria-hidden="true"><rect width="100%" height="100%" rx="15" ry="15"/></svg>';   // (rx: half of --recent-h)
+const PLUS_CHIP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 function renderRecent() {
-  const list = recentList();
-  const show = list.length >= 2;
+  const show = state.list.length + state.recent.length > 0;   // (some recent chord is always shown when any is kept)
   els.dockRecent.hidden = !show;
   els.recentLine.hidden = !show;
   updateQuickBar();
-  if (!show) return;
-  const html = list.map((r, i) => {
+  if (!show) { els.dockRecentList.innerHTML = els.recentList.innerHTML = ''; ui.chipKey = ''; return; }
+  const full = state.list.length >= LIST_MAX;
+  const chip = (r, i, pinned) => {
     const def = findChord(r.type);
     const spell = chordSpelling(r.root, def);
     const on = state.chord.on && r.root === state.chord.root && r.type === state.chord.type;
     const name = noteText(spell.root) + def.symbol;
-    // The chord on screen also gets an × to take it off the list
-    return `<li${on ? ' class="on"' : ''}><button type="button" class="chip recent${on ? ' selected' : ''}" data-i="${i}" aria-pressed="${on}" ` +
-      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}`)}"><span class="tx">${esc(name)}</span></button>` +
-      (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the chord list" ` +
-        `title="Remove ${esc(name)} from the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>` : '') + '</li>';
-  }).join('');
+    const cls = `${pinned ? 'pinned' : 'trail'}${on ? ' on' : ''}${!pinned && full ? ' bare' : ''}`;
+    const tap = `<button type="button" class="chip recent${on ? ' selected' : ''}" ${pinned ? 'data-i' : 'data-r'}="${i}" aria-pressed="${on}" ` +
+      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${pinned ? '' : ', recent'}`)}"><span class="tx">${esc(name)}</span></button>`;
+    // A recent chip: its dashed edge (drawn, for dashes longer than a
+    // browser's dashed line) and its + (none while the list is full)
+    const side = pinned
+      ? (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the chord list" ` +
+        `title="Remove ${esc(name)} from the chord list">${X_CHIP_ICON}</button>` : '')
+      : (full ? '' : `<button type="button" class="recent-pin" data-pin="${i}" aria-label="Add ${esc(name)} to the chord list" ` +
+        `title="Add ${esc(name)} to the chord list">${PLUS_CHIP_ICON}</button>`);
+    return `<li class="${cls}">${pinned ? '' : TRAIL_EDGE}${tap}${side}</li>`;
+  };
+  const recent = shownRecent();
+  const html = state.list.map((r, i) => chip(r, i, true)).join('')
+    + (state.list.length && recent.length ? '<li class="recent-sep" aria-hidden="true"></li>' : '')
+    + recent.map((r) => chip(r, state.recent.indexOf(r), false)).join('');
   els.dockRecentList.innerHTML = html;
   els.recentList.innerHTML = html;
   scrollHint(els.dockRecentList);
   scrollHint(els.recentList);
+  fitDashes(els.dockRecentList);
+  fitDashes(els.recentList);
   // When the chips change (one picked, added, edited or removed), scroll the
   // row so the selected one shows whole
   const chipKey = html;
@@ -2216,6 +2344,19 @@ function renderRecent() {
     const smooth = ui.chipKey !== undefined;
     ui.chipKey = chipKey;
     requestAnimationFrame(() => { chipInView(els.dockRecentList, smooth); chipInView(els.recentList, smooth); });
+  }
+}
+/* A recent chip's dashes: about 6px with 4px gaps, stretched a little so a
+   whole number of them goes round the edge (else the one where the edge
+   closes comes out shorter). A row out of sight is fitted when it shows. */
+function fitDashes(row) {
+  for (const li of row.querySelectorAll('li.trail')) {
+    const rect = li.querySelector('.trail-edge rect');
+    let edge = 0;
+    try { edge = li.offsetWidth ? rect.getTotalLength() : 0; } catch { edge = 0; }   // (none while out of sight)
+    if (!edge) continue;
+    const step = edge / Math.max(1, Math.round(edge / 10));
+    li.style.setProperty('--dash', `${(step * 0.6).toFixed(3)} ${(step * 0.4).toFixed(3)}`);
   }
 }
 /* The thin bar under a row of recent chords: shown when the chips do not
@@ -3630,6 +3771,7 @@ function init() {
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
     'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
+    'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecent', 'listClearCancel', 'listClearGo',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
@@ -3732,27 +3874,37 @@ function init() {
     btn.addEventListener('click', (e) => { if (e.detail === 0) act(); });
   }
 
-  // Recent chords: tap to switch, × on the current one to remove it, Clear to start over
+  // The chord list and the recent chords: tap to switch, × on the current
+  // list chip to take it out, + on a recent one to put it in, Clear to
+  // start over
   for (const list of [els.dockRecentList, els.recentList]) {
-    // The × removes only when the press started on it (a drag ending over
-    // it, or a press that slid onto it, removes nothing)
+    // The × and the + act only when the press started on them (a drag
+    // ending over one, or a press that slid onto it, does nothing)
     let pressed = null;
-    list.addEventListener('pointerdown', (e) => { pressed = e.target.closest('[data-remove]'); }, true);
+    list.addEventListener('pointerdown', (e) => { pressed = e.target.closest('[data-remove], [data-pin]'); }, true);
     list.addEventListener('click', (e) => {
-      const remove = e.target.closest('[data-remove]');
-      if (remove && (e.detail === 0 || remove === pressed)) { removeRecent(Number(remove.dataset.remove)); return; }
-      if (remove) return;
-      const chip = e.target.closest('[data-i]');
-      if (chip) playRecent(Number(chip.dataset.i));
+      const side = e.target.closest('[data-remove], [data-pin]');
+      if (side) {
+        if (e.detail !== 0 && side !== pressed) return;
+        if (side.dataset.remove !== undefined) unpinChord(Number(side.dataset.remove));
+        else pinChord(Number(side.dataset.pin));
+        return;
+      }
+      const chip = e.target.closest('[data-i], [data-r]');
+      if (chip) playChip(chip.dataset.i !== undefined ? state.list[Number(chip.dataset.i)] : state.recent[Number(chip.dataset.r)]);
     });
   }
   for (const list of [els.dockRecentList, els.recentList]) {
     setupChipDrag(list);
     list.addEventListener('scroll', () => scrollHint(list), { passive: true });
-    if (window.ResizeObserver) new ResizeObserver(() => scrollHint(list)).observe(list);   // shown, rotated, resized
+    if (window.ResizeObserver) new ResizeObserver(() => { scrollHint(list); fitDashes(list); }).observe(list);   // shown, rotated, resized
   }
-  els.dockRecentClear.addEventListener('click', clearRecent);
-  els.recentClear.addEventListener('click', clearRecent);
+  els.dockRecentClear.addEventListener('click', askClearRecent);
+  els.recentClear.addEventListener('click', askClearRecent);
+  els.listClearGo.addEventListener('click', clearRecent);
+  els.listClearCancel.addEventListener('click', closeClearRecent);
+  els.listClearClose.addEventListener('click', closeClearRecent);
+  els.listClear.addEventListener('click', (e) => { if (e.target === els.listClear) closeClearRecent(); });
 
   // Dock (phones): shape bar, tabs and the sheet they open
   // (no chord: the scale's groups)
@@ -3948,12 +4100,13 @@ function init() {
   let keyboardFocus = false;   // the focus was last moved with the keyboard
   document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
-  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !els.share.open && !els.linkOpen.open && !els.tuneEdit.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
+  const popupOpen = () => !!document.querySelector('dialog[open]');
+  const spaceStrums = (e) => e.key === ' ' && !popupOpen() && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
   document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (els.picker.open || els.about.open || els.share.open || els.linkOpen.open || els.tuneEdit.open) return;   // a popup handles its own keys (Escape closes it)
+    if (popupOpen()) return;   // a popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('input, textarea')) return;
     if (spaceStrums(e)) {
