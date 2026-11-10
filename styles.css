@@ -15,8 +15,9 @@
   --bg: #121317;
   --panel: #1b1d23;
   --text: #e6e7eb;
-  --muted: #9097a3;
+  --muted: #a0a6b1;
   --border: #2d3039;
+  --divider: #3c404c;   /* lines between sections, brighter than outlines */
   --accent: #8c86f7;
   --accent-text: #11101f;
   --accent-soft: #26244a;
@@ -83,7 +84,12 @@
 /* ==========================================================================
    Base
    ========================================================================== */
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+  /* Every scrollbar on the site: thin, a soft grey thumb, no track */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
+}
 
 html { -webkit-text-size-adjust: 100%; }
 /* Phones (not the wide layout, see WIDE_QUERY): no page scrollbar, which
@@ -112,10 +118,21 @@ body {
   color: var(--text);
   font: var(--fs-md)/1.5 var(--font);
   -webkit-tap-highlight-color: transparent;
+  /* An app, not a page of text: quick taps and long presses select nothing
+     (buttons, switches, chips, labels, titles). Only the text meant for
+     reading can be selected: the chord's and the scale's descriptions and
+     the About text. */
+  -webkit-user-select: none;
+  user-select: none;
 }
+/* (popups and buttons are named too: browsers give them their own setting,
+   which would win over the page's) */
+dialog, button { -webkit-user-select: none; user-select: none; }
+.np-head, .about-body { -webkit-user-select: text; user-select: text; }
+input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 
 body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
-body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* fewer than two recent chords: no row */
+body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* no chord in the list or the recent ones: no row */
 
 /* While a sheet is open, leave enough room to scroll the end of the neck above it */
 body.sheet-open { padding-bottom: calc(var(--dock-h) + 60vh); }
@@ -172,7 +189,7 @@ kbd {
 .share-btn.done { color: var(--ok); border-color: var(--ok); }   /* link copied, for a moment */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; }
+.inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before script.js places it: the neck does not jump */
 
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
@@ -186,7 +203,7 @@ kbd {
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 .about-link { text-decoration: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
 .about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
@@ -199,9 +216,9 @@ kbd {
    screens: one row per string, the highest on top, − note +. A note away
    from standard is in the accent colour, and its number becomes a small
    button that puts the string back. Tapping a note plays it. */
-.tune-body { gap: var(--sp-4); }
+.tune-body { gap: var(--sp-4); grid-template-columns: minmax(0, 1fr); }   /* a long name is cut short, it does not widen the popup */
 .tune-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
-.tune-name { font: 700 var(--fs-lg)/1.2 var(--font); color: var(--text); }
+.tune-name { min-width: 0; padding: 2px 0; margin: -2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--fs-lg)/1.2 var(--font); color: var(--text); }   /* a long saved name: cut short */
 .tune-name.custom { color: var(--accent); }
 .tune-reset { flex: none; }
 .tune-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 6px; }
@@ -238,7 +255,7 @@ kbd {
 }
 .tune-step.up { grid-area: up; }
 .tune-step.down { grid-area: down; }
-.tune-step:disabled { opacity: 0.3; cursor: default; }
+.tune-step[aria-disabled="true"] { opacity: 0.3; cursor: default; }   /* the end of the string's range */
 /* The note: just its name, large (the octave small beside it), in the
    accent colour when tuned away from standard */
 .tune-note {
@@ -266,7 +283,7 @@ kbd {
   .tune-step { height: 44px; }
 }
 @media (hover: hover) {
-  .tune-step:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 22%, var(--kbd-bg)); }
+  .tune-step:not([aria-disabled="true"]):hover { background: color-mix(in srgb, var(--accent) 22%, var(--kbd-bg)); }
   .tune-note:hover { background: var(--kbd-bg); }
 }
 
@@ -275,6 +292,33 @@ kbd {
 .picker.share { width: min(440px, calc(100vw - 24px)); }
 .about-links.share-actions { flex-direction: row; justify-content: center; gap: var(--sp-3); }
 .share-actions .btn { min-width: 120px; }
+.about-links[hidden] { display: none; }
+
+/* Tuning popup: Save (a bookmark on phones, with its word on wide
+   screens), and the field for its name that takes the buttons' place */
+.share-actions .btn.tune-save { min-width: 0; }
+.about-links.tune-naming { flex-direction: column; align-items: stretch; gap: var(--sp-3); }   /* the field on its own line, the buttons under it (all screens) */
+.tune-naming .share-actions { display: flex; justify-content: center; gap: var(--sp-3); }
+.text-input {
+  width: 100%;
+  height: var(--control-h);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--kbd-bg);
+  color: var(--text);
+  font: 500 var(--fs-input)/1.2 var(--font);   /* 16px on phones: iPhones do not zoom in */
+}
+.text-input::placeholder { color: var(--muted); opacity: 1; }
+.text-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+
+/* Delete a saved tuning: its name and notes, Delete in red */
+.delete-what { display: grid; gap: var(--sp-1); margin: 0; }
+.delete-name { font: 700 var(--fs-lg)/1.3 var(--font); overflow-wrap: anywhere; }
+.delete-notes { font-size: var(--fs-sm); color: var(--muted); }
+.delete-notes[hidden] { display: none; }
+.delete-chips { font-size: var(--fs-sm); margin: 2px 0; }   /* chord chips, as in the share popup (.lk-val) */
+.btn.danger { border-color: var(--danger); color: var(--danger); }
 
 /* Share and Load link popups: one row per part of the neck (the neck
    itself, the chord, the chord list, the scale): a switch, the name, a tag
@@ -368,6 +412,8 @@ kbd {
   border-top-color: var(--accent);
 }
 .inst-name, .inst-tuning { overflow: hidden; text-overflow: ellipsis; }
+.inst-name { flex: none; }   /* a long tuning name (a saved one) gives way, not the instrument's */
+.inst-tuning { min-width: 0; }
 /* Wide screens: it sits on the neck panel, which shares its colour, so its
    fill is a touch lighter */
 .neck-title .inst-btn { background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
@@ -452,6 +498,7 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.select-btn:disabled { opacity: 0.45; cursor: default; }   /* switched off, like the buttons and switches */
 
 /* Buttons: outlined by default, .primary filled, .small compact, .icon square */
 .btn {
@@ -483,11 +530,19 @@ kbd {
 .btn-label { display: none; }
 .btn:not(:disabled):active { filter: brightness(1.15); }
 
+/* The keyboard focus: one ring for every control, 2px wide and 2px away, so
+   4px outside the control. A row that scrolls clips what sticks out of it:
+   those rows keep at least that much room around their controls. */
 .select-btn:focus-visible, .pick:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible,
-.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible {
+.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible,
+.lk-row:focus-visible, .tune-step:focus-visible, .tune-note:focus-visible, .tune-num.reset:focus-visible, .recent-clear:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* A control that takes the keyboard focus is scrolled into view with its
+   ring (script.js), this far from the edge of the row, popup or page */
+button, a { scroll-margin: 6px; }
+.scale-note { scroll-margin: 10px; }   /* the root's two rings */
 
 /* Switch-style toggles and the capo button (the neck settings) */
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
@@ -618,6 +673,7 @@ kbd {
 .ruler.mark { color: var(--text); }
 .ruler i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }   /* same colour as the number */
 .ruler.capo { color: var(--accent); font-weight: 800; }
+.ruler.behind { opacity: 0.3; }   /* behind the capo: no number (frets count from the capo), its inlay dots faded like the frets */
 
 .slabel {
   display: grid;
@@ -669,14 +725,16 @@ kbd {
   z-index: 3;
   top: 2px;
   left: 2px;   /* clear of the interval badge (top-right) and the capo (bottom, or the right end) */
+  display: inline-flex;   /* (its number centred by its capitals, see .tx) */
+  align-items: center;
+  justify-content: center;
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
   border-radius: var(--r-pill);
   background: var(--border);
   color: var(--text);
-  font: 700 var(--fs-tag)/15px var(--font);
-  text-align: center;
+  font: 700 var(--fs-tag)/1 var(--font);
   pointer-events: none;
 }
 /* Left-handed and across, the capo sits at the cell's left end */
@@ -775,11 +833,17 @@ kbd {
 .note.off-key .deg-badge { border-color: var(--warn); background: var(--warn); color: var(--pk-black); }
 .note.mute { background: transparent; box-shadow: none; color: var(--chord); }
 .mute-ico { width: 15px; height: 15px; }
+/* A string the shape does not play: its open note, darker like the notes
+   outside the scale (one look for "not part of this"), with a pink × in the
+   interval badge's place */
+.note.mute.named { box-shadow: inset 0 0 0 1px var(--border); }   /* (the note's own outline, which .mute drops; its colours: below) */
+.deg-badge.mute-badge { width: 18px; padding: 0; }
+.mute-badge .mute-ico { width: 10px; height: 10px; }
 
 /* Notes outside the shown scale are a little darker; with "Only scale
    notes" they are hidden, but still sound when tapped: the note shows for a
    moment, darker, as it rings */
-.note.off, .note.out { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
+.note.off, .note.out, .note.mute.named { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.out { visibility: hidden; }
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
@@ -827,7 +891,7 @@ kbd {
   gap: var(--sp-4);
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 .np-head { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; }
@@ -929,7 +993,7 @@ kbd {
   gap: var(--sp-2) var(--sp-3);
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 .line > .label { flex: 1 0 100%; }   /* phones: label on its own line */
 /* Phones: the dock's shape bar shows and cycles the shapes, so the chord
@@ -941,8 +1005,10 @@ kbd {
 .chip-list {
   position: relative;
   list-style: none;
-  margin: 0 0 calc(-1 * var(--scroll-gap));   /* keeps the row centred */
-  padding: 0 0 var(--scroll-gap);             /* keeps the scrollbar off the chips */
+  /* The row clips what sticks out: 4px of room around the chips for the
+     focus ring (taken back by the margins), and below them for the scrollbar */
+  margin: -4px -4px calc(-1 * var(--scroll-gap));   /* keeps the row centred */
+  padding: 4px 4px var(--scroll-gap);               /* keeps the scrollbar off the chips */
   display: flex;
   gap: 6px;
   flex: 1;
@@ -990,6 +1056,16 @@ kbd {
   cursor: pointer;
 }
 .scale-note.root { outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
+/* The root keeps its own teal ring when it has the focus: the focus ring is
+   drawn around it, as one more ring */
+.scale-note.root:focus-visible::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border: 2px solid var(--accent);
+  border-radius: var(--r-pill);
+  pointer-events: none;
+}
 .scale-note.octave { background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }
 /* Each note's interval, a badge on its corner like the chord's on the neck */
 .scale-deg {
@@ -1025,12 +1101,6 @@ kbd {
 
 .scale-gap > span { font-size: var(--fs-xs); font-weight: 800; line-height: 18px; color: var(--muted); white-space: nowrap; }
 
-/* Thin, rounded scrollbars for the sideways-scrolling rows */
-.neck-scroll, .np-notes, .chip-list, .scale-chain, .sheet-body {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
-}
-
 /* Optical centring of pill text where supported. Trimming only works on a
    block of text, not on the flex pills themselves, so the text of the note
    pills, chips and circles sits in a .tx block cut to its capital letters (cap
@@ -1038,6 +1108,13 @@ kbd {
    the font. Browsers without trimming centre the whole line, as before. */
 .tx { display: block; text-box: trim-both cap alphabetic; }
 .chip, .status, kbd { text-box: trim-both cap alphabetic; }
+/* The same for the buttons' words (in a .tx, or their label spans) and the
+   menus (blocks themselves) */
+.btn-label, .strum-label, .select-btn { text-box: trim-both cap alphabetic; }
+/* The instrument button's two names are cut short with "…", so they clip
+   at their edges: cut to the capitals, they keep room around them for
+   accents and tails (padding, taken back by the margins) */
+.inst-name, .inst-tuning { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
 
 /* ==========================================================================
    Dock (phones): shape bar + tabs fixed at the bottom; a tab opens its panel
@@ -1052,7 +1129,7 @@ kbd {
   z-index: 2;   /* in front of the sheet as it slides down behind it */
   padding: var(--sp-2) var(--gutter) env(safe-area-inset-bottom);
   background: var(--panel);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 /* Recent chords: a slim row of chips that scrolls sideways if it must */
@@ -1063,10 +1140,10 @@ kbd {
   min-width: 0;
   display: flex;
   gap: 6px;
-  /* A little room inside the scrolling edge (taken back by the margin), so
-     the clip never shaves the round ends of a chip, whatever the pixel ratio */
-  margin: -2px;
-  padding: 2px;
+  /* Room inside the scrolling edge (taken back by the margin), so the clip
+     never shaves the round ends of a chip, nor its focus ring */
+  margin: -4px;
+  padding: 4px;
   list-style: none;
   overflow-x: auto;
   scrollbar-width: none;
@@ -1103,7 +1180,7 @@ kbd {
 /* Phones: a little tighter, so eight short chords fit on most screens */
 .dock-recent .recent-chips { gap: 5px; }
 .dock-recent .chip.recent { padding: 0 10px; }
-.dock-recent li.on .chip.recent { padding-right: 6px; }
+.dock-recent li.on .chip.recent, .dock-recent li.trail .chip.recent { padding-right: 6px; }
 /* The chord on screen: its chip and an × to remove it, as one pink pill */
 .recent-chips li.on { display: flex; align-items: center; border-radius: var(--r-pill); background: var(--chord); }
 .recent-chips li.on .chip { padding-right: 6px; background: transparent; }   /* the pill paints it: a short chip's own, tighter rounding would show at the left end */
@@ -1122,6 +1199,39 @@ kbd {
   cursor: pointer;
 }
 .recent-remove .ico { width: 12px; height: 12px; }
+.recent-remove:focus-visible { outline: 2px solid var(--chord-text); outline-offset: 1px; }   /* inside the pink pill: a white ring */
+/* The recent chords, after a thin line: dashed outlines (they come and go
+   by themselves), each with a + to put it in the list; the chord on screen
+   in pink */
+.recent-sep { flex: none; align-self: center; width: 1px; height: 20px; margin: 0 3px; background: var(--divider); }
+.recent-chips li.trail { position: relative; display: flex; align-items: center; border-radius: var(--r-pill); }
+/* Its dashed edge: drawn (a browser's dashed line has short dashes, close
+   to dots), along the pill's edge */
+.trail-edge { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.trail-edge rect { fill: none; stroke: color-mix(in srgb, var(--muted) 60%, transparent); stroke-width: 1; stroke-dasharray: var(--dash, 6 4); }
+.recent-chips li.trail .chip { padding-right: 6px; background: transparent; color: var(--muted); }
+.recent-chips li.trail.bare .chip { padding-right: 14px; }   /* no + (the list is full) */
+.dock-recent .recent-chips li.trail.bare .chip { padding-right: 10px; }
+.recent-chips li.trail.on { background: transparent; }   /* (not the list's pink pill) */
+.recent-chips li.trail.on .trail-edge rect { stroke: var(--chord); stroke-dasharray: none; }   /* the chord on screen: a solid pink edge (hovering one: dashed pink) */
+.recent-chips li.trail.on .chip { color: var(--chord); }
+.recent-pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+.recent-pin .ico { width: 12px; height: 12px; }
+.recent-chips li.trail.on .recent-pin { background: color-mix(in srgb, var(--chord) 20%, transparent); color: var(--chord); }
+.recent-pin:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Reordering: hold a chip (or drag it with a mouse). It lifts out of the
    row, bigger and with a shadow, and follows the pointer (a copy above
    everything, so the row does not clip it); a dashed slot shows where it
@@ -1130,25 +1240,22 @@ kbd {
 .recent-chips.reordering li { cursor: grabbing; }
 .recent-chips li.dragging { border-radius: var(--r-pill); background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--chord) 70%, transparent); }
 .recent-chips li.dragging > * { visibility: hidden; }
-.chip-ghost {
+.chip-lift, .chip-lift.dock-recent {
   position: fixed;
+  left: 0;
   z-index: 50;
-  display: flex;
-  align-items: center;
+  display: block;
+  height: auto;
   margin: 0;
-  list-style: none;
-  border-radius: var(--r-pill);
-  background: var(--kbd-bg);
-  box-shadow: 0 10px 24px rgb(0 0 0 / 0.55), 0 0 0 2px var(--chord);
   pointer-events: none;
-  transform-origin: center;
   cursor: grabbing;
+  /* (script.js: its top is the row's, moved along it under the pointer,
+     grown around the point it is held by) */
 }
-.chip-ghost.on { background: var(--chord); }
-.chip-ghost .chip { background: transparent; color: var(--text); }
-.chip-ghost.on .chip { color: var(--chord-text); }
-.chip-ghost.dock .chip.recent { padding: 0 10px; }
-.chip-ghost.on .chip.recent { padding-right: 6px; }
+.chip-lift .recent-chips { display: block; margin: 0; padding: 0; overflow: visible; }
+.chip-lift .recent-chips li { display: flex; align-items: center; width: max-content; border-radius: var(--r-pill); box-shadow: 0 10px 24px rgb(0 0 0 / 0.55); transition: none; }
+.chip-lift .recent-chips li.pinned { box-shadow: 0 10px 24px rgb(0 0 0 / 0.55), 0 0 0 2px var(--chord); }   /* a list chip: a pink ring too (a recent one has its own edge) */
+.chip-lift .recent-chips li.trail, .chip-lift .recent-chips li.trail.on { background: var(--panel); }   /* a recent one: filled, nothing showing through it */
 .recent-clear {   /* a bin: start the list over (not an ×, which removes one chord) */
   flex: none;
   display: grid;
@@ -1165,6 +1272,7 @@ kbd {
 }
 .recent-clear .ico { width: 15px; height: 15px; }
 .recent-line { display: none; }   /* phones: the dock has the recent chords */
+.quick-bar { display: none; }   /* phones: the dock is the quick bar */
 .dock-shape { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-1); }
 .dock-shape[hidden] { display: none; }   /* no chord selected: only the tabs */
 .dock-shape-info {
@@ -1251,7 +1359,7 @@ kbd {
   flex-direction: column;
   overflow: hidden;   /* the panels scroll below the handle (.sheet-body) */
   background: var(--panel);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
   transform: translateY(100%);   /* closed: slid down behind the dock bar */
@@ -1277,6 +1385,9 @@ kbd {
 /* The handle and the panel titles can be dragged down to close the sheet */
 .sheet-close, .sheet .panel-head { touch-action: none; }
 .sheet-close span { width: 40px; height: 5px; border-radius: var(--r-pill); background: var(--border); }
+/* The sheet clips at its edges: the focus ring goes around the handle itself */
+.sheet-close:focus-visible { outline: none; }
+.sheet-close:focus-visible span { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* Phones in portrait: Strum becomes a square play button to leave room for the tab */
 @media (max-width: 429px) {
@@ -1315,7 +1426,7 @@ kbd {
   justify-content: space-between;
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
 .picker-head .btn { border-color: transparent; color: var(--muted); }
 .picker-body {
@@ -1325,15 +1436,22 @@ kbd {
   overflow-y: auto;
   overscroll-behavior: contain;   /* scrolling the list to its end does not scroll the page */
 }
+/* A list that runs down to the popup's bottom edge stops short of its round
+   corners (most of the room under the last tiles is outside the scrolling
+   list rather than inside it), so its scrollbar is never cut by them; what
+   stays inside is the room for a tile's focus ring. The other popups end
+   with their buttons, under the list. */
+.picker-body:last-child { padding-bottom: 4px; margin-bottom: calc(var(--r-xl) - 1px); }   /* the corner's radius, inside the popup's border */
 /* While a popup is open the page behind it stays put (the gutter keeps a
    desktop scrollbar's room, so nothing shifts) */
 html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* Section heading with a thin line running to the right */
 .picker-note { display: flex; align-items: center; gap: 7px; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); }
 .picker-note::before { flex: none; }
+.picker-note.empty::before { display: none; }   /* no tile has the dot: no dot to explain */
 .picker-label { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
 /* Section titles centred between two thin lines */
-.picker-label::before, .picker-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.picker-label::before, .picker-label::after { content: ""; flex: 1; height: 1px; background: var(--divider); }
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-2); }
 
 /* Tiles: name on top; notes underneath, with the pink symbol tag beside them */
@@ -1357,6 +1475,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .pick-name {
   grid-column: 1 / -1;                 /* the name gets the whole top line, up to two lines */
   min-width: 0;
+  padding-top: 2px; margin-top: -2px;  /* room inside the clip for an accent on a capital (É), the text where it was */
+  overflow-wrap: anywhere;             /* a long word (a saved tuning's name) breaks rather than runs out */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1379,6 +1499,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   grid-row: 2;
   grid-column: 1;
   min-width: 0;
+  padding: 1px 0; margin: -1px 0;      /* room inside the clip for accents and tails, the text where it was */
   font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -1407,6 +1528,43 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .pick.fits::after { position: absolute; top: 7px; right: 7px; }
 .picker-grid:not(.roots) .pick.fits .pick-name { padding-right: 12px; }   /* long names stay clear of the dot */
 .pick.selected .pick-sub { color: color-mix(in srgb, var(--text) 75%, transparent); }
+/* An icon before the name: the Custom tile's pencil (it opens the Tuning
+   popup), a saved tuning's bookmark. The name wraps under itself, not under
+   the icon; the icon sits level with the middle of the name's capitals
+   (on the baseline, then down by half its height less half a capital) */
+.pick-name.with-icon { display: flex; align-items: baseline; gap: 6px; }
+.pick-text {
+  min-width: 0;
+  padding-top: 2px; margin-top: -2px;  /* (as .pick-name) */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.pick-icon { flex: none; display: inline-flex; color: var(--muted); transform: translateY(calc(7.5px - 0.5cap)); }
+.pick-icon .ico { width: 15px; height: 15px; }
+.pick.selected .pick-icon { color: var(--text); }
+/* A tile with an × to remove it (a saved tuning): the × in its corner */
+.pick-wrap { position: relative; display: grid; }
+.pick-wrap .pick-name { padding-right: 26px; }   /* the name stays clear of the × */
+.pick-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pick-remove .ico { width: 14px; height: 14px; }
+.pick-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
 .pick:active { filter: brightness(1.15); }
 
 /* Root picker: a grid of the 12 notes */
@@ -1414,7 +1572,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .roots .pick { position: relative; height: 56px; justify-items: center; padding: 0; font-size: var(--fs-lg); font-weight: 700; }
 /* The other name of a black key (D♭ / C♯), tucked under the name, so every
    tile's main name sits at the same height */
-.roots .pick .pick-sub { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1; }
+.roots .pick .pick-sub { position: absolute; left: 0; right: 0; bottom: 4px; padding: 2px 0; text-align: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1; }
 
 /* ==========================================================================
    Hover effects only where there is a real pointer (no "stuck" hover after
@@ -1425,11 +1583,17 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn.primary:not(:disabled):hover { filter: brightness(1.08); }
   .about-link.support:hover { border-color: var(--chord); background: color-mix(in srgb, var(--chord) 12%, transparent); }   /* stays pink */
   .btn:not(:disabled):active { filter: none; }
-  .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+  .select-btn:not(:disabled):hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
-  .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
+  .pick-remove:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }   /* the × to delete */
+  .btn.danger:not(:disabled):hover { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+  .pill-toggle:not(:disabled):hover, .pill-select:not(:disabled):hover { border-color: var(--accent); }
   .lk-row:not(:disabled):hover { border-color: var(--tone); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
+  /* A recent chip: its dashed edge lights up, not a ring inside it */
+  .recent-chips li.trail .chip:hover { box-shadow: none; }
+  .recent-chips li.on .chip:hover { box-shadow: none; }   /* the chord on screen's list chip: already lit, no ring inside its pill */
+  .recent-chips li.trail:hover .trail-edge rect { stroke: var(--chord); }
   .group-chip:hover { box-shadow: inset 0 0 0 1px var(--scale); }   /* scale groups: the scale's colour */
   .cell:hover { box-shadow: inset 0 0 0 99px var(--hover); }
   .cell.behind:hover, .cell.no-string:hover { box-shadow: none; }
@@ -1478,7 +1642,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .h1-sub { display: inline; }
   .btn.deselect { width: auto; padding: 0 14px; }
   .btn-label { display: inline; }
-  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
+  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }
+  .btn.tune-save { width: auto; padding: 0 14px; }   /* the bookmark and "Save" */
+  /* A long tuning name (a saved one) is cut short in the neck's header */
+  #tuningSelect { max-width: 220px; }
+  .neck-title .inst-tuning { max-width: 220px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }
@@ -1490,6 +1658,86 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .neck-panel .panel-head { margin-bottom: var(--sp-3); min-height: 32px; }
   .neck-panel h2 { font-size: var(--fs-lg); }
   .neck-scroll { padding-bottom: var(--scroll-gap); }
+  /* Before script.js draws the neck, its room is kept (six strings, the
+     usual case), so the panels below do not jump down when it appears */
+  .neck:empty { min-height: calc(var(--ruler-row) + 6 * var(--row-h)); }
+
+  /* Quick bar: the bottom of the neck panel, edge to edge (the panel's side
+     and bottom padding taken back), with the chord list, the chord's shapes
+     and the scale's groups (the phone dock's list and shape bar, moved here
+     by placeSettings, and the groups' own bar). It stays in its place: on
+     a short window the whole screen is left to the neck. */
+  .quick-bar:not([hidden]) {
+    display: block;
+    container-type: inline-size;
+    margin: var(--sp-2) -20px calc(-1 * var(--sp-4));
+    padding: var(--sp-3) 20px;
+    border-top: 1px solid var(--divider);
+    border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);   /* the panel's corners, inside its border */
+    background: var(--panel);
+  }
+  /* Room for it: the list on its own row, the steppers under it, side by
+     side (one row when there is room, below) */
+  .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button scrolls its panel to the top, with this room above */
+  .quick-inner { display: grid; grid-template-columns: minmax(0, auto) minmax(var(--sp-5), 1fr) minmax(0, auto); align-items: center; gap: var(--sp-3) 0; }
+  .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; }
+  /* A stepper keeps its arrows close to what they step through: the shape
+     (or group) takes up to 200px. The chord's on the left, the groups' on
+     the right, under the end of the list */
+  .quick-inner .dock-shape { min-width: 0; margin: 0; }
+  .quick-inner .dock-shape-info { flex: 0 1 auto; width: 200px; }   /* (a width, not a flex basis: the steppers' columns are sized from it) */
+  .quick-inner #dockShapeBar { grid-column: 1; order: 1; }
+  .quick-inner #quickGroupBar { grid-column: 3; order: 3; }
+  /* Alone on its row, a stepper has the whole row, from the left */
+  .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]), .quick-inner #dockShapeBar[hidden] + #quickGroupBar { grid-column: 1 / -1; justify-self: start; }
+  /* When the two come close (a narrow window), a thin line halfway between
+     them keeps the chord's buttons apart from the groups' (on their row:
+     placed between them, see order) */
+  .quick-inner::after { content: ""; grid-column: 2; order: 2; justify-self: center; width: 1px; height: 28px; background: var(--divider); visibility: hidden; }
+  .quick-inner:has(> #dockShapeBar[hidden], > #quickGroupBar[hidden])::after { display: none; }
+  /* One row: the list, then the steppers, each after a thin line. With
+     both steppers, once everything fits at its full width; with only one,
+     on narrower windows already (a phone on its side), rather than leave
+     half of the second row empty */
+  @container (min-width: 1100px) {
+    .quick-inner { display: flex; gap: var(--sp-4); }
+    .quick-inner::after { display: none; }   /* the lines are the steppers' own */
+    .quick-inner .dock-recent { flex: 1 1 0; min-width: 0; }
+    .quick-inner #dockShapeBar, .quick-inner #quickGroupBar,
+    .quick-inner #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
+    .quick-inner .dock-shape-info { flex: none; width: 200px; }
+    .quick-inner #dockRecent[hidden] + #dockShapeBar,
+    .quick-inner #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
+  }
+  @container (min-width: 600px) {
+    .quick-inner:has(> .dock-shape[hidden]) { display: flex; gap: var(--sp-4); }
+    .quick-inner:has(> .dock-shape[hidden])::after { display: none; }   /* the lines are the steppers' own */
+    .quick-inner:has(> .dock-shape[hidden]) .dock-recent { flex: 1 1 0; min-width: 0; }
+    .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar, .quick-inner:has(> .dock-shape[hidden]) #quickGroupBar,
+    .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
+    .quick-inner:has(> .dock-shape[hidden]) .dock-shape-info { flex: none; width: 200px; }
+    .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar,
+    .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
+  }
+  /* Both steppers less than about 120px apart (their full width is about
+     760px): the line shows between them */
+  @container (max-width: 879px) {
+    .quick-inner::after { visibility: visible; }
+  }
+  /* Short of room (a small window, a phone on its side): Strum and Play
+     become square buttons, as on phones held upright, and the shapes' and
+     groups' names give way if they must. With both steppers, when they no
+     longer fit side by side at their full width; with one, while it shares
+     its row with the list */
+  @container (max-width: 779px) {
+    .quick-inner:not(:has(> .dock-shape[hidden])) .strum-label { display: none; }
+    .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
+    .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape-info { flex: 1 1 auto; }
+  }
+  @container (min-width: 600px) and (max-width: 699px) {
+    .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .strum-label { display: none; }
+    .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
+  }
 
   /* Settings as a row of compact pills in the neck's header */
   .settings, .switch-row { display: flex; flex-wrap: wrap; align-items: center; }

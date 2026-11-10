@@ -85,14 +85,36 @@ function customTuning(id) {
   const strings = typeof state === 'object' && state && state.custom && state.custom[id];
   return strings ? { id: 'custom', name: tuningNotes(strings, state.flats), short: 'Custom', custom: true, strings } : null;
 }
+/* Saved tunings: custom tunings kept under a name, any number per
+   instrument (state.saved: { instrument: [{ name, strings }] }), in the
+   order saved. They are treated as presets: picked from the tuning menu,
+   matched by their notes (a custom tuning, or a link's, that lands on one
+   is that one). Their id is their notes; a link holds only the notes. */
+const NAME_MAX = 24;
+const savedId = (strings) => `saved:${customText(strings)}`;
+function savedTunings(id, saved = typeof state === 'object' && state ? state.saved : {}) {
+  return ((saved && saved[id]) || []).map((t) => ({ id: savedId(t.strings), name: t.name, short: t.name, saved: true, strings: t.strings }));
+}
+/* A name as typed: spaces at either end and runs of spaces trimmed, and the
+   invisible characters that could upset the page (controls, text direction
+   overrides) left out */
+function cleanName(name) {
+  if (typeof name !== 'string') return '';
+  const text = name.replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim();
+  return Array.from(text).slice(0, NAME_MAX).join('').trim();   // (by character: an emoji is not cut in half)
+}
 /* The preset tuning with these open strings, if any (a custom tuning that
-   lands on one is that one) */
-const matchPreset = (id, strings) => tuningsOf(id).find((t) => t.strings.length === strings.length && t.strings.every((m, i) => m === strings[i])) || null;
+   lands on one is that one), else the saved one */
+const sameStrings = (t, strings) => t.strings.length === strings.length && t.strings.every((m, i) => m === strings[i]);
+const matchPreset = (id, strings) => tuningsOf(id).find((t) => sameStrings(t, strings)) || null;
+const matchTuning = (id, strings, saved) => matchPreset(id, strings) || savedTunings(id, saved).find((t) => sameStrings(t, strings)) || null;
 /* An instrument in one of its tunings (the standard one if none or unknown) */
 function tunedInstrument(id, tuningId = 'standard') {
   const inst = findInstrument(id);
   const list = tuningsOf(id);
-  const tuning = (tuningId === 'custom' && customTuning(id)) || list.find((t) => t.id === tuningId) || list[0];
+  const tuning = (tuningId === 'custom' && customTuning(id))
+    || (String(tuningId).startsWith('saved:') && savedTunings(id).find((t) => t.id === tuningId))
+    || list.find((t) => t.id === tuningId) || list[0];
   return { ...inst, strings: tuning.strings, tuning };
 }
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
@@ -655,8 +677,9 @@ if (typeof module !== 'undefined') {
 }
 
 /* ==========================================================================
-   3. State (instrument, switches, capo, chord and scale are saved to
-   localStorage; the voicing and the shape shown are not)
+   3. State (instrument, switches, chord and scale are saved to
+   localStorage, the tuning and the capo for each instrument; the voicing
+   and the shape shown are not)
    ========================================================================== */
 function defaultState() {
   return {
@@ -668,11 +691,12 @@ function defaultState() {
     leftHanded: false,                // mirror the neck
     octaves: false,
     tuning: {},                       // tuning id per instrument ('custom': your own)
+    capo: {},                         // fret of the capo per instrument (none: left out)
     custom: {},                       // your own tuning per instrument: open string pitches
+    saved: {},                        // saved tunings per instrument: [{ name, strings }]
     chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
-    recent: [],                       // the chord list [{ root, type, shapes }], shared by all instruments: none, or 2 or more
-    solo: null,                       // the chord before there is a list (its shapes), the list's first chip to be
-    capo: 0,                          // fret of the capo, 0 = none (all instruments)
+    list: [],                         // the chord list, as built [{ root, type, voicings, shapes }], shared by all instruments
+    recent: [],                       // the last chords used that are not in it (RECENT_KEEP kept, RECENT_MAX shown), newest first
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
     scale: { on: false, root: 0, type: null },
@@ -700,15 +724,25 @@ function loadState() {
     }
     if (readInstrument(work.instrument)) s.instrument = work.instrument;
     for (const { id } of INSTRUMENTS) {
+      // Saved tunings: each with a name and its notes, none twice
+      for (const e of Array.isArray(work.saved && work.saved[id]) ? work.saved[id] : []) {
+        const name = cleanName(e && e.name);
+        const notes = e && readCustom(id, e.tuning);
+        if (!name || !notes || savedTunings(id, s.saved).some((t) => sameStrings(t, notes))) continue;
+        (s.saved[id] = s.saved[id] || []).push({ name, strings: notes });
+      }
       const strings = readCustom(id, work.custom && work.custom[id]);
       if (strings) s.custom[id] = strings;
       const t = work.tuning && work.tuning[id];
-      if (t === 'custom' ? strings : readTuning(id, t)) s.tuning[id] = t;
-      const preset = strings && matchPreset(id, strings);
-      if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset: that one
+      const known = t === 'custom' ? strings
+        : String(t).startsWith('saved:') ? savedTunings(id, s.saved).some((x) => x.id === t) : readTuning(id, t);
+      if (known) s.tuning[id] = t;
+      const preset = strings && matchTuning(id, strings, s.saved);
+      if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset (or a saved one): that one
+      // (one capo for all instruments, as it was first saved: the instrument on screen keeps it)
+      const c = readCapo(typeof work.capo === 'number' ? (id === s.instrument ? work.capo : 0) : work.capo && work.capo[id], id);
+      if (c) s.capo[id] = c;
     }
-    const c = readCapo(work.capo);
-    if (c !== null) s.capo = c;
     const chord = readChord(work.chord);
     if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id } : { on: false, root: chord.root, type: null };
     const scale = readScale(work.scale);
@@ -717,17 +751,22 @@ function loadState() {
       const r = e && readChord(e.chord);
       return r && r.def ? { root: r.root, type: r.def.id, used: Number(e.used) || 0, voicings: readVoicings(e.voicings), shapes: readShapes(e.shapes) } : null;
     };
+    const known = (r) => [...s.list, ...s.recent].some((x) => x.root === r.root && x.type === r.type);
+    // As saved before there were recent chords, every chord kept was in the
+    // list (made as you went): they all stay in it, the lone chord before a
+    // list (solo) is the recent one
+    const recent = Array.isArray(work.recent) ? work.recent : work.solo ? [work.solo] : [];
     for (const e of Array.isArray(work.list) ? work.list : []) {
       const r = entry(e);
-      if (!r || s.recent.length >= RECENT_MAX || s.recent.some((x) => x.root === r.root && x.type === r.type)) continue;
-      s.recent.push(r);
+      if (r && s.list.length < LIST_MAX && !known(r)) s.list.push(r);
+    }
+    for (const e of recent) {
+      const r = entry(e);
+      if (r && s.recent.length < RECENT_KEEP && !known(r)) s.recent.push(r);
     }
     // Which was used last, as saved: all before this visit's picks (negative)
     s.recent.map((r, i) => [r, i]).sort(([a, i], [b, j]) => a.used - b.used || i - j)
-      .forEach(([r], rank) => { r.used = rank - RECENT_MAX; });
-    s.solo = entry(work.solo);
-    if (s.solo) s.solo.used = -RECENT_MAX - 1;
-    settleList(s);   // never a list of one
+      .forEach(([r], rank) => { r.used = rank - RECENT_KEEP; });
   } catch {
     /* storage unavailable or corrupt: keep defaults */
   }
@@ -736,7 +775,7 @@ function loadState() {
 
 function saveState() {
   const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, share } = state;
-  const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the chip unused longest
+  const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
   const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), voicings: r.voicings, shapes: r.shapes });
   const saved = {
     v: SAVE_VERSION,
@@ -745,11 +784,13 @@ function saveState() {
       instrument: state.instrument,
       tuning: state.tuning,
       custom: Object.fromEntries(Object.entries(state.custom).map(([id, strings]) => [id, customText(strings)])),
+      saved: Object.fromEntries(Object.entries(state.saved).filter(([, list]) => list.length)
+        .map(([id, list]) => [id, list.map((t) => ({ name: t.name, tuning: customText(t.strings) }))])),
       capo: state.capo,
       chord: state.chord.on ? chordText(state.chord.root, findChord(state.chord.type)) : noteToken(plainNote(state.chord.root, state.flats)),
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
-      list: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
-      solo: state.solo && entry(state.solo),
+      list: state.list.map(entry),
+      recent: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
     },
   };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
@@ -814,9 +855,10 @@ function readCustom(inst, text) {   // → open string pitches, or null when wro
   });
   return strings.every((m, i) => m !== null && Math.abs(m - base[i]) <= CUSTOM_RANGE) ? strings : null;
 }
-function readCapo(value) {
+const maxCapo = (inst) => Math.min(MAX_CAPO, findInstrument(inst).frets - SHAPE_SPAN);   // a hand's width of frets stays
+function readCapo(value, inst) {
   const c = Number(value);
-  return Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : null;
+  return Number.isInteger(c) && c >= 0 && c <= maxCapo(inst) ? c : null;
 }
 // A chip's remembered voicings: { instrument: voicing }
 function readVoicings(value) {
@@ -854,7 +896,7 @@ const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
 /* A chord of the link, alone or in the list, with the shape on screen (or
    its chip's), when not the first one and only with the neck */
 function chordToken(root, def, neck) {
-  const entry = [...recentList(), state.solo].find((r) => r && r.root === root && r.type === def.id);
+  const entry = chipEntry(root, def.id);
   const shown = state.chord.on && root === state.chord.root && def.id === state.chord.type;
   const shapes = !neck ? [] : shown ? currentChord().shapes : chordShapes(root, def, chipVoicing(entry, def));
   const at = shown ? currentChord().index : rememberedShape(entry);
@@ -869,7 +911,7 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   const inst = instrument();
   if (neck) {
     p.set('instrument', state.instrument);
-    if (inst.tuning.custom) p.set('tuning', customText(inst.strings));   // your own: its notes
+    if (inst.tuning.custom || inst.tuning.saved) p.set('tuning', customText(inst.strings));   // your own (saved or not): its notes, not its name
     else if (inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
     if (capo()) p.set('capo', String(capo()));
   }
@@ -878,8 +920,8 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   const voicing = state.voicing[state.instrument];
   if (neck && chord && state.chord.on && voicing !== DEFAULT_VOICING[state.instrument]) p.set('voicing', voicing);
   if (chord && state.chord.on) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
-  if (recent && state.recent.length) {
-    p.set('list', state.recent.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
+  if (recent && state.list.length) {
+    p.set('list', state.list.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
   }
   if (scale && state.scale.on) {
     const def = findScale(state.scale.type);
@@ -903,13 +945,13 @@ function applyLink(search, parts = null) {
   if (neck && readInstrument(p.get('instrument'))) {
     state.instrument = p.get('instrument');
     // A custom tuning (its notes) takes the custom tuning's place, unless it
-    // is a preset's notes: then that preset
+    // is a preset's notes, or a saved tuning's: then that one
     const strings = readCustom(state.instrument, p.get('tuning'));
-    const preset = strings && matchPreset(state.instrument, strings);
+    const preset = strings && matchTuning(state.instrument, strings);
     if (strings && !preset) state.custom[state.instrument] = strings;
     state.tuning[state.instrument] = preset ? preset.id : strings ? 'custom' : readTuning(state.instrument, p.get('tuning')) || 'standard';
   }
-  if (neck) state.capo = readCapo(p.get('capo') || 0) || 0;
+  if (neck) setCapo(readCapo(p.get('capo') || 0, state.instrument) || 0);
   const chord = readChord(p.get('chord'));
   if (take('chord')) {
     if (chord && chord.def) state.chord = { on: true, root: chord.root, type: chord.def.id };
@@ -927,17 +969,18 @@ function applyLink(search, parts = null) {
   const ch = neck && take('chord') && chord && chord.frets ? currentChord() : null;
   const at = ch ? ch.shapes.findIndex((shape) => fretsText(shape.frets) === chord.frets) : -1;
   if (at > 0) state.shape = at;
-  // The chord list: it replaces yours, each chord on the shape it was shared with
-  // (fewer than 2 chords is no list: yours stays)
+  // The chord list: it replaces yours, each chord on the shape it was shared
+  // with (no chord in it: yours stays). The recent chords stay, less those
+  // now in the list.
   if (take('recent') && p.has('list')) {
     const list = [];
     for (const item of p.get('list').split('_')) {
       const c = readChord(item);
-      if (!c || !c.def || list.length >= RECENT_MAX) continue;
+      if (!c || !c.def || list.length >= LIST_MAX) continue;
       if (list.some((r) => r.root === c.root && r.type === c.def.id)) continue;
       // its shape, for the neck it was shared with (without it, the first),
       // in the voicing that lists it: the link's, the default, or another
-      const entry = { root: c.root, type: c.def.id, used: ++recentClock, shapes: {}, voicings: {} };
+      const entry = { root: c.root, type: c.def.id, shapes: {}, voicings: {} };
       const tries = [p.get('voicing'), DEFAULT_VOICING[state.instrument], ...VOICINGS].filter((v) => VOICINGS.includes(v));
       const voicing = c.frets && neck && tries.find((v) => chordShapes(c.root, c.def, voicingFor(c.def, v)).some((shape) => fretsText(shape.frets) === c.frets));
       if (voicing) {
@@ -946,9 +989,9 @@ function applyLink(search, parts = null) {
       }
       list.push(entry);
     }
-    if (list.length > 1) {
-      state.recent = list;
-      state.solo = null;
+    if (list.length) {
+      state.list = list;
+      state.recent = state.recent.filter((r) => !list.some((x) => x.root === r.root && x.type === r.type));
     }
   }
   if (!take('chord')) recallChip();   // your own chord, as its chip remembers it
@@ -985,19 +1028,19 @@ function linkPreview(search, has) {
   const mine = state;
   const mySetup = setupText();
   state = JSON.parse(JSON.stringify(mine));
-  state.recent = [];   // the list shown is the link's, not yours
+  state.list = [];   // the list shown is the link's, not yours
   try {
     applyLink(search);
     const ch = currentChord();
     const sc = currentScale();
-    if (has.recent && !state.recent.length) has.recent = false;   // no list in the link after all
+    if (has.recent && !state.list.length) has.recent = false;   // no list in the link after all
     // Yours goes if you have one and the link's differs (a neck, you always have)
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    const chords = (s) => s.recent.map((r) => [r.root, r.type]);
+    const chords = (s) => s.list.map((r) => [r.root, r.type]);
     const loses = (has.neck && setupText() !== mySetup)
       || (has.chord && mine.chord.on && !same(mine.chord, state.chord))
       || (has.scale && mine.scale.on && !same(mine.scale, state.scale))
-      || (has.recent && chords(mine).some(([root, type]) => !state.recent.some((r) => r.root === root && r.type === type)));   // a chord of yours it drops
+      || (has.recent && chords(mine).some(([root, type]) => !state.list.some((r) => r.root === root && r.type === type)));   // a chord of yours it drops
     return {
       setup: has.neck ? setupText() : null,
       setupParts: has.neck ? setupParts() : null,
@@ -1006,7 +1049,7 @@ function linkPreview(search, has) {
       // null: not in the link (no row), '': none
       chord: has.chord ? (ch ? ch.symbol : '') : null,
       scale: has.scale ? (sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '') : null,
-      list: has.recent ? recentNames() : null,
+      list: has.recent ? listNames() : null,
       loses,
     };
   } finally {
@@ -1037,7 +1080,7 @@ function renderLinkPopup() {
   const rows = [   // [row, part, now, the link's]: text, or a list of chord names
     [els.linkNeck, 'neck', setupText(), preview.setup],
     [els.linkChord, 'chord', ch ? [ch.symbol] : [], preview.chord === null ? null : [preview.chord].filter(Boolean)],
-    [els.linkList, 'recent', recentNames(), preview.list],
+    [els.linkList, 'recent', listNames(), preview.list],
     [els.linkScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '', preview.scale],
   ];
   for (const [row, key, now, link] of rows) {
@@ -1138,14 +1181,14 @@ function linkSummary({ neck = true, chord = true, scale = true, recent = false }
   const ch = chord ? currentChord() : null;
   const sc = scale ? currentScale() : null;
   const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
-  const chords = recent ? recentNames() : [];
-  const list = chords.length > 1 ? `chords ${chords.slice(0, -1).join(', ')} and ${chords[chords.length - 1]}` : '';
+  const chords = recent ? listNames() : [];
+  const list = chords.length > 1 ? `chords ${chords.slice(0, -1).join(', ')} and ${chords[chords.length - 1]}` : chords.length ? `chord list ${chords[0]}` : '';
   const inst = instrument();
   const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
   const on = neck ? ` on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}` : '';
   return `${[what, list].filter(Boolean).join(', ') || 'The neck'}${(what || list) && on ? ',' : ''}${on}`;
 }
-const recentNames = () => state.recent.map((r) => {
+const listNames = () => state.list.map((r) => {
   const def = findChord(r.type);
   return noteText(chordSpelling(r.root, def).root) + def.symbol;
 });
@@ -1182,7 +1225,7 @@ function renderShare() {
   const rows = [   // [row, part, what is on the neck: text, or chord names]
     [els.shareNeck, 'neck', setupText()],
     [els.shareChord, 'chord', ch ? [ch.symbol] : []],
-    [els.shareRecent, 'recent', recentNames()],
+    [els.shareRecent, 'recent', listNames()],
     [els.shareScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : ''],
   ];
   for (const [row, key, value] of rows) {
@@ -1199,14 +1242,14 @@ function renderShare() {
   }
   const opts = shareChoice();
   els.shareGo.disabled = !Object.values(opts).some(Boolean);
-  els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}Share link` : 'Copy link';
+  els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}${tx('Share link')}` : tx('Copy link');
 }
 function shareChoice() {
   return {
     neck: state.share.neck,
     chord: state.share.chord && state.chord.on,
     scale: state.share.scale && state.scale.on,
-    recent: state.share.recent && state.recent.length > 1,
+    recent: state.share.recent && state.list.length > 0,
   };
 }
 async function shareLink() {
@@ -1241,7 +1284,7 @@ function shareDone(copied) {
   clearTimeout(copiedTimer);
   copiedTimer = setTimeout(() => { els.shareStatus.textContent = ''; }, 2000);
   if (!copied) {
-    els.shareGo.textContent = 'Could not copy the link';
+    els.shareGo.innerHTML = tx('Could not copy the link');
     clearTimeout(shareTimer);
     shareTimer = setTimeout(renderShare, 2000);
     return;
@@ -1263,7 +1306,12 @@ let shapeCache = { key: '', shapes: [] };
 
 /* The selected instrument, in its selected tuning */
 const instrument = () => tunedInstrument(state.instrument, state.tuning[state.instrument]);
-const capo = () => state.capo;
+/* The capo, kept per instrument like the tuning: each instrument comes back
+   as it was left */
+const capo = () => state.capo[state.instrument] || 0;
+function setCapo(c) {
+  if (c) state.capo[state.instrument] = c; else delete state.capo[state.instrument];
+}
 
 /* The instrument as it sounds with the capo on: every open string raised,
    fewer frets left. Chord shapes are found on this, so their fret numbers
@@ -1359,36 +1407,58 @@ function updateChord(patch) {   // a chord picked from the menus (or a triad): i
   render();
 }
 
-/* Recent chords, one list for all instruments: a chord joins it as soon as
-   it is shown, in a fixed place so a song's chords stay put while switching
-   between them. Past RECENT_MAX, the one unused longest makes room (saved,
-   so a reload keeps who was used last).
+/* The chord list and the recent chords, for all instruments. The list is
+   the one you build (a song's chords): a chord goes in when you tap the +
+   on its recent chip and out with its × (Clear empties it); nothing joins
+   or leaves it by itself, and Share sends it. The recent chords are the
+   last chords used that are not in it (the chord on screen among them), so
+   you can go back to one: a new one goes first. RECENT_KEEP are kept; the
+   row shows about that many chords in all, so the ones used last fill what
+   the list leaves (a short list, a longer history), never fewer than
+   RECENT_MAX. When one goes into the list, the one used before them shows
+   in its place; past RECENT_KEEP the one unused longest goes (saved, so a
+   reload keeps who was used last). They are never shared.
    The in-between chord of picking a root, then a type, does not pile up: a
-   chip made by picking a root stays open, and if the very next thing you do
-   is pick a type, that edits the same chip. Anything else (another root,
-   strumming or tapping its notes, a shape, a chip, a triad) makes the chip
-   final. Picking only a type always makes a new chip.
+   recent chord made by picking a root stays open, and if the very next
+   thing you do is pick a type, that edits it. Anything else (another root,
+   strumming or tapping its notes, a shape, a chip, a triad, the +) makes it
+   final. Picking only a type always makes a new one.
    Each chip remembers the shape you chose for it, per instrument, tuning,
    capo and voicing (`shapes`): tapping the chip, or coming back to this
    instrument, brings that shape back. Picking the chord from the menus starts
    from its first shape, as always (and the chip remembers that). Shapes only
    change in memory when you choose them, never because a setting reset them. */
-const RECENT_MAX = 10;
+const LIST_MAX = 16;
+const RECENT_MAX = 3;    // recent chords shown, at least
+const RECENT_KEEP = 6;   // ... kept, and the chords the row aims to show in all
 let recentClock = 0;
 let shownChord;          // instrument and chord at the last render
-let openEntry = null;    // the chip a root pick made, which the next type pick may still edit
+let openEntry = null;    // the recent chord a root pick made, which the next type pick may still edit
 let menuPick = '';       // how the chord on screen was just picked: 'root', 'type', 'both' or 'other' (menus)
 let chipPick = false;    // ... or from its chip
 const shapeContext = (def = findChord(state.chord.type), voicing = voicingFor(def)) => [instrument().strings, capo(), voicing].join('|');
-const recentList = () => state.recent;
-const recentEntry = () => state.chord.on &&
-  [...recentList(), state.solo].find((r) => r && r.root === state.chord.root && r.type === state.chord.type);
+// A chord's chip, in the list or the recent chords
+const chipEntry = (root, type) => [...state.list, ...state.recent].find((r) => r.root === root && r.type === type) || null;
+const recentEntry = () => (state.chord.on ? chipEntry(state.chord.root, state.chord.type) : null);   // the chord on screen's
 
-/* The list is never one chord: alone, the chord waits as the solo (its
-   shapes remembered), and becomes the first chip when a second one comes. */
-function settleList(s = state) {
-  if (s.recent.length === 1) [s.solo] = s.recent.splice(0);
-  else if (s.recent.length) s.solo = null;
+// A chord into the recent ones, first; past RECENT_KEEP the one unused longest goes
+function addRecent(entry) {
+  if (!state.recent.includes(entry)) state.recent.unshift(entry);
+  entry.used = ++recentClock;
+  trimRecent();
+}
+function trimRecent() {
+  while (state.recent.length > RECENT_KEEP) {
+    const old = state.recent.reduce((a, b) => (a.used <= b.used ? a : b));
+    state.recent.splice(state.recent.indexOf(old), 1);
+  }
+}
+// The recent chords shown, those used last (in their order): what the list
+// leaves of RECENT_KEEP chords, at least RECENT_MAX
+function shownRecent() {
+  const room = Math.max(RECENT_MAX, RECENT_KEEP - state.list.length);
+  const last = [...state.recent].sort((a, b) => b.used - a.used).slice(0, room);
+  return state.recent.filter((r) => last.includes(r));
 }
 
 /* The shape a chip remembers for the chord on screen, here and now (or the
@@ -1429,15 +1499,9 @@ function rememberShape(entry = recentEntry()) {
 /* Called on every render: what you did is worked out from what changed on
    screen since the last render (the chord, and how it was picked: menuPick,
    chipPick), not reported by each control. Anything that changes the chord
-   must go through updateChord (menus), playRecent (chips) or set those flags,
+   must go through updateChord (menus), playChip (chips) or set those flags,
    or it will count as a plain new chord. */
 function trackChord() {
-  if (!state.recent.length && state.solo) state.recent = [state.solo];   // as a list of one, for a moment
-  trackPick();
-  settleList();
-}
-function trackPick() {
-  const list = recentList();
   const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
   const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
   const setup = [state.instrument, instrument().strings, capo()].join('|');
@@ -1445,11 +1509,14 @@ function trackPick() {
   const how = menuPick;
   const changed = sameInst && (shownChord.key !== key || how !== '');
   const fromChip = chipPick;
+  const first = shownChord === undefined;
   menuPick = '';
   chipPick = false;
   shownChord = { inst: state.instrument, key, setup };
+  // The chord the page opens on (saved, or a link's) has its chip too
+  if (first && state.chord.on && !recentEntry()) addRecent({ root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} });
   if (!changed || !state.chord.on) return;
-  const open = how === 'type' && openEntry && list.includes(openEntry) ? openEntry : null;
+  const open = how === 'type' && openEntry && state.recent.includes(openEntry) ? openEntry : null;
   openEntry = null;
   let entry = recentEntry();
   if (!entry && open) {                // root, then type: the same chip, edited
@@ -1458,22 +1525,22 @@ function trackPick() {
     open.shapes = {};
     open.voicings = {};
     entry = open;
-  } else if (!entry) {                 // a new chord: a new chip
-    if (list.length >= RECENT_MAX) list.splice(list.indexOf(list.reduce((a, b) => (a.used <= b.used ? a : b))), 1);
+  } else if (!entry) {                 // a new chord: a new recent chip
     entry = { root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} };
-    list.push(entry);
     if (how === 'root') openEntry = entry;   // the next type pick may still edit it
   } else if (open && open !== entry) { // root, then type, landing on a chord already there
-    list.splice(list.indexOf(open), 1);
+    state.recent.splice(state.recent.indexOf(open), 1);
   }
-  entry.used = ++recentClock;
+  // Not in the list: one of the recent chords, first when new (a recent
+  // chip tapped stays where it is)
+  if (!state.list.includes(entry)) addRecent(entry);
   if (!fromChip) rememberShape(entry);   // picked from the menus: its first shape
 }
 
 function keepChord() { openEntry = null; }   // strummed, cycled, its notes played: this chip is final
 
-function playRecent(i) {
-  const entry = recentList()[i];
+// A chip tapped: its chord on screen (in the list: data-i, recent: data-r)
+function playChip(entry) {
   if (!entry) return;
   keepChord();
   state.chord = { on: true, root: entry.root, type: entry.type };
@@ -1484,39 +1551,80 @@ function playRecent(i) {
   render();
 }
 
-/* Its chip goes. The chord on screen goes with it: the next chip takes
-   over (the one before at the end of the row), or no chord once the list is
-   empty. */
-function removeRecent(i) {
-  const list = recentList();
-  const entry = list[i];
+/* The + on a recent chip: its chord joins the end of the list (it leaves
+   the recent ones). The chord on screen stays. */
+function pinChord(i) {
+  const entry = state.recent[i];
+  if (!entry || state.list.length >= LIST_MAX) return;
+  if (openEntry === entry) openEntry = null;   // final
+  state.recent.splice(i, 1);
+  state.list.push(entry);
+  render();
+  focusChip(`[data-i="${state.list.length - 1}"]`);
+}
+// The keyboard focus, after a + or an ×: on the chord's chip where it went
+function focusChip(selector) {
+  const row = document.activeElement && document.activeElement.closest && document.activeElement.closest('.recent-chips');
+  const chip = row && row.querySelector(selector);
+  if (chip) chip.focus({ preventScroll: true });
+}
+/* The × on the list's chip of the chord on screen: it leaves the list. The
+   chord stays on screen, so it is back with the recent ones, first. */
+function unpinChord(i) {
+  const entry = state.list[i];
   if (!entry) return;
   const shown = entry === recentEntry();
-  if (openEntry === entry) openEntry = null;
-  list.splice(i, 1);
-  if (shown && list.length) { playRecent(Math.min(i, list.length - 1)); return; }
-  if (shown) chordOff();
+  state.list.splice(i, 1);
+  if (shown) addRecent(entry);
   render();
+  if (shown) focusChip(`[data-r="${state.recent.indexOf(entry)}"]`);
 }
 
-/* Move a chip to another place in the row (by dragging it, or Shift+← / →).
-   Its place only: which chord is on screen, and which was used last, stay. */
+/* Chips dropped in a new order (a drag): the chips before the line are the
+   list, those after it the recent chords. A recent chip dropped among the
+   list's chips joins the list there (as its + would, if there is room); a
+   list chip dropped past the line leaves it, and is one of the recent
+   chords there (the one unused longest making room). `order`: the entries,
+   with LINE where the line is. */
+const LINE = 'line';
+function dropChips(order) {
+  const cut = order.indexOf(LINE);
+  const list = order.slice(0, cut);
+  const recent = order.slice(cut + 1);
+  if (list.length > LIST_MAX) return;   // no room: it goes back
+  for (const r of recent) if (!state.recent.includes(r)) r.used = ++recentClock;   // just put there
+  for (const r of list) if (r === openEntry) openEntry = null;   // in the list: final
+  // (the ones kept out of sight stay, after those shown)
+  const hidden = state.recent.filter((r) => !recent.includes(r) && !list.includes(r));
+  state.list = list;
+  state.recent = [...recent, ...hidden];
+  trimRecent();
+  ui.keepRow = true;
+  render();
+}
+/* Move a list chip to another place in the list (Shift+← / →). Its place
+   only: which chord is on screen, and which was used last, stay. */
 function moveRecent(from, to) {
-  const list = recentList();
+  const list = state.list;
   if (from === to || !list[from] || to < 0 || to >= list.length) return;
   list.splice(to, 0, ...list.splice(from, 1));
   ui.keepRow = true;
   render();
 }
 
-/* Drag a chip to reorder the row. With a finger: press and hold it still
+/* Drag a chip to reorder the row, or across the line between the list and
+   the recent chords (dropChips). With a finger: press and hold it still
    (HOLD_MS), then drag; a quick tap still picks the chord and a swipe still
    scrolls the row. With a mouse or a pen: press and move a few pixels. The
-   chip follows the pointer, the others slide aside to show where it will
-   land, and the row scrolls when the chip nears either end. */
+   chip lifts and moves along the row with the pointer, held where it was
+   pressed, the others
+   slide aside to show where it will land, and the row scrolls when the
+   pointer nears either end. While dragging, the line is there even when one
+   side is empty (at the end of the list, or before the recent chords), so a
+   chip can always cross it. */
 const HOLD_MS = 350;
 function setupChipDrag(row) {
-  let drag = null;   // { li, from, id, x, y, touch, timer, on, items, at, scroll, frame }
+  let drag = null;   // { li, entry, id, x, y, touch, timer, on, items, from, at, scroll, frame, ghost, line }
   let swallowClick = false;
   const stop = () => {
     if (!drag) return;
@@ -1524,6 +1632,7 @@ function setupChipDrag(row) {
     cancelAnimationFrame(drag.frame);
     for (const it of drag.items || []) it.style.transform = '';
     if (drag.ghost) drag.ghost.remove();
+    if (drag.line) drag.line.remove();
     drag.li.classList.remove('dragging');
     row.classList.remove('reordering');
     drag = null;
@@ -1536,17 +1645,31 @@ function setupChipDrag(row) {
     // events already go to the chip it pressed (moving that capture, as
     // Android browsers do, would end the drag at once)
     if (!drag.touch) try { drag.li.setPointerCapture(drag.id); } catch { /* already released */ }
+    if (!row.querySelector(':scope > .recent-sep')) {   // no line: one for the drag
+      drag.line = document.createElement('li');
+      drag.line.className = 'recent-sep';
+      drag.line.setAttribute('aria-hidden', 'true');
+      if (drag.li.classList.contains('trail')) row.prepend(drag.line); else row.append(drag.line);
+    }
     drag.items = [...row.children];
+    drag.from = drag.items.indexOf(drag.li);
     drag.rects = drag.items.map((it) => it.getBoundingClientRect());
     drag.scroll = row.scrollLeft;
     drag.at = drag.from;
     // The chip lifts out of the row (a copy above everything, so nothing
-    // clips it) and leaves an outlined slot where it will land
+    // clips it), held where it was pressed, and leaves an outlined slot
+    // where it will land. The copy sits in a row of its own with the same
+    // classes as its row's (the dock's or the panel's), so it keeps its
+    // look exactly (list or recent, lit or not) until it is dropped.
     const r = drag.rects[drag.from];
-    drag.ghost = drag.li.cloneNode(true);
-    drag.ghost.className = `${drag.li.className} chip-ghost${row === els.dockRecentList ? ' dock' : ''}`;
-    drag.ghost.removeAttribute('id');
-    Object.assign(drag.ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    drag.grab = drag.x - r.left;
+    drag.ghost = document.createElement('div');
+    drag.ghost.className = `chip-lift${row.closest('.dock-recent') ? ' dock-recent' : ''}`;
+    const copyRow = document.createElement('ol');
+    copyRow.className = 'recent-chips';
+    copyRow.append(drag.li.cloneNode(true));
+    drag.ghost.append(copyRow);
+    Object.assign(drag.ghost.style, { top: `${r.top}px`, transformOrigin: `${drag.grab}px 50%` });
     document.body.append(drag.ghost);
     drag.li.classList.add('dragging');
     row.classList.add('reordering');
@@ -1557,25 +1680,25 @@ function setupChipDrag(row) {
       if (speed) { row.scrollLeft += speed; place(); }
       drag.frame = requestAnimationFrame(edge);
     };
-    drag.px = drag.x;
-    place();   // lifted right away
+    place();   // lifted right away, under the pointer
     drag.frame = requestAnimationFrame(edge);
   };
   const place = () => {
     const shift = row.scrollLeft - drag.scroll;   // the row scrolled since the drag began
-    const { rects, from } = drag;
-    const dx = drag.px - drag.x + shift;
-    drag.ghost.style.transform = `translateX(${drag.px - drag.x}px) translateY(-3px) scale(1.12)`;
+    const { rects, from, grab } = drag;
+    // The copy: along the row, the point it is held by under the pointer
+    // (the scale grows it around that point, so it stays there)
+    drag.ghost.style.transform = `translate(${drag.px - grab}px, -3px) scale(1.12)`;
     // Where it lands: past the middle of each chip it is dragged over; its
     // slot moves there
-    const mid = rects[from].left + rects[from].width / 2 + dx;
+    const mid = drag.px - grab + rects[from].width / 2 + shift;
     let at = from;
     while (at < rects.length - 1 && mid > rects[at + 1].left + rects[at + 1].width / 2) at++;
     while (at > 0 && mid < rects[at - 1].left + rects[at - 1].width / 2) at--;
     drag.at = at;
     const slot = at > from ? rects[at].right - rects[from].width : rects[at].left;
     drag.li.style.transform = at === from ? '' : `translateX(${slot - rects[from].left}px)`;
-    const gap = rects.length > 1 ? rects[1].left - rects[0].right : 6;
+    const gap = parseFloat(getComputedStyle(row).columnGap) || 6;
     const size = rects[from].width + gap;
     drag.items.forEach((it, i) => {
       if (i === from) return;
@@ -1583,12 +1706,17 @@ function setupChipDrag(row) {
       it.style.transform = by ? `translateX(${by}px)` : '';
     });
   };
+  // The entries in the row's order, with LINE for the line
+  const entryOf = (li) => {
+    if (li.classList.contains('recent-sep')) return LINE;
+    const chip = li.querySelector('[data-i], [data-r]');
+    return chip.dataset.i !== undefined ? state.list[Number(chip.dataset.i)] : state.recent[Number(chip.dataset.r)];
+  };
   row.addEventListener('pointerdown', (e) => {
-    if (e.button > 0 || drag || e.target.closest('.recent-remove')) return;
+    if (e.button > 0 || drag || e.target.closest('.recent-remove, .recent-pin')) return;
     const li = e.target.closest('li');
-    const chip = li && li.querySelector('[data-i]');
-    if (!chip || recentList().length < 2) return;
-    drag = { li, from: Number(chip.dataset.i), id: e.pointerId, x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', on: false };
+    if (!li || !li.querySelector('[data-i], [data-r]')) return;
+    drag = { li, id: e.pointerId, x: e.clientX, y: e.clientY, px: e.clientX, touch: e.pointerType === 'touch', on: false };
     if (drag.touch) drag.timer = setTimeout(() => { if (drag && !drag.on) begin(); }, HOLD_MS);
   });
   row.addEventListener('pointermove', (e) => {
@@ -1597,16 +1725,21 @@ function setupChipDrag(row) {
       const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
       if (drag.touch) { if (moved > 8) stop(); return; }   // moved before the hold: a swipe
       if (moved < 5) return;
+      drag.px = e.clientX;
       begin();
+      return;
     }
     drag.px = e.clientX;
     place();
   });
   row.addEventListener('pointerup', (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    const { on, from, at } = drag;
+    const { on, from, at, items } = drag;
+    const order = on ? items.map(entryOf) : null;
     stop();
-    if (on) moveRecent(from, at);
+    if (!on || from === at) return;
+    order.splice(at, 0, ...order.splice(from, 1));
+    dropChips(order);
   });
   row.addEventListener('pointercancel', stop);
   row.addEventListener('lostpointercapture', (e) => { if (drag && drag.on && !drag.touch && e.target === drag.li && e.pointerId === drag.id) stop(); });
@@ -1622,7 +1755,7 @@ function setupChipDrag(row) {
   }, true);
   row.addEventListener('pointerdown', () => { swallowClick = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drag && drag.on) { e.stopPropagation(); stop(); } }, true);
-  // Shift+← / → moves the focused chip
+  // Shift+← / → moves the focused list chip
   row.addEventListener('keydown', (e) => {
     const chip = e.target.closest('[data-i]');
     if (!chip || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
@@ -1630,16 +1763,36 @@ function setupChipDrag(row) {
     e.stopPropagation();
     const from = Number(chip.dataset.i);
     const to = from + (e.key === 'ArrowRight' ? 1 : -1);
-    if (to < 0 || to >= recentList().length) return;
+    if (to < 0 || to >= state.list.length) return;
     moveRecent(from, to);
     const moved = row.querySelector(`[data-i="${to}"]`);
     if (moved) moved.focus();
   });
 }
 
-function clearRecent() {   // the list empties, and the chord on screen goes with it
+/* The bin: the list and the recent chords empty, and the chord on screen
+   goes with them. A list of more than two chords is asked about first. */
+function askClearRecent() {
+  if (state.list.length <= 2) { clearRecent(); return; }
+  const names = state.list.map((r) => {
+    const def = findChord(r.type);
+    return noteText(chordSpelling(r.root, def).root) + def.symbol;
+  });
+  els.listClearCount.textContent = `${names.length} chords`;
+  els.listClearNames.innerHTML = lkValue(names, 'win');   // chips, as in the share popup
+  els.listClearRecent.hidden = !shownRecent().length;
+  if (els.listClear.showModal) els.listClear.showModal(); else els.listClear.setAttribute('open', '');
+  els.listClearCancel.focus();
+}
+function closeClearRecent() {
+  if (els.listClear.open) {
+    if (els.listClear.close) els.listClear.close(); else els.listClear.removeAttribute('open');
+  }
+}
+function clearRecent() {
+  closeClearRecent();
+  state.list = [];
   state.recent = [];
-  state.solo = null;
   chordOff();
   render();
 }
@@ -1654,15 +1807,25 @@ function selectShape(index) {
 }
 
 /* Scale groups overlap, so one is picked at a time (ui.group), stepped
-   through like a chord's shapes: the one last picked (ui.groupAt, the fret
-   in its middle), or the first one (nearest the nut) for new groups. */
+   through like a chord's shapes. The place picked on the neck is kept
+   (ui.groupAt: the group's lowest fret, as its chip names it, and the fret
+   in its middle), so the hand stays there when the scale changes (another
+   root or type, tuning or capo): the group that starts at the same fret if
+   there is one, else the nearest (the one whose middle is nearest of two
+   as near). Before any pick, or on another instrument: the first group
+   (nearest the nut). */
 const groupFrets = (g) => [Math.min(...g.bars.map((b) => b.a)), Math.max(...g.bars.map((b) => b.b))];
 const groupMid = (g) => { const [a, b] = groupFrets(g); return (a + b) / 2; };
 function pickGroup(groups) {
   if (!groups.length) return -1;
   if (ui.groupAt === null) return 0;
+  const far = (g) => [Math.abs(groupFrets(g)[0] - ui.groupAt.low), Math.abs(groupMid(g) - ui.groupAt.mid)];
   let best = 0;
-  groups.forEach((g, i) => { if (Math.abs(groupMid(g) - ui.groupAt) < Math.abs(groupMid(groups[best]) - ui.groupAt)) best = i; });
+  groups.forEach((g, i) => {
+    const [low, mid] = far(g);
+    const [bestLow, bestMid] = far(groups[best]);
+    if (low < bestLow || (low === bestLow && mid < bestMid)) best = i;
+  });
   return best;
 }
 function selectGroup(index) {
@@ -1670,12 +1833,13 @@ function selectGroup(index) {
   if (!groups.length) return;
   const i = (index + groups.length) % groups.length;
   stopGroup();
-  ui.groupAt = groupMid(groups[i]);
+  ui.groupAt = { low: groupFrets(groups[i])[0], mid: groupMid(groups[i]) };
   ui.revealGroup = true;
   render();
 }
-/* "Open" (a note at the nut, or at the capo), else its lowest fret */
-const groupPlace = (g, capo) => (g.bars.some((b) => b.a === capo) ? 'open' : `fret ${groupFrets(g)[0]}`);
+/* "Open" (a note at the nut, or at the capo), else its lowest fret, counted
+   from the capo like a chord shape's */
+const groupPlace = (g, capo) => (g.bars.some((b) => b.a === capo) ? 'open' : `fret ${groupFrets(g)[0] - capo}`);
 
 /* ==========================================================================
    4. Sound
@@ -2063,7 +2227,34 @@ const els = {};
 const tx = (s) => `<span class="tx">${esc(s)}</span>`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function render() {
+/* A row redrawn from scratch drops the keyboard focus with its old buttons
+   (the next Enter or Space would do nothing). The focus goes back to the
+   same button of the new row, found by its data- attributes; when that one
+   is gone or switched off (a string at the end of its range, a reset that
+   is no longer needed), to the nearest button of the same item, after it
+   first; else to the row's selected chip, or its first button. */
+const FOCUS_ROWS = '#tuneList, #shapeList, #groupList, #recentList, #dockRecentList, #scaleTriads, #scaleNotes';
+function keepFocus(redraw) {
+  const el = document.activeElement;
+  const row = el && el.closest ? el.closest(FOCUS_ROWS) : null;
+  if (!row) { redraw(); return; }
+  const key = [...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+  const item = el.closest('li');
+  const at = item ? [[...row.children].indexOf(item), [...item.children].indexOf(el)] : null;
+  redraw();
+  if (row.contains(document.activeElement)) return;   // not redrawn after all
+  const usable = (b) => Boolean(b && b.matches('button:not(:disabled)'));
+  let next = key ? row.querySelector(key) : null;
+  if (!usable(next) && at && row.children[at[0]]) {
+    const buttons = [...row.children[at[0]].children];
+    next = buttons.slice(at[1]).find(usable) || buttons.slice(0, at[1]).reverse().find(usable);
+  }
+  if (!usable(next)) next = row.querySelector('button.selected:not(:disabled)') || row.querySelector('button:not(:disabled)');
+  if (next) next.focus({ preventScroll: true });
+}
+
+function render() { keepFocus(draw); }
+function draw() {
   // While no scale is shown, its root follows the chord's: picking a scale
   // type then gives the scale of the chord you are on (A minor pentatonic
   // over A, not C). A root picked for the scale itself stays until the
@@ -2103,29 +2294,47 @@ function revealGroup() {
   revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`))).filter(Boolean));
 }
 
-/* The recent chords, as chips in the dock (phones) and the chord panel
-   (wide screens); shown once there are two to switch between */
+/* The chord list's chips, then (after a thin line) the recent chords',
+   dashed, in the dock (phones), the quick bar (wide screens) and the chord
+   panel. The chord on screen's chip is lit: a list chip has an × to take
+   it out, a recent chip a + to put it in the list. */
+const X_CHIP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+const TRAIL_EDGE = '<svg class="trail-edge" aria-hidden="true"><rect width="100%" height="100%" rx="15" ry="15"/></svg>';   // (rx: half of --recent-h)
+const PLUS_CHIP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 function renderRecent() {
-  const list = recentList();
-  const show = list.length >= 2;
+  const show = state.list.length + state.recent.length > 0;   // (some recent chord is always shown when any is kept)
   els.dockRecent.hidden = !show;
   els.recentLine.hidden = !show;
-  if (!show) return;
-  const html = list.map((r, i) => {
+  updateQuickBar();
+  if (!show) { els.dockRecentList.innerHTML = els.recentList.innerHTML = ''; ui.chipKey = ''; return; }
+  const full = state.list.length >= LIST_MAX;
+  const chip = (r, i, pinned) => {
     const def = findChord(r.type);
     const spell = chordSpelling(r.root, def);
     const on = state.chord.on && r.root === state.chord.root && r.type === state.chord.type;
     const name = noteText(spell.root) + def.symbol;
-    // The chord on screen also gets an × to take it off the list
-    return `<li${on ? ' class="on"' : ''}><button type="button" class="chip recent${on ? ' selected' : ''}" data-i="${i}" aria-pressed="${on}" ` +
-      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}`)}"><span class="tx">${esc(name)}</span></button>` +
-      (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the chord list" ` +
-        `title="Remove ${esc(name)} from the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>` : '') + '</li>';
-  }).join('');
+    const cls = `${pinned ? 'pinned' : 'trail'}${on ? ' on' : ''}${!pinned && full ? ' bare' : ''}`;
+    const tap = `<button type="button" class="chip recent${on ? ' selected' : ''}" ${pinned ? 'data-i' : 'data-r'}="${i}" aria-pressed="${on}" ` +
+      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${pinned ? '' : ', recent'}`)}"><span class="tx">${esc(name)}</span></button>`;
+    // A recent chip: its dashed edge (drawn, for dashes longer than a
+    // browser's dashed line) and its + (none while the list is full)
+    const side = pinned
+      ? (on ? `<button type="button" class="recent-remove" data-remove="${i}" aria-label="Remove ${esc(name)} from the chord list" ` +
+        `title="Remove ${esc(name)} from the chord list">${X_CHIP_ICON}</button>` : '')
+      : (full ? '' : `<button type="button" class="recent-pin" data-pin="${i}" aria-label="Add ${esc(name)} to the chord list" ` +
+        `title="Add ${esc(name)} to the chord list">${PLUS_CHIP_ICON}</button>`);
+    return `<li class="${cls}">${pinned ? '' : TRAIL_EDGE}${tap}${side}</li>`;
+  };
+  const recent = shownRecent();
+  const html = state.list.map((r, i) => chip(r, i, true)).join('')
+    + (state.list.length && recent.length ? '<li class="recent-sep" aria-hidden="true"></li>' : '')
+    + recent.map((r) => chip(r, state.recent.indexOf(r), false)).join('');
   els.dockRecentList.innerHTML = html;
   els.recentList.innerHTML = html;
   scrollHint(els.dockRecentList);
   scrollHint(els.recentList);
+  fitDashes(els.dockRecentList);
+  fitDashes(els.recentList);
   // When the chips change (one picked, added, edited or removed), scroll the
   // row so the selected one shows whole
   const chipKey = html;
@@ -2135,6 +2344,19 @@ function renderRecent() {
     const smooth = ui.chipKey !== undefined;
     ui.chipKey = chipKey;
     requestAnimationFrame(() => { chipInView(els.dockRecentList, smooth); chipInView(els.recentList, smooth); });
+  }
+}
+/* A recent chip's dashes: about 6px with 4px gaps, stretched a little so a
+   whole number of them goes round the edge (else the one where the edge
+   closes comes out shorter). A row out of sight is fitted when it shows. */
+function fitDashes(row) {
+  for (const li of row.querySelectorAll('li.trail')) {
+    const rect = li.querySelector('.trail-edge rect');
+    let edge = 0;
+    try { edge = li.offsetWidth ? rect.getTotalLength() : 0; } catch { edge = 0; }   // (none while out of sight)
+    if (!edge) continue;
+    const step = edge / Math.max(1, Math.round(edge / 10));
+    li.style.setProperty('--dash', `${(step * 0.6).toFixed(3)} ${(step * 0.4).toFixed(3)}`);
   }
 }
 /* The thin bar under a row of recent chords: shown when the chips do not
@@ -2220,7 +2442,10 @@ function revealAcross(notes) {
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
    "Neck" tab on phones; the instrument menu in the neck's header, or above
-   the neck on phones. */
+   the neck on phones. In index.html everything starts in its wide-screen
+   place, which is right before this runs on both layouts: on phones those
+   places are hidden or in the closed sheet (only the instrument menu shows
+   on phones before that: its slot keeps its room, see .inst-slot). */
 function placeSettings() {
   const wide = isWide();
   const slot = wide ? els.settingsWideSlot : els.settingsNarrowSlot;
@@ -2232,20 +2457,28 @@ function placeSettings() {
   // under the menus on phones. Play the scale: before Deselect on wide
   // screens (as Strum is for chords), on the Notes line on phones.
   const put = (el, parent, before = null) => { if (el.parentElement !== parent || el.nextElementSibling !== before) parent.insertBefore(el, before); };
+  // The phone dock's chord list and shape bar: in the quick bar under the
+  // neck on wide screens, before the groups' bar (which only exists there)
   if (wide) {
     put(els.chordSwitches, els.chordHead);
     put(els.scaleSwitches, els.scaleHead);
     put(els.scalePlay, els.scaleBar, els.scaleClear);
+    put(els.dockRecent, els.quickInner, els.quickGroupBar);
+    put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.scaleSwitches, els.scaleBar, els.scaleClear);
     put(els.scalePlay, els.notesLine);
+    put(els.dockRecent, els.dockBar, els.dockTabs);
+    put(els.dockShapeBar, els.dockBar, els.dockTabs);
   }
 }
 
 /* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
    [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick.
-   An optional `note` is a line of help under the tiles. */
+   An optional `note` is a line of help under the tiles: the legend of the
+   teal dot on the tiles that fit the scale. When no tile has the dot, it
+   says so instead (`noteNone`), without a dot. */
 /* Custom tuning: a popup with each string laid out as on the neck (phones:
    columns, the lowest string on the left, mirrored left-handed; wide
    screens: rows, the highest string on top), each a semitone up or down at
@@ -2265,8 +2498,8 @@ function openTuneEdit() {
 function tuneSet(strings) {
   const id = state.instrument;
   tune.draft = strings;
-  const preset = matchPreset(id, strings);
-  if (preset) {   // a preset's notes: that preset (the custom tuning stays as it was)
+  const preset = matchTuning(id, strings);
+  if (preset) {   // a preset's notes (or a saved tuning's): that one (the custom tuning stays as it was)
     state.tuning[id] = preset.id;
     if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
   } else {
@@ -2276,7 +2509,7 @@ function tuneSet(strings) {
   state.shape = 0;
   recallChip();
   render();
-  renderTuneEdit();
+  keepFocus(renderTuneEdit);   // the + or − just used keeps the focus
 }
 function tuneStep(s, step) {
   const base = tuningsOf(state.instrument)[0].strings;
@@ -2289,14 +2522,23 @@ function tuneStep(s, step) {
 const RESET_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/></svg>';
 /* The strings in neck order, laid out by styles.css for the screen's width
    (as the neck itself): each with its number (a reset button when it is
-   tuned away from standard), + and −, and its note (tap: hear it) */
+   tuned away from standard), + and −, and its note (tap: hear it). At the
+   end of a string's range its + or − is greyed out but stays a button
+   (aria-disabled), so it keeps the keyboard focus: one more press does
+   nothing (tuneStep), rather than land on another button. */
 function renderTuneEdit() {
   const id = state.instrument;
   const base = tuningsOf(id)[0].strings;
   const strings = tune.draft;
-  const preset = matchPreset(id, strings);
+  const preset = matchTuning(id, strings);
   els.tuneName.textContent = preset ? preset.name : 'Custom';
+  els.tuneName.title = preset && preset.saved ? preset.name : '';
   els.tuneName.classList.toggle('custom', !preset);
+  // Save: for a tuning not yet in the menu (a preset's or a saved one's
+  // notes are already there)
+  els.tuneSave.disabled = Boolean(preset);
+  if (preset && !els.tuneNaming.hidden) endNaming();
+  else updateNaming();
   els.tuneList.classList.toggle('lefty', state.leftHanded);
   els.tuneList.style.setProperty('--n', strings.length);
   els.tuneList.innerHTML = strings.map((m, s) => {
@@ -2308,16 +2550,108 @@ function renderTuneEdit() {
       ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${noteText(plainNote(base[s], state.flats))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
       : `<span class="tune-num">${n}</span>`;
     return `<li class="tune-string">${num}` +
-      `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' disabled' : ''}>+</button>` +
+      `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' aria-disabled="true"' : ''}>+</button>` +
       `<button type="button" class="tune-note${off ? ' changed' : ''}" data-play="${m}" aria-label="String ${n}: ${name}${oct}, play it">${name}<span class="tune-oct">${oct}</span></button>` +
-      `<button type="button" class="tune-step down" data-string="${s}" data-step="-1" aria-label="String ${n} down a semitone"${off <= -CUSTOM_RANGE ? ' disabled' : ''}>−</button></li>`;
+      `<button type="button" class="tune-step down" data-string="${s}" data-step="-1" aria-label="String ${n} down a semitone"${off <= -CUSTOM_RANGE ? ' aria-disabled="true"' : ''}>−</button></li>`;
   }).join('');
   els.tuneReset.disabled = strings.every((m, i) => m === base[i]);
 }
+/* Save: the buttons give way to a field for its name (empty: Save stays
+   off); Save keeps the tuning under that name and picks it, Cancel goes
+   back to the buttons */
+function startNaming() {
+  if (!tune || els.tuneSave.disabled) return;
+  els.tuneSaveName.value = '';
+  els.tuneActions.hidden = true;
+  els.tuneNaming.hidden = false;
+  updateNaming();
+  els.tuneSaveName.focus();
+}
+function endNaming() {
+  const back = !els.tuneNaming.hidden && els.tuneNaming.contains(document.activeElement);
+  els.tuneNaming.hidden = true;
+  els.tuneActions.hidden = false;
+  if (back) (els.tuneSave.disabled ? els.tuneDone : els.tuneSave).focus();
+}
+function updateNaming() {
+  els.tuneNameSave.disabled = !cleanName(els.tuneSaveName.value) || els.tuneSave.disabled;
+}
+function saveTune() {
+  const name = cleanName(els.tuneSaveName.value);
+  if (!tune || !name || matchTuning(state.instrument, tune.draft)) return;
+  const id = state.instrument;
+  const strings = tune.draft.slice();
+  (state.saved[id] = state.saved[id] || []).push({ name, strings });
+  state.tuning[id] = savedId(strings);
+  // The custom tuning stays as it was before (this one is kept by its name)
+  if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
+  closeTuneEdit(true);
+  render();
+}
+
+/* The tuning menu: the presets, then the Custom section: Custom (opens the
+   Tuning popup: tune each string, save it) and the saved tunings, picked
+   like presets, each with its bookmark and an × to delete it */
+function openTuningMenu() {
+  const own = state.custom[state.instrument];
+  openPicker({
+    title: 'Tuning', value: instrument().tuning.id,
+    groups: [
+      { items: tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })) },
+      { label: 'Custom', items: [
+        { value: 'custom', label: 'Custom', icon: EDIT_ICON, cls: 'custom-pick', title: 'Tune each string',
+          sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
+        ...savedTunings(state.instrument).map((t) => ({ value: t.id, label: t.name, icon: BOOKMARK_ICON, title: t.name,
+          sub: tuningNotes(t.strings, state.flats), remove: `Delete ${t.name}` })),
+      ] },
+    ],
+    onPick: (v) => {
+      if (v === 'custom') { openTuneEdit(); return; }
+      state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render();
+    },
+    onRemove: askDeleteTuning,
+  });
+}
+
+/* Deleting a saved tuning (its × in the tuning menu): asked first, then
+   gone for good. The neck, if it was in it, goes back to standard tuning. */
+let deleting = null;   // the saved tuning's id
+function askDeleteTuning(tuningId) {
+  const t = savedTunings(state.instrument).find((x) => x.id === tuningId);
+  if (!t) return;
+  deleting = t.id;
+  els.tuneDeleteName.textContent = t.name;
+  els.tuneDeleteNotes.textContent = tuningNotes(t.strings, state.flats);
+  if (els.tuneDelete.showModal) els.tuneDelete.showModal(); else els.tuneDelete.setAttribute('open', '');
+  els.tuneDeleteCancel.focus();
+}
+function closeDeleteTuning() {
+  deleting = null;
+  if (els.tuneDelete.open) {
+    if (els.tuneDelete.close) els.tuneDelete.close(); else els.tuneDelete.removeAttribute('open');
+  }
+}
+function deleteTuning() {
+  const id = state.instrument;
+  const gone = deleting;
+  closeDeleteTuning();
+  if (!gone || !state.saved[id]) return;
+  state.saved[id] = state.saved[id].filter((t) => savedId(t.strings) !== gone);
+  if (!state.saved[id].length) delete state.saved[id];
+  if (state.tuning[id] === gone) {
+    state.tuning[id] = 'standard';
+    state.shape = 0;
+    recallChip();
+  }
+  render();
+  if (els.picker.open) openTuningMenu();   // the menu, without it
+}
+
 // Done keeps it; Cancel puts back what you had
 function closeTuneEdit(keep) {
   const t = tune;
   tune = null;
+  endNaming();
   if (els.tuneEdit.open) {
     if (els.tuneEdit.close) els.tuneEdit.close(); else els.tuneEdit.removeAttribute('open');
   }
@@ -2331,22 +2665,34 @@ function closeTuneEdit(keep) {
 }
 
 let pickerPick = null;
-function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
+const X_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+const BOOKMARK_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg>';
+const EDIT_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
+let pickerRemove = null;
+function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null }) {
+  const dots = groups.some((g) => g.items.some((it) => it.cls === 'fits'));
+  const legend = !note ? '' : dots || !noteNone ? `<p class="picker-note">${esc(note)}</p>` : `<p class="picker-note empty">${esc(noteNone)}</p>`;
   els.pickerTitle.textContent = title;
   els.pickerBody.innerHTML = groups.map((g) =>
     (g.label ? `<div class="label picker-label">${esc(g.label)}</div>` : '') +
     `<div class="picker-grid ${layout}">${g.items.map((it) => {
       const sel = String(it.value) === String(value);
       const cls = `pick${sel ? ' selected' : ''}${it.cls ? ` ${it.cls}` : ''}`;
-      return `<button type="button" class="${cls}" data-value="${esc(it.value)}" aria-pressed="${sel}"` +
-        `${it.style ? ` style="${it.style}"` : ''}>` +
-        `<span class="pick-name">${esc(it.label)}</span>` +
-        `${it.tag ? `<span class="pick-tag">${esc(it.tag)}</span>` : ''}` +
+      // An icon before the name (a saved tuning's bookmark), and an × next
+      // to the tile to remove it (a separate button: not inside the tile)
+      const tile = `<button type="button" class="${cls}" data-value="${esc(it.value)}" aria-pressed="${sel}"` +
+        `${it.style ? ` style="${it.style}"` : ''}${it.title ? ` title="${esc(it.title)}"` : ''}>` +
+        (it.icon ? `<span class="pick-name with-icon"><span class="pick-icon">${it.icon}</span><span class="pick-text">${esc(it.label)}</span></span>`
+          : `<span class="pick-name">${esc(it.label)}</span>`) +
+        `${it.tag ? `<span class="pick-tag">${tx(it.tag)}</span>` : ''}` +
         `${it.sub ? `<span class="pick-sub">${esc(it.sub)}</span>` : ''}</button>`;
+      return it.remove ? `<div class="pick-wrap">${tile}<button type="button" class="pick-remove" data-remove="${esc(it.value)}" ` +
+        `aria-label="${esc(it.remove)}" title="${esc(it.remove)}">${X_ICON}</button></div>` : tile;
     }).join('')}</div>`
-  ).join('') + (note ? `<p class="picker-note">${esc(note)}</p>` : '');
+  ).join('') + legend;
   pickerPick = onPick;
-  if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', '');
+  pickerRemove = onRemove;
+  if (!els.picker.open) { if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', ''); }
   const selected = els.pickerBody.querySelector('.pick.selected');
   if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }); }
 }
@@ -2394,42 +2740,67 @@ function fitText(el) {
   if (width > room) el.style.fontSize = `${Math.floor((size * room) / width)}px`;
 }
 
-/* Phones: the shape bar, the tab values and which sheet is open. With no
-   chord but a scale in groups, the bar steps through the groups instead
-   (and plays the one shown). */
+/* The steppers: a chord's shapes or a scale's groups, one at a time, with
+   arrows, a button to hear it and one to show its panel.
+   Phones: one, in the dock, for the chord's shapes; with no chord but a
+   scale in groups, for the groups instead. Wide screens: in the quick bar
+   under the neck, one for each, shown when there is something to step
+   through (the chord's, as soon as a chord is picked). */
 const DOCK_LABELS = {
-  chord: ['Previous shape', 'Next shape', 'Open the chord panel', 'Strum', 'Strum'],
-  group: ['Previous group', 'Next group', 'Open the scale panel', 'Play the group', 'Play'],
+  chord: ['Previous shape', 'Next shape', 'Show the chord panel', 'Strum', 'Strum'],
+  group: ['Previous group', 'Next group', 'Show the scale panel', 'Play the group', 'Play'],
 };
-function renderDock(ch, sc) {
-  const group = !ch && sc ? ui.groups[ui.group] : null;
-  els.dockShapeBar.hidden = !ch && !group;   // no chord and no group: just the tabs
-  els.dockShapeBar.classList.toggle('groups', Boolean(group));
-  const [prevLabel, nextLabel, openLabel, playLabel, playText] = DOCK_LABELS[group ? 'group' : 'chord'];
-  els.dockPrev.setAttribute('aria-label', prevLabel);
-  els.dockNext.setAttribute('aria-label', nextLabel);
-  els.dockShape.setAttribute('aria-label', openLabel);
-  els.dockStrum.setAttribute('aria-label', playLabel);
-  els.dockStrum.querySelector('.strum-label').textContent = playText;
+function fillStepper(bar, mode, ch, sc) {
+  const group = mode === 'group' ? ui.groups[ui.group] : null;
+  bar.root.classList.toggle('groups', mode === 'group');
+  const [prevLabel, nextLabel, openLabel, playLabel, playText] = DOCK_LABELS[mode];
+  bar.prev.setAttribute('aria-label', prevLabel);
+  bar.next.setAttribute('aria-label', nextLabel);
+  bar.info.setAttribute('aria-label', openLabel);
+  bar.play.setAttribute('aria-label', playLabel);
+  bar.play.querySelector('.strum-label').textContent = playText;
   if (group) {
-    const [a, b] = groupFrets(group);
-    els.dockPrev.disabled = els.dockNext.disabled = ui.groups.length < 2;
-    els.dockStrum.disabled = false;
-    els.dockSymbol.textContent = sc.rootName;
-    els.dockTab.innerHTML = `<span class="dock-count">Group ${ui.group + 1}/${ui.groups.length}, ${groupPlace(group, capo())}</span>` +
+    const [a, b] = groupFrets(group).map((f) => f - capo());   // counted from the capo
+    bar.prev.disabled = bar.next.disabled = ui.groups.length < 2;
+    bar.play.disabled = false;
+    bar.symbol.innerHTML = tx(sc.rootName);
+    bar.tab.innerHTML = `<span class="dock-count">Group ${ui.group + 1}/${ui.groups.length}, ${groupPlace(group, capo())}</span>` +
       `<span class="dock-words">Frets ${a} to ${b}</span>`;
   } else {
     const many = Boolean(ch && ch.shapes.length > 1);
-    els.dockPrev.disabled = els.dockNext.disabled = !many;
-    els.dockStrum.disabled = !ch || !ch.shape;
-    els.dockSymbol.textContent = ch ? ch.symbol : '';
-    if (!ch) els.dockTab.innerHTML = '<span class="dock-msg">No chord selected</span>';
-    else if (!ch.shape) els.dockTab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
+    bar.prev.disabled = bar.next.disabled = !many;
+    bar.play.disabled = !ch || !ch.shape;
+    bar.symbol.innerHTML = ch ? tx(ch.symbol) : '';   // (empty: hidden)
+    if (!ch) bar.tab.innerHTML = '<span class="dock-msg">No chord selected</span>';
+    else if (!ch.shape) bar.tab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
     else {
-      els.dockTab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapePlace(ch.shape)}</span>` +
+      bar.tab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapePlace(ch.shape)}</span>` +
         `<span>${esc(shortTab(ch.shape))}</span>`;
     }
   }
+  for (const btn of [bar.prev, bar.next, bar.play]) btn.title = btn.getAttribute('aria-label');
+  bar.info.title = openLabel;
+}
+const dockStepper = () => ({ root: els.dockShapeBar, prev: els.dockPrev, next: els.dockNext, info: els.dockShape, play: els.dockStrum, symbol: els.dockSymbol, tab: els.dockTab });
+const groupStepper = () => ({ root: els.quickGroupBar, prev: els.quickGroupPrev, next: els.quickGroupNext, info: els.quickGroupInfo, play: els.quickGroupPlay, symbol: els.quickGroupSymbol, tab: els.quickGroupTab });
+/* The quick bar shows when it has something in it */
+function updateQuickBar() {
+  els.quickBar.hidden = !isWide() || (els.dockRecent.hidden && els.dockShapeBar.hidden && els.quickGroupBar.hidden);
+}
+function renderDock(ch, sc) {
+  const group = sc ? ui.groups[ui.group] : null;
+  if (isWide()) {
+    els.dockShapeBar.hidden = !ch;
+    fillStepper(dockStepper(), 'chord', ch, sc);
+    els.quickGroupBar.hidden = !group;
+    if (group) fillStepper(groupStepper(), 'group', ch, sc);
+  } else {
+    const mode = !ch && group ? 'group' : 'chord';
+    els.dockShapeBar.hidden = !ch && !group;   // no chord and no group: just the tabs
+    fillStepper(dockStepper(), mode, ch, sc);
+    els.quickGroupBar.hidden = true;
+  }
+  updateQuickBar();
 
   els.tabChordValue.textContent = ch ? ch.symbol : 'None';
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
@@ -2495,6 +2866,13 @@ function setupSheetDrag() {
   }
 }
 
+/* A stepper's middle button: the panel it steps through. Phones: its
+   sheet opens; wide screens: the page scrolls down to it. */
+function showPanel(tab) {
+  if (!isWide()) { openTab(tab); return; }
+  const panel = tab === 'chord' ? els.panelChord : els.panelScale;
+  panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
 function openTab(tab) {
   const wasOpen = ui.tab !== null;
   ui.tab = ui.tab === tab ? null : tab;
@@ -2533,6 +2911,7 @@ const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? ins
 /* Open string names, low to high: "D A D G B E" */
 const tuningNotes = (strings, flats = false) => strings.map((m) => noteText(plainNote(m, flats))).join(' ');
 
+const MUTE_BADGE = '×';   // (a muted string's badge: drawn as MUTE_ICON)
 const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
   'stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
@@ -2851,11 +3230,11 @@ function renderNeck(ch, sc) {
   const keyFlats = sc ? sc.spell.flats : ch ? ch.spell.flats : state.flats || Boolean(inst.tuning && inst.tuning.flats);
   const onlyScale = Boolean(sc && state.scaleOnly);
   const groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
-  // New groups (another scale, root, instrument, tuning or capo): back to
-  // the first one. The same groups again (Groups switched off and on, any
-  // other change): the one picked stays.
-  if (groups.length && groups !== ui.groupsSeen) {
-    ui.groupsSeen = groups;
+  // Another instrument: back to the first group. Anything else (another
+  // scale root or type, tuning, capo, Groups switched off and on): the
+  // group at the place picked, or the nearest one (pickGroup).
+  if (ui.groupInst !== state.instrument) {
+    ui.groupInst = state.instrument;
     ui.groupAt = null;
   }
   ui.groups = groups;
@@ -2901,11 +3280,17 @@ function renderNeck(ch, sc) {
   const html = [];
   const singleDots = inst.dots ? inst.dots.single : SINGLE_DOTS;
   const doubleDots = inst.dots ? inst.dots.double : DOUBLE_DOTS;
+  // Fret numbers. With a capo they count from it, like everything else
+  // (chord shapes, their tab, scale groups, a note's place): the capo's fret
+  // says "Capo" (the horizontal neck; on the vertical one its bar shows it),
+  // the frets behind it have no number. The inlay dots stay where they are
+  // on the neck.
   for (let f = 1; f <= N; f++) {
     const dots = doubleDots.includes(f) ? 2 : singleDots.includes(f) ? 1 : 0;
-    const label = f === c && !vertical ? 'Capo' : `${f}${'<i></i>'.repeat(dots)}`;
+    const marks = '<i></i>'.repeat(dots);
+    const label = f < c ? marks : f === c ? (vertical ? '' : 'Capo') : `${f - c}${marks}`;
     const title = f === c ? ` title="Capo on fret ${f}"` : '';
-    html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : ''}" style="${rulerAt(f)}"${title}>${label}</div>`);
+    html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : f < c ? ' behind' : ''}" style="${rulerAt(f)}"${title}>${label}</div>`);
   }
 
   inst.strings.forEach((open, s) => {
@@ -2928,7 +3313,10 @@ function renderNeck(ch, sc) {
       const midi = fretPitch(inst, s, f);
       const pc = mod12(midi);
       const key = `${s}:${f}`;
-      const where = f === start ? `string ${num}, open` : `string ${num}, fret ${f}`;
+      // Where it is played: its fret counted from the capo (a banjo's
+      // drone: from its spike), or open; behind the capo, only its string
+      const where = f < nut(s) ? `string ${num}` : f > nut(s) ? `string ${num}, fret ${f - c}`
+        : `string ${num}, ${c ? `at the ${stop}` : 'open'}`;
       // Each pill is spelled by its role: chord notes as in the chord, scale
       // notes as in the scale, other notes in the key's direction
       let cls = 'note';
@@ -2939,7 +3327,11 @@ function renderNeck(ch, sc) {
       if (f < nut(s)) {
         cls += ' plain';   // behind the capo: shown for reference, but cannot be played
       } else if (f === nut(s) && ch && ch.shape && ch.shape.frets[s] < 0) {
-        cls += ' mute';
+        // A string the shape does not play: its open note, quiet, with a
+        // pink × badge where a chord note has its interval (with "Only
+        // scale notes" too: it says which string, not a note to play)
+        cls += ' mute named';
+        n = ch.spell.names.get(pc) || (sc && sc.spell.names.get(pc)) || n;
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
         cls += `${shapeAt.has(key) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`;
@@ -2949,22 +3341,27 @@ function renderNeck(ch, sc) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
         n = sc.spell.names.get(pc) || n;
       } else {
-        cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';   // off: shown, but not in the scale
+        // off: shown, but not in the scale; out: hidden ("Only scale notes"),
+        // except an open string's note (at the nut, the capo or a banjo's
+        // spike): the strings' notes are always shown
+        cls += onlyScale && f !== nut(s) ? ' plain out' : sc ? ' plain off' : ' plain';
       }
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
       if (cls.includes(' off-key')) title += `, not in ${sc.rootName} ${sc.def.short}`;
       if (f < nut(s)) title += `, behind the ${stop}`;
-      if (cls.includes(' mute')) title = `String ${num} not played`;
+      if (cls.includes(' mute')) title = cls.includes(' named') ? `${pitchText(midi, n)}, ${where}, not played` : `String ${num} not played`;
       const octave = octaveOf(s, f);
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
         `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}`;
-      const inner = cls.includes(' mute') ? MUTE_ICON : tx(text);
-      const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
+      const inner = cls.includes(' mute') && !cls.includes(' named') ? MUTE_ICON : tx(text);
+      if (cls.includes(' named')) badge = MUTE_BADGE;
+      const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${tx(String(octave))}</span>` : '';
       html.push(
         `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
         `${octTag}<span class="${cls}" title="${esc(title)}">${inner}` +
-        `${badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
+        `${badge === MUTE_BADGE ? `<span class="deg-badge mute-badge" aria-hidden="true">${MUTE_ICON}</span>`
+          : badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
       );
     }
   });
@@ -3169,7 +3566,7 @@ function renderChordPanel(ch, sc) {
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
       `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
-      `<span class="np-loc"><kbd>${loc}</kbd></span></li>`;
+      `<span class="np-loc"><kbd>${tx(loc)}</kbd></span></li>`;
   }).join('');
 
   els.shapeList.innerHTML = ch.shapes.map((shape, i) => {
@@ -3229,7 +3626,7 @@ function renderScalePanel(sc, ch) {
   els.scaleAlt.textContent = relatives.length ? `Same notes as ${relatives.join(', ')}` : '';
 
   // Notes with their interval on top, and the step to the next note below
-  const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${deg === '1' ? 'R' : deg}</span>`;
+  const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${tx(deg === '1' ? 'R' : deg)}</span>`;
   const parts = [];
   sc.spell.notes.forEach((n, i) => {
     parts.push(`<li><button type="button" class="scale-note${i === 0 ? ' root' : ''}" data-i="${i}" ` +
@@ -3270,7 +3667,7 @@ function renderGroupLine(sc) {
   els.groupList.dataset.empty = 'No group fits on this neck';
   els.groupList.innerHTML = ui.groups.map((g, i) => {
     const sel = i === ui.group;
-    const [a, b] = groupFrets(g);
+    const [a, b] = groupFrets(g).map((f) => f - c);   // counted from the capo
     const place = groupPlace(g, c);
     return `<li><button type="button" class="chip group-chip${sel ? ' selected' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
       `title="Group ${i + 1}, frets ${a} to ${b}"><span class="tx">${place[0].toUpperCase()}${place.slice(1)}</span></button></li>`;
@@ -3372,16 +3769,23 @@ function init() {
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
+    'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
+    'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
+    'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecent', 'listClearCancel', 'listClearGo',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
-    'groupLine', 'groupPrev', 'groupNext', 'groupList']) {
+    'groupLine', 'groupPrev', 'groupNext', 'groupList',
+    'quickBar', 'quickInner', 'quickGroupBar', 'quickGroupPrev', 'quickGroupNext', 'quickGroupInfo', 'quickGroupSymbol', 'quickGroupTab', 'quickGroupPlay']) {
     els[id] = document.getElementById(id);
   }
   els.dockBar = document.querySelector('.dock-bar');
+  els.dockTabs = document.querySelector('.dock-bar .tabs');
+  els.panelChord = document.getElementById('panelChord');
+  els.panelScale = document.getElementById('panelScale');
   els.chordBar = document.querySelector('.chord-bar');
   els.scaleBar = document.querySelector('.scale-bar');
-  els.chordSwitches = els.chordBar.querySelector('.switch-row');
-  els.scaleSwitches = els.scaleBar.querySelector('.switch-row');
+  els.chordSwitches = document.querySelector('#panelChord .switch-row');
+  els.scaleSwitches = document.querySelector('#panelScale .switch-row');
   els.chordHead = document.querySelector('#panelChord .panel-head');
   els.scaleHead = document.querySelector('#panelScale .panel-head');
   els.notesLine = document.querySelector('.notes-line');
@@ -3400,7 +3804,7 @@ function init() {
         const t = tunedInstrument(i.id, state.tuning[i.id]);
         // a preset in its usual spelling (Open D's F♯, E♭ for half step down);
         // a custom tuning as the Flats switch says
-        const flats = t.tuning.custom ? state.flats : Boolean(t.tuning.flats);
+        const flats = t.tuning.custom || t.tuning.saved ? state.flats : Boolean(t.tuning.flats);
         return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats) };
       }),
     })),
@@ -3412,20 +3816,7 @@ function init() {
       render();
     },
   }));
-  els.tuningSelect.addEventListener('click', () => {
-    const own = state.custom[state.instrument];
-    openPicker({
-      title: 'Tuning', value: instrument().tuning.id,
-      groups: [{ items: [
-        ...tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })),
-        { value: 'custom', label: 'Custom', sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
-      ] }],
-      onPick: (v) => {
-        if (v === 'custom') { openTuneEdit(); return; }
-        state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render();
-      },
-    });
-  });
+  els.tuningSelect.addEventListener('click', openTuningMenu);
   // Custom tuning popup
   els.tuneList.addEventListener('click', (e) => {
     const step = e.target.closest('[data-step]');
@@ -3446,6 +3837,18 @@ function init() {
   els.tuneClose.addEventListener('click', () => closeTuneEdit(false));
   els.tuneEdit.addEventListener('click', (e) => { if (e.target === els.tuneEdit) closeTuneEdit(false); });
   els.tuneEdit.addEventListener('close', () => closeTuneEdit(false));   // Escape
+  // Escape while naming: back to the buttons, the popup stays
+  els.tuneEdit.addEventListener('cancel', (e) => { if (!els.tuneNaming.hidden) { e.preventDefault(); endNaming(); } });
+  els.tuneSave.addEventListener('click', startNaming);
+  els.tuneSaveName.addEventListener('input', updateNaming);
+  els.tuneNameCancel.addEventListener('click', endNaming);
+  els.tuneNaming.addEventListener('submit', (e) => { e.preventDefault(); saveTune(); });   // Save, or Enter
+  // Delete a saved tuning
+  els.tuneDeleteGo.addEventListener('click', deleteTuning);
+  els.tuneDeleteCancel.addEventListener('click', closeDeleteTuning);
+  els.tuneDeleteClose.addEventListener('click', closeDeleteTuning);
+  els.tuneDelete.addEventListener('click', (e) => { if (e.target === els.tuneDelete) closeDeleteTuning(); });
+  els.tuneDelete.addEventListener('close', () => { deleting = null; });   // Escape
 
   for (const [id, key] of TOGGLES) {
     els[id].addEventListener('click', () => {
@@ -3465,39 +3868,53 @@ function init() {
   // keyboard (Enter, or Space on a button reached with Tab) still strums.
   // With no chord, the dock's button plays the scale group shown.
   const strumOrPlay = () => (currentChord() ? strum() : playGroup());
-  for (const btn of [els.chordStrum, els.dockStrum]) {
-    const act = btn === els.dockStrum ? strumOrPlay : strum;
+  for (const btn of [els.chordStrum, els.dockStrum, els.quickGroupPlay]) {
+    const act = btn === els.dockStrum ? strumOrPlay : btn === els.quickGroupPlay ? playGroup : strum;
     btn.addEventListener('pointerdown', (e) => { if (e.button === 0 && !btn.disabled) act(); });
     btn.addEventListener('click', (e) => { if (e.detail === 0) act(); });
   }
 
-  // Recent chords: tap to switch, × on the current one to remove it, Clear to start over
+  // The chord list and the recent chords: tap to switch, × on the current
+  // list chip to take it out, + on a recent one to put it in, Clear to
+  // start over
   for (const list of [els.dockRecentList, els.recentList]) {
-    // The × removes only when the press started on it (a drag ending over
-    // it, or a press that slid onto it, removes nothing)
+    // The × and the + act only when the press started on them (a drag
+    // ending over one, or a press that slid onto it, does nothing)
     let pressed = null;
-    list.addEventListener('pointerdown', (e) => { pressed = e.target.closest('[data-remove]'); }, true);
+    list.addEventListener('pointerdown', (e) => { pressed = e.target.closest('[data-remove], [data-pin]'); }, true);
     list.addEventListener('click', (e) => {
-      const remove = e.target.closest('[data-remove]');
-      if (remove && (e.detail === 0 || remove === pressed)) { removeRecent(Number(remove.dataset.remove)); return; }
-      if (remove) return;
-      const chip = e.target.closest('[data-i]');
-      if (chip) playRecent(Number(chip.dataset.i));
+      const side = e.target.closest('[data-remove], [data-pin]');
+      if (side) {
+        if (e.detail !== 0 && side !== pressed) return;
+        if (side.dataset.remove !== undefined) unpinChord(Number(side.dataset.remove));
+        else pinChord(Number(side.dataset.pin));
+        return;
+      }
+      const chip = e.target.closest('[data-i], [data-r]');
+      if (chip) playChip(chip.dataset.i !== undefined ? state.list[Number(chip.dataset.i)] : state.recent[Number(chip.dataset.r)]);
     });
   }
   for (const list of [els.dockRecentList, els.recentList]) {
     setupChipDrag(list);
     list.addEventListener('scroll', () => scrollHint(list), { passive: true });
-    if (window.ResizeObserver) new ResizeObserver(() => scrollHint(list)).observe(list);   // shown, rotated, resized
+    if (window.ResizeObserver) new ResizeObserver(() => { scrollHint(list); fitDashes(list); }).observe(list);   // shown, rotated, resized
   }
-  els.dockRecentClear.addEventListener('click', clearRecent);
-  els.recentClear.addEventListener('click', clearRecent);
+  els.dockRecentClear.addEventListener('click', askClearRecent);
+  els.recentClear.addEventListener('click', askClearRecent);
+  els.listClearGo.addEventListener('click', clearRecent);
+  els.listClearCancel.addEventListener('click', closeClearRecent);
+  els.listClearClose.addEventListener('click', closeClearRecent);
+  els.listClear.addEventListener('click', (e) => { if (e.target === els.listClear) closeClearRecent(); });
 
   // Dock (phones): shape bar, tabs and the sheet they open
   // (no chord: the scale's groups)
   els.dockPrev.addEventListener('click', () => (currentChord() ? selectShape(state.shape - 1) : selectGroup(ui.group - 1)));
   els.dockNext.addEventListener('click', () => (currentChord() ? selectShape(state.shape + 1) : selectGroup(ui.group + 1)));
-  els.dockShape.addEventListener('click', () => openTab(currentChord() ? 'chord' : 'scale'));
+  els.dockShape.addEventListener('click', () => showPanel(currentChord() ? 'chord' : 'scale'));
+  // The groups' stepper (wide screens, in the quick bar)
+  els.quickGroupPrev.addEventListener('click', () => selectGroup(ui.group - 1));
+  els.quickGroupNext.addEventListener('click', () => selectGroup(ui.group + 1));
+  els.quickGroupInfo.addEventListener('click', () => showPanel('scale'));
   for (const tab of els.tabs) tab.addEventListener('click', () => openTab(tab.dataset.tab));
   setupSheetDrag();
 
@@ -3520,10 +3937,10 @@ function init() {
     groups: [
       { items: [{ value: 0, label: 'No capo', cls: 'none', style: 'grid-column: 1 / -1' }] },
       { label: 'Fret where the capo sits', items: Array.from(
-        { length: Math.min(MAX_CAPO, instrument().frets - SHAPE_SPAN) },
+        { length: maxCapo(state.instrument) },
         (_, i) => ({ value: i + 1, label: String(i + 1) })) },
     ],
-    onPick: (v) => { state.capo = Number(v); state.shape = 0; render(); },
+    onPick: (v) => { setCapo(Number(v)); state.shape = 0; render(); },
   }));
 
   // Clearing the chord or the scale also closes its panel on phones
@@ -3540,6 +3957,7 @@ function init() {
   els.chordRoot.addEventListener('click', () => openPicker({
     title: 'Chord root', layout: 'roots', value: state.chord.root,
     note: state.chord.on ? fitsNote(currentScale()) : rootNote(currentScale()),
+    noteNone: 'No root fits this chord type and scale',
     groups: state.chord.on
       ? rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root, (pc) => fitsScale(pc, findChord(state.chord.type), currentScale()))
       : rootItems((pc) => plainRoot(pc), (pc) => inScale(pc, currentScale())),
@@ -3550,7 +3968,7 @@ function init() {
     },
   }));
   els.chordType.addEventListener('click', () => openPicker({
-    title: 'Chord type', note: fitsNote(currentScale()),
+    title: 'Chord type', note: fitsNote(currentScale()), noteNone: 'No chord type fits this root and scale',
     groups: [{ items: [{ value: '', label: 'None', sub: 'Hide the chord', cls: 'none' }] }, ...CHORDS.map((g) => ({
       label: g.group,
       items: g.items.map((c) => ({
@@ -3589,6 +4007,8 @@ function init() {
     },
   }));
   els.pickerBody.addEventListener('click', (e) => {
+    const remove = e.target.closest('[data-remove]');
+    if (remove) { if (pickerRemove) pickerRemove(remove.dataset.remove); return; }
     const pick = e.target.closest('.pick');
     if (!pick) return;
     const handler = pickerPick;
@@ -3669,15 +4089,24 @@ function init() {
   // (Tab): a button that has the focus after a click or a tap (Strum, a
   // switch, or the menu button a popup hands the focus back to) would
   // otherwise take Space and act on it.
+  // A control that takes the keyboard focus shows whole, with its focus ring
+  // (browsers leave one that is half out of a scrolling row where it is, its
+  // ring cut off): the row, the popup or the page scrolls just enough (the
+  // room is the controls' scroll-margin in styles.css). Taps and clicks
+  // scroll nothing.
+  document.addEventListener('focusin', (e) => {
+    if (e.target.matches && e.target.matches(':focus-visible')) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
   let keyboardFocus = false;   // the focus was last moved with the keyboard
   document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
-  const spaceStrums = (e) => e.key === ' ' && !els.picker.open && !els.about.open && !els.share.open && !els.linkOpen.open && !els.tuneEdit.open && !e.altKey && !e.ctrlKey && !e.metaKey &&
+  const popupOpen = () => !!document.querySelector('dialog[open]');
+  const spaceStrums = (e) => e.key === ' ' && !popupOpen() && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
   document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (els.picker.open || els.about.open || els.share.open || els.linkOpen.open || els.tuneEdit.open) return;   // a popup handles its own keys (Escape closes it)
+    if (popupOpen()) return;   // a popup handles its own keys (Escape closes it)
     if (e.key === 'Escape' && ui.tab) { openTab(null); return; }
     if (e.target.closest('input, textarea')) return;
     if (spaceStrums(e)) {
