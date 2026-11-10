@@ -128,6 +128,7 @@ body {
    which would win over the page's) */
 dialog, button { -webkit-user-select: none; user-select: none; }
 .np-head, .about-body { -webkit-user-select: text; user-select: text; }
+input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 
 body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
 body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* fewer than two recent chords: no row */
@@ -214,9 +215,9 @@ kbd {
    screens: one row per string, the highest on top, − note +. A note away
    from standard is in the accent colour, and its number becomes a small
    button that puts the string back. Tapping a note plays it. */
-.tune-body { gap: var(--sp-4); }
+.tune-body { gap: var(--sp-4); grid-template-columns: minmax(0, 1fr); }   /* a long name is cut short, it does not widen the popup */
 .tune-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
-.tune-name { font: 700 var(--fs-lg)/1.2 var(--font); color: var(--text); }
+.tune-name { min-width: 0; padding: 2px 0; margin: -2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 var(--fs-lg)/1.2 var(--font); color: var(--text); }   /* a long saved name: cut short */
 .tune-name.custom { color: var(--accent); }
 .tune-reset { flex: none; }
 .tune-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 6px; }
@@ -290,6 +291,31 @@ kbd {
 .picker.share { width: min(440px, calc(100vw - 24px)); }
 .about-links.share-actions { flex-direction: row; justify-content: center; gap: var(--sp-3); }
 .share-actions .btn { min-width: 120px; }
+.about-links[hidden] { display: none; }
+
+/* Tuning popup: Save (a bookmark on phones, with its word on wide
+   screens), and the field for its name that takes the buttons' place */
+.share-actions .btn.tune-save { min-width: 0; }
+.about-links.tune-naming { flex-direction: column; align-items: stretch; gap: var(--sp-3); }   /* the field on its own line, the buttons under it (all screens) */
+.tune-naming .share-actions { display: flex; justify-content: center; gap: var(--sp-3); }
+.text-input {
+  width: 100%;
+  height: var(--control-h);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--kbd-bg);
+  color: var(--text);
+  font: 500 var(--fs-input)/1.2 var(--font);   /* 16px on phones: iPhones do not zoom in */
+}
+.text-input::placeholder { color: var(--muted); opacity: 1; }
+.text-input:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+
+/* Delete a saved tuning: its name and notes, Delete in red */
+.delete-what { display: grid; gap: var(--sp-1); margin: 0; }
+.delete-name { font: 700 var(--fs-lg)/1.3 var(--font); overflow-wrap: anywhere; }
+.delete-notes { font-size: var(--fs-sm); color: var(--muted); }
+.btn.danger { border-color: var(--danger); color: var(--danger); }
 
 /* Share and Load link popups: one row per part of the neck (the neck
    itself, the chord, the chord list, the scale): a switch, the name, a tag
@@ -383,6 +409,9 @@ kbd {
   border-top-color: var(--accent);
 }
 .inst-name, .inst-tuning { overflow: hidden; text-overflow: ellipsis; }
+.inst-name, .inst-tuning { line-height: 1.3; }   /* the box cuts at its edges: room for a g's tail */
+.inst-name { flex: none; }   /* a long tuning name (a saved one) gives way, not the instrument's */
+.inst-tuning { min-width: 0; }
 /* Wide screens: it sits on the neck panel, which shares its colour, so its
    fill is a touch lighter */
 .neck-title .inst-btn { background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
@@ -1400,6 +1429,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .pick-name {
   grid-column: 1 / -1;                 /* the name gets the whole top line, up to two lines */
   min-width: 0;
+  padding-top: 2px; margin-top: -2px;  /* room inside the clip for an accent on a capital (É), the text where it was */
+  overflow-wrap: anywhere;             /* a long word (a saved tuning's name) breaks rather than runs out */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1422,6 +1453,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   grid-row: 2;
   grid-column: 1;
   min-width: 0;
+  padding: 1px 0; margin: -1px 0;      /* room inside the clip for accents and tails, the text where it was */
   font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -1450,6 +1482,43 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .pick.fits::after { position: absolute; top: 7px; right: 7px; }
 .picker-grid:not(.roots) .pick.fits .pick-name { padding-right: 12px; }   /* long names stay clear of the dot */
 .pick.selected .pick-sub { color: color-mix(in srgb, var(--text) 75%, transparent); }
+/* An icon before the name: the Custom tile's pencil (it opens the Tuning
+   popup), a saved tuning's bookmark. The name wraps under itself, not under
+   the icon; the icon sits level with the middle of the name's capitals
+   (on the baseline, then down by half its height less half a capital) */
+.pick-name.with-icon { display: flex; align-items: baseline; gap: 6px; }
+.pick-text {
+  min-width: 0;
+  padding-top: 2px; margin-top: -2px;  /* (as .pick-name) */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.pick-icon { flex: none; display: inline-flex; color: var(--muted); transform: translateY(calc(7.5px - 0.5cap)); }
+.pick-icon .ico { width: 15px; height: 15px; }
+.pick.selected .pick-icon { color: var(--text); }
+/* A tile with an × to remove it (a saved tuning): the × in its corner */
+.pick-wrap { position: relative; display: grid; }
+.pick-wrap .pick-name { padding-right: 26px; }   /* the name stays clear of the × */
+.pick-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.pick-remove .ico { width: 14px; height: 14px; }
+.pick-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
 .pick:active { filter: brightness(1.15); }
 
 /* Root picker: a grid of the 12 notes */
@@ -1457,7 +1526,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .roots .pick { position: relative; height: 56px; justify-items: center; padding: 0; font-size: var(--fs-lg); font-weight: 700; }
 /* The other name of a black key (D♭ / C♯), tucked under the name, so every
    tile's main name sits at the same height */
-.roots .pick .pick-sub { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1; }
+.roots .pick .pick-sub { position: absolute; left: 0; right: 0; bottom: 4px; padding: 2px 0; text-align: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1; }
 
 /* ==========================================================================
    Hover effects only where there is a real pointer (no "stuck" hover after
@@ -1470,6 +1539,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn:not(:disabled):active { filter: none; }
   .select-btn:not(:disabled):hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
+  .pick-remove:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }   /* the × to delete */
+  .btn.danger:not(:disabled):hover { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
   .pill-toggle:not(:disabled):hover, .pill-select:not(:disabled):hover { border-color: var(--accent); }
   .lk-row:not(:disabled):hover { border-color: var(--tone); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
@@ -1521,7 +1592,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .h1-sub { display: inline; }
   .btn.deselect { width: auto; padding: 0 14px; }
   .btn-label { display: inline; }
-  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
+  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }
+  .btn.tune-save { width: auto; padding: 0 14px; }   /* the bookmark and "Save" */
+  /* A long tuning name (a saved one) is cut short in the neck's header */
+  #tuningSelect { max-width: 220px; }
+  .neck-title .inst-tuning { max-width: 220px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }

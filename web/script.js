@@ -85,14 +85,36 @@ function customTuning(id) {
   const strings = typeof state === 'object' && state && state.custom && state.custom[id];
   return strings ? { id: 'custom', name: tuningNotes(strings, state.flats), short: 'Custom', custom: true, strings } : null;
 }
+/* Saved tunings: custom tunings kept under a name, any number per
+   instrument (state.saved: { instrument: [{ name, strings }] }), in the
+   order saved. They are treated as presets: picked from the tuning menu,
+   matched by their notes (a custom tuning, or a link's, that lands on one
+   is that one). Their id is their notes; a link holds only the notes. */
+const NAME_MAX = 24;
+const savedId = (strings) => `saved:${customText(strings)}`;
+function savedTunings(id, saved = typeof state === 'object' && state ? state.saved : {}) {
+  return ((saved && saved[id]) || []).map((t) => ({ id: savedId(t.strings), name: t.name, short: t.name, saved: true, strings: t.strings }));
+}
+/* A name as typed: spaces at either end and runs of spaces trimmed, and the
+   invisible characters that could upset the page (controls, text direction
+   overrides) left out */
+function cleanName(name) {
+  if (typeof name !== 'string') return '';
+  const text = name.replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim();
+  return Array.from(text).slice(0, NAME_MAX).join('').trim();   // (by character: an emoji is not cut in half)
+}
 /* The preset tuning with these open strings, if any (a custom tuning that
-   lands on one is that one) */
-const matchPreset = (id, strings) => tuningsOf(id).find((t) => t.strings.length === strings.length && t.strings.every((m, i) => m === strings[i])) || null;
+   lands on one is that one), else the saved one */
+const sameStrings = (t, strings) => t.strings.length === strings.length && t.strings.every((m, i) => m === strings[i]);
+const matchPreset = (id, strings) => tuningsOf(id).find((t) => sameStrings(t, strings)) || null;
+const matchTuning = (id, strings, saved) => matchPreset(id, strings) || savedTunings(id, saved).find((t) => sameStrings(t, strings)) || null;
 /* An instrument in one of its tunings (the standard one if none or unknown) */
 function tunedInstrument(id, tuningId = 'standard') {
   const inst = findInstrument(id);
   const list = tuningsOf(id);
-  const tuning = (tuningId === 'custom' && customTuning(id)) || list.find((t) => t.id === tuningId) || list[0];
+  const tuning = (tuningId === 'custom' && customTuning(id))
+    || (String(tuningId).startsWith('saved:') && savedTunings(id).find((t) => t.id === tuningId))
+    || list.find((t) => t.id === tuningId) || list[0];
   return { ...inst, strings: tuning.strings, tuning };
 }
 /* Default "Voicing" per instrument: '0' = root in the bass, 'any' = any bass note.
@@ -671,6 +693,7 @@ function defaultState() {
     tuning: {},                       // tuning id per instrument ('custom': your own)
     capo: {},                         // fret of the capo per instrument (none: left out)
     custom: {},                       // your own tuning per instrument: open string pitches
+    saved: {},                        // saved tunings per instrument: [{ name, strings }]
     chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
     recent: [],                       // the chord list [{ root, type, shapes }], shared by all instruments: none, or 2 or more
     solo: null,                       // the chord before there is a list (its shapes), the list's first chip to be
@@ -701,12 +724,21 @@ function loadState() {
     }
     if (readInstrument(work.instrument)) s.instrument = work.instrument;
     for (const { id } of INSTRUMENTS) {
+      // Saved tunings: each with a name and its notes, none twice
+      for (const e of Array.isArray(work.saved && work.saved[id]) ? work.saved[id] : []) {
+        const name = cleanName(e && e.name);
+        const notes = e && readCustom(id, e.tuning);
+        if (!name || !notes || savedTunings(id, s.saved).some((t) => sameStrings(t, notes))) continue;
+        (s.saved[id] = s.saved[id] || []).push({ name, strings: notes });
+      }
       const strings = readCustom(id, work.custom && work.custom[id]);
       if (strings) s.custom[id] = strings;
       const t = work.tuning && work.tuning[id];
-      if (t === 'custom' ? strings : readTuning(id, t)) s.tuning[id] = t;
-      const preset = strings && matchPreset(id, strings);
-      if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset: that one
+      const known = t === 'custom' ? strings
+        : String(t).startsWith('saved:') ? savedTunings(id, s.saved).some((x) => x.id === t) : readTuning(id, t);
+      if (known) s.tuning[id] = t;
+      const preset = strings && matchTuning(id, strings, s.saved);
+      if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset (or a saved one): that one
       // (one capo for all instruments, as it was first saved: the instrument on screen keeps it)
       const c = readCapo(typeof work.capo === 'number' ? (id === s.instrument ? work.capo : 0) : work.capo && work.capo[id], id);
       if (c) s.capo[id] = c;
@@ -747,6 +779,8 @@ function saveState() {
       instrument: state.instrument,
       tuning: state.tuning,
       custom: Object.fromEntries(Object.entries(state.custom).map(([id, strings]) => [id, customText(strings)])),
+      saved: Object.fromEntries(Object.entries(state.saved).filter(([, list]) => list.length)
+        .map(([id, list]) => [id, list.map((t) => ({ name: t.name, tuning: customText(t.strings) }))])),
       capo: state.capo,
       chord: state.chord.on ? chordText(state.chord.root, findChord(state.chord.type)) : noteToken(plainNote(state.chord.root, state.flats)),
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
@@ -872,7 +906,7 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   const inst = instrument();
   if (neck) {
     p.set('instrument', state.instrument);
-    if (inst.tuning.custom) p.set('tuning', customText(inst.strings));   // your own: its notes
+    if (inst.tuning.custom || inst.tuning.saved) p.set('tuning', customText(inst.strings));   // your own (saved or not): its notes, not its name
     else if (inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
     if (capo()) p.set('capo', String(capo()));
   }
@@ -906,9 +940,9 @@ function applyLink(search, parts = null) {
   if (neck && readInstrument(p.get('instrument'))) {
     state.instrument = p.get('instrument');
     // A custom tuning (its notes) takes the custom tuning's place, unless it
-    // is a preset's notes: then that preset
+    // is a preset's notes, or a saved tuning's: then that one
     const strings = readCustom(state.instrument, p.get('tuning'));
-    const preset = strings && matchPreset(state.instrument, strings);
+    const preset = strings && matchTuning(state.instrument, strings);
     if (strings && !preset) state.custom[state.instrument] = strings;
     state.tuning[state.instrument] = preset ? preset.id : strings ? 'custom' : readTuning(state.instrument, p.get('tuning')) || 'standard';
   }
@@ -2323,8 +2357,8 @@ function openTuneEdit() {
 function tuneSet(strings) {
   const id = state.instrument;
   tune.draft = strings;
-  const preset = matchPreset(id, strings);
-  if (preset) {   // a preset's notes: that preset (the custom tuning stays as it was)
+  const preset = matchTuning(id, strings);
+  if (preset) {   // a preset's notes (or a saved tuning's): that one (the custom tuning stays as it was)
     state.tuning[id] = preset.id;
     if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
   } else {
@@ -2355,9 +2389,15 @@ function renderTuneEdit() {
   const id = state.instrument;
   const base = tuningsOf(id)[0].strings;
   const strings = tune.draft;
-  const preset = matchPreset(id, strings);
+  const preset = matchTuning(id, strings);
   els.tuneName.textContent = preset ? preset.name : 'Custom';
+  els.tuneName.title = preset && preset.saved ? preset.name : '';
   els.tuneName.classList.toggle('custom', !preset);
+  // Save: for a tuning not yet in the menu (a preset's or a saved one's
+  // notes are already there)
+  els.tuneSave.disabled = Boolean(preset);
+  if (preset && !els.tuneNaming.hidden) endNaming();
+  else updateNaming();
   els.tuneList.classList.toggle('lefty', state.leftHanded);
   els.tuneList.style.setProperty('--n', strings.length);
   els.tuneList.innerHTML = strings.map((m, s) => {
@@ -2375,10 +2415,102 @@ function renderTuneEdit() {
   }).join('');
   els.tuneReset.disabled = strings.every((m, i) => m === base[i]);
 }
+/* Save: the buttons give way to a field for its name (empty: Save stays
+   off); Save keeps the tuning under that name and picks it, Cancel goes
+   back to the buttons */
+function startNaming() {
+  if (!tune || els.tuneSave.disabled) return;
+  els.tuneSaveName.value = '';
+  els.tuneActions.hidden = true;
+  els.tuneNaming.hidden = false;
+  updateNaming();
+  els.tuneSaveName.focus();
+}
+function endNaming() {
+  const back = !els.tuneNaming.hidden && els.tuneNaming.contains(document.activeElement);
+  els.tuneNaming.hidden = true;
+  els.tuneActions.hidden = false;
+  if (back) (els.tuneSave.disabled ? els.tuneDone : els.tuneSave).focus();
+}
+function updateNaming() {
+  els.tuneNameSave.disabled = !cleanName(els.tuneSaveName.value) || els.tuneSave.disabled;
+}
+function saveTune() {
+  const name = cleanName(els.tuneSaveName.value);
+  if (!tune || !name || matchTuning(state.instrument, tune.draft)) return;
+  const id = state.instrument;
+  const strings = tune.draft.slice();
+  (state.saved[id] = state.saved[id] || []).push({ name, strings });
+  state.tuning[id] = savedId(strings);
+  // The custom tuning stays as it was before (this one is kept by its name)
+  if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
+  closeTuneEdit(true);
+  render();
+}
+
+/* The tuning menu: the presets, then the Custom section: Custom (opens the
+   Tuning popup: tune each string, save it) and the saved tunings, picked
+   like presets, each with its bookmark and an × to delete it */
+function openTuningMenu() {
+  const own = state.custom[state.instrument];
+  openPicker({
+    title: 'Tuning', value: instrument().tuning.id,
+    groups: [
+      { items: tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })) },
+      { label: 'Custom', items: [
+        { value: 'custom', label: 'Custom', icon: EDIT_ICON, cls: 'custom-pick', title: 'Tune each string',
+          sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
+        ...savedTunings(state.instrument).map((t) => ({ value: t.id, label: t.name, icon: BOOKMARK_ICON, title: t.name,
+          sub: tuningNotes(t.strings, state.flats), remove: `Delete ${t.name}` })),
+      ] },
+    ],
+    onPick: (v) => {
+      if (v === 'custom') { openTuneEdit(); return; }
+      state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render();
+    },
+    onRemove: askDeleteTuning,
+  });
+}
+
+/* Deleting a saved tuning (its × in the tuning menu): asked first, then
+   gone for good. The neck, if it was in it, goes back to standard tuning. */
+let deleting = null;   // the saved tuning's id
+function askDeleteTuning(tuningId) {
+  const t = savedTunings(state.instrument).find((x) => x.id === tuningId);
+  if (!t) return;
+  deleting = t.id;
+  els.tuneDeleteName.textContent = t.name;
+  els.tuneDeleteNotes.textContent = tuningNotes(t.strings, state.flats);
+  if (els.tuneDelete.showModal) els.tuneDelete.showModal(); else els.tuneDelete.setAttribute('open', '');
+  els.tuneDeleteCancel.focus();
+}
+function closeDeleteTuning() {
+  deleting = null;
+  if (els.tuneDelete.open) {
+    if (els.tuneDelete.close) els.tuneDelete.close(); else els.tuneDelete.removeAttribute('open');
+  }
+}
+function deleteTuning() {
+  const id = state.instrument;
+  const gone = deleting;
+  closeDeleteTuning();
+  if (!gone || !state.saved[id]) return;
+  state.saved[id] = state.saved[id].filter((t) => savedId(t.strings) !== gone);
+  if (!state.saved[id].length) delete state.saved[id];
+  if (state.tuning[id] === gone) {
+    state.tuning[id] = 'standard';
+    state.shape = 0;
+    recallChip();
+  }
+  render();
+  if (els.picker.open) openTuningMenu();   // the menu, without it
+}
+
 // Done keeps it; Cancel puts back what you had
 function closeTuneEdit(keep) {
   const t = tune;
   tune = null;
+  endNaming();
   if (els.tuneEdit.open) {
     if (els.tuneEdit.close) els.tuneEdit.close(); else els.tuneEdit.removeAttribute('open');
   }
@@ -2392,7 +2524,11 @@ function closeTuneEdit(keep) {
 }
 
 let pickerPick = null;
-function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick }) {
+const X_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+const BOOKMARK_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg>';
+const EDIT_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
+let pickerRemove = null;
+function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null }) {
   const dots = groups.some((g) => g.items.some((it) => it.cls === 'fits'));
   const legend = !note ? '' : dots || !noteNone ? `<p class="picker-note">${esc(note)}</p>` : `<p class="picker-note empty">${esc(noteNone)}</p>`;
   els.pickerTitle.textContent = title;
@@ -2401,15 +2537,21 @@ function openPicker({ title, groups, value, layout = '', note = '', noteNone = '
     `<div class="picker-grid ${layout}">${g.items.map((it) => {
       const sel = String(it.value) === String(value);
       const cls = `pick${sel ? ' selected' : ''}${it.cls ? ` ${it.cls}` : ''}`;
-      return `<button type="button" class="${cls}" data-value="${esc(it.value)}" aria-pressed="${sel}"` +
-        `${it.style ? ` style="${it.style}"` : ''}>` +
-        `<span class="pick-name">${esc(it.label)}</span>` +
+      // An icon before the name (a saved tuning's bookmark), and an × next
+      // to the tile to remove it (a separate button: not inside the tile)
+      const tile = `<button type="button" class="${cls}" data-value="${esc(it.value)}" aria-pressed="${sel}"` +
+        `${it.style ? ` style="${it.style}"` : ''}${it.title ? ` title="${esc(it.title)}"` : ''}>` +
+        (it.icon ? `<span class="pick-name with-icon"><span class="pick-icon">${it.icon}</span><span class="pick-text">${esc(it.label)}</span></span>`
+          : `<span class="pick-name">${esc(it.label)}</span>`) +
         `${it.tag ? `<span class="pick-tag">${esc(it.tag)}</span>` : ''}` +
         `${it.sub ? `<span class="pick-sub">${esc(it.sub)}</span>` : ''}</button>`;
+      return it.remove ? `<div class="pick-wrap">${tile}<button type="button" class="pick-remove" data-remove="${esc(it.value)}" ` +
+        `aria-label="${esc(it.remove)}" title="${esc(it.remove)}">${X_ICON}</button></div>` : tile;
     }).join('')}</div>`
   ).join('') + legend;
   pickerPick = onPick;
-  if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', '');
+  pickerRemove = onRemove;
+  if (!els.picker.open) { if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', ''); }
   const selected = els.pickerBody.querySelector('.pick.selected');
   if (selected) { selected.focus({ preventScroll: true }); selected.scrollIntoView({ block: 'nearest' }); }
 }
@@ -3476,6 +3618,8 @@ function init() {
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
+    'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
+    'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
@@ -3508,7 +3652,7 @@ function init() {
         const t = tunedInstrument(i.id, state.tuning[i.id]);
         // a preset in its usual spelling (Open D's F♯, E♭ for half step down);
         // a custom tuning as the Flats switch says
-        const flats = t.tuning.custom ? state.flats : Boolean(t.tuning.flats);
+        const flats = t.tuning.custom || t.tuning.saved ? state.flats : Boolean(t.tuning.flats);
         return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats) };
       }),
     })),
@@ -3520,20 +3664,7 @@ function init() {
       render();
     },
   }));
-  els.tuningSelect.addEventListener('click', () => {
-    const own = state.custom[state.instrument];
-    openPicker({
-      title: 'Tuning', value: instrument().tuning.id,
-      groups: [{ items: [
-        ...tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })),
-        { value: 'custom', label: 'Custom', sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
-      ] }],
-      onPick: (v) => {
-        if (v === 'custom') { openTuneEdit(); return; }
-        state.tuning[state.instrument] = v; state.shape = 0; recallChip(); render();
-      },
-    });
-  });
+  els.tuningSelect.addEventListener('click', openTuningMenu);
   // Custom tuning popup
   els.tuneList.addEventListener('click', (e) => {
     const step = e.target.closest('[data-step]');
@@ -3554,6 +3685,18 @@ function init() {
   els.tuneClose.addEventListener('click', () => closeTuneEdit(false));
   els.tuneEdit.addEventListener('click', (e) => { if (e.target === els.tuneEdit) closeTuneEdit(false); });
   els.tuneEdit.addEventListener('close', () => closeTuneEdit(false));   // Escape
+  // Escape while naming: back to the buttons, the popup stays
+  els.tuneEdit.addEventListener('cancel', (e) => { if (!els.tuneNaming.hidden) { e.preventDefault(); endNaming(); } });
+  els.tuneSave.addEventListener('click', startNaming);
+  els.tuneSaveName.addEventListener('input', updateNaming);
+  els.tuneNameCancel.addEventListener('click', endNaming);
+  els.tuneNaming.addEventListener('submit', (e) => { e.preventDefault(); saveTune(); });   // Save, or Enter
+  // Delete a saved tuning
+  els.tuneDeleteGo.addEventListener('click', deleteTuning);
+  els.tuneDeleteCancel.addEventListener('click', closeDeleteTuning);
+  els.tuneDeleteClose.addEventListener('click', closeDeleteTuning);
+  els.tuneDelete.addEventListener('click', (e) => { if (e.target === els.tuneDelete) closeDeleteTuning(); });
+  els.tuneDelete.addEventListener('close', () => { deleting = null; });   // Escape
 
   for (const [id, key] of TOGGLES) {
     els[id].addEventListener('click', () => {
@@ -3702,6 +3845,8 @@ function init() {
     },
   }));
   els.pickerBody.addEventListener('click', (e) => {
+    const remove = e.target.closest('[data-remove]');
+    if (remove) { if (pickerRemove) pickerRemove(remove.dataset.remove); return; }
     const pick = e.target.closest('.pick');
     if (!pick) return;
     const handler = pickerPick;
