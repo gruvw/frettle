@@ -79,7 +79,8 @@ const TUNINGS = {
 /* An instrument's tunings: its common ones, or just its standard one */
 const tuningsOf = (id) => TUNINGS[id] || [{ id: 'standard', name: 'Standard', strings: findInstrument(id).strings }];
 /* Your own tuning for an instrument (one each, kept in state.custom), named
-   by its notes: "C G D G B D". Each string within an octave of standard. */
+   by its notes: "C G D G B D". Each string within an octave of standard.
+   None kept: it holds standard ("Tune each string" in the menu). */
 const CUSTOM_RANGE = 12;
 function customTuning(id) {
   const strings = typeof state === 'object' && state && state.custom && state.custom[id];
@@ -700,7 +701,7 @@ function defaultState() {
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
     scale: { on: false, root: 0, type: null },
-    share: { neck: true, chord: true, scale: true, recent: false },   // what the Share popup puts in the link
+    share: { neck: true, chord: true, scale: true, list: true },   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
   };
 }
 
@@ -739,6 +740,7 @@ function loadState() {
       if (known) s.tuning[id] = t;
       const preset = strings && matchTuning(id, strings, s.saved);
       if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset (or a saved one): that one
+      if (strings && sameStrings(tuningsOf(id)[0], strings)) delete s.custom[id];   // standard: nothing kept ("Tune each string")
       // (one capo for all instruments, as it was first saved: the instrument on screen keeps it)
       const c = readCapo(typeof work.capo === 'number' ? (id === s.instrument ? work.capo : 0) : work.capo && work.capo[id], id);
       if (c) s.capo[id] = c;
@@ -1015,7 +1017,7 @@ function startLink(search) {
   if (!saved) { applyLink(search); return; }
   // A link with no chord (or no scale) means none: loaded, it takes yours
   // off, so it is asked about too. A link with no chord list keeps yours:
-  // most links leave it out (it is off in the Share popup to begin with).
+  // the sharer's list was empty, or left out in the Share popup.
   const has = { neck: p.has('instrument'), chord: p.has('chord') || state.chord.on, scale: p.has('scale') || state.scale.on, recent: p.has('list') };
   const preview = linkPreview(search, has);   // (may find has.recent false)
   if (!preview.loses) { applyLink(search, has); return; }
@@ -1225,7 +1227,7 @@ function renderShare() {
   const rows = [   // [row, part, what is on the neck: text, or chord names]
     [els.shareNeck, 'neck', setupText()],
     [els.shareChord, 'chord', ch ? [ch.symbol] : []],
-    [els.shareRecent, 'recent', listNames()],
+    [els.shareRecent, 'list', listNames()],
     [els.shareScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : ''],
   ];
   for (const [row, key, value] of rows) {
@@ -1249,7 +1251,7 @@ function shareChoice() {
     neck: state.share.neck,
     chord: state.share.chord && state.chord.on,
     scale: state.share.scale && state.scale.on,
-    recent: state.share.recent && state.list.length > 0,
+    recent: state.share.list && state.list.length > 0,
   };
 }
 async function shareLink() {
@@ -2146,12 +2148,14 @@ function playGroup() {
     for (let f = a; f <= b; f++) if (sc.set.has(mod12(fretPitch(inst, s, f)))) notes.push({ s, f, midi: fretPitch(inst, s, f) });
   }
   notes.sort((x, y) => x.midi - y.midi);
-  groupRun = { sources: [], timers: [] };
+  groupRun = { key: groupKey(g, sc), sources: [], timers: [] };
   notes.forEach((x, i) => {
     groupRun.sources.push(playNote(x.midi, i * GROUP_GAP, 0.5));
     groupRun.timers.push(setTimeout(() => flashCell(x.s, x.f), i * GROUP_GAP * 1000));
   });
 }
+// The group as played: another scale, tuning, capo or group stops it (see draw)
+const groupKey = (g, sc) => (g && sc ? [scaleKey(sc), g.bars.map((b) => `${b.s}:${b.a}-${b.b}`)].join('|') : '');
 function stopGroup() {
   if (!groupRun) return;
   for (const src of groupRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
@@ -2273,6 +2277,7 @@ function draw() {
   renderHeader();
   renderRecent();
   renderNeck(ch, sc);
+  if (groupRun && groupRun.key !== groupKey(ui.groups[ui.group], sc)) stopGroup();   // what it was playing is gone
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
   renderDock(ch, sc);
@@ -2499,9 +2504,11 @@ function tuneSet(strings) {
   const id = state.instrument;
   tune.draft = strings;
   const preset = matchTuning(id, strings);
-  if (preset) {   // a preset's notes (or a saved tuning's): that one (the custom tuning stays as it was)
+  if (preset) {   // a preset's notes (or a saved tuning's): that one
     state.tuning[id] = preset.id;
-    if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
+    // standard (Reset, or tuned back to it): the custom tuning goes back to
+    // standard too, nothing kept; another one: it stays as it was
+    if (tune.before.custom && preset.id !== tuningsOf(id)[0].id) state.custom[id] = tune.before.custom; else delete state.custom[id];
   } else {
     state.tuning[id] = 'custom';
     state.custom[id] = strings;
@@ -2583,8 +2590,8 @@ function saveTune() {
   const strings = tune.draft.slice();
   (state.saved[id] = state.saved[id] || []).push({ name, strings });
   state.tuning[id] = savedId(strings);
-  // The custom tuning stays as it was before (this one is kept by its name)
-  if (tune.before.custom) state.custom[id] = tune.before.custom; else delete state.custom[id];
+  // Kept by its name now: the custom tuning goes back to standard
+  delete state.custom[id];
   closeTuneEdit(true);
   render();
 }
@@ -4021,7 +4028,7 @@ function init() {
   els.shareClose.addEventListener('click', closeShare);
   els.share.addEventListener('click', (e) => { if (e.target === els.share) closeShare(); });
   els.shareCancel.addEventListener('click', closeShare);
-  for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'recent']]) {
+  for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'list']]) {
     btn.addEventListener('click', () => { state.share[key] = !state.share[key]; saveState(); renderShare(); });
   }
   els.shareGo.addEventListener('click', shareLink);
