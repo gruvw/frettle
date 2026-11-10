@@ -17,7 +17,7 @@ A fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. P
 ## What it does
 
 - Every note on the neck: guitar, bass, ukulele, mandolin, mandola and banjo
-- Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more, or a custom one
+- Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more, or custom ones, saved by name
 - Chords in any key, every shape up the neck, with intervals on each note
 - Scales and modes, one hand-sized group at a time (pentatonic boxes, CAGED positions)
 - Shows when a chord fits the scale

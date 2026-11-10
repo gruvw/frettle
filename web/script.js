@@ -1236,7 +1236,7 @@ function renderShare() {
   }
   const opts = shareChoice();
   els.shareGo.disabled = !Object.values(opts).some(Boolean);
-  els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}Share link` : 'Copy link';
+  els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}${tx('Share link')}` : tx('Copy link');
 }
 function shareChoice() {
   return {
@@ -1278,7 +1278,7 @@ function shareDone(copied) {
   clearTimeout(copiedTimer);
   copiedTimer = setTimeout(() => { els.shareStatus.textContent = ''; }, 2000);
   if (!copied) {
-    els.shareGo.textContent = 'Could not copy the link';
+    els.shareGo.innerHTML = tx('Could not copy the link');
     clearTimeout(shareTimer);
     shareTimer = setTimeout(renderShare, 2000);
     return;
@@ -2543,7 +2543,7 @@ function openPicker({ title, groups, value, layout = '', note = '', noteNone = '
         `${it.style ? ` style="${it.style}"` : ''}${it.title ? ` title="${esc(it.title)}"` : ''}>` +
         (it.icon ? `<span class="pick-name with-icon"><span class="pick-icon">${it.icon}</span><span class="pick-text">${esc(it.label)}</span></span>`
           : `<span class="pick-name">${esc(it.label)}</span>`) +
-        `${it.tag ? `<span class="pick-tag">${esc(it.tag)}</span>` : ''}` +
+        `${it.tag ? `<span class="pick-tag">${tx(it.tag)}</span>` : ''}` +
         `${it.sub ? `<span class="pick-sub">${esc(it.sub)}</span>` : ''}</button>`;
       return it.remove ? `<div class="pick-wrap">${tile}<button type="button" class="pick-remove" data-remove="${esc(it.value)}" ` +
         `aria-label="${esc(it.remove)}" title="${esc(it.remove)}">${X_ICON}</button></div>` : tile;
@@ -2622,14 +2622,14 @@ function fillStepper(bar, mode, ch, sc) {
     const [a, b] = groupFrets(group).map((f) => f - capo());   // counted from the capo
     bar.prev.disabled = bar.next.disabled = ui.groups.length < 2;
     bar.play.disabled = false;
-    bar.symbol.textContent = sc.rootName;
+    bar.symbol.innerHTML = tx(sc.rootName);
     bar.tab.innerHTML = `<span class="dock-count">Group ${ui.group + 1}/${ui.groups.length}, ${groupPlace(group, capo())}</span>` +
       `<span class="dock-words">Frets ${a} to ${b}</span>`;
   } else {
     const many = Boolean(ch && ch.shapes.length > 1);
     bar.prev.disabled = bar.next.disabled = !many;
     bar.play.disabled = !ch || !ch.shape;
-    bar.symbol.textContent = ch ? ch.symbol : '';
+    bar.symbol.innerHTML = ch ? tx(ch.symbol) : '';   // (empty: hidden)
     if (!ch) bar.tab.innerHTML = '<span class="dock-msg">No chord selected</span>';
     else if (!ch.shape) bar.tab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
     else {
@@ -2770,6 +2770,7 @@ const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? ins
 /* Open string names, low to high: "D A D G B E" */
 const tuningNotes = (strings, flats = false) => strings.map((m) => noteText(plainNote(m, flats))).join(' ');
 
+const MUTE_BADGE = '×';   // (a muted string's badge: drawn as MUTE_ICON)
 const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
   'stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
@@ -3185,7 +3186,11 @@ function renderNeck(ch, sc) {
       if (f < nut(s)) {
         cls += ' plain';   // behind the capo: shown for reference, but cannot be played
       } else if (f === nut(s) && ch && ch.shape && ch.shape.frets[s] < 0) {
-        cls += ' mute';
+        // A string the shape does not play: its open note, quiet, with a
+        // pink × badge where a chord note has its interval (with "Only
+        // scale notes" too: it says which string, not a note to play)
+        cls += ' mute named';
+        n = ch.spell.names.get(pc) || (sc && sc.spell.names.get(pc)) || n;
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
         cls += `${shapeAt.has(key) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`;
@@ -3195,22 +3200,27 @@ function renderNeck(ch, sc) {
         cls += ` scale${pc === sc.root ? ' scale-root' : ''}`;
         n = sc.spell.names.get(pc) || n;
       } else {
-        cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';   // off: shown, but not in the scale
+        // off: shown, but not in the scale; out: hidden ("Only scale notes"),
+        // except an open string's note (at the nut, the capo or a banjo's
+        // spike): the strings' notes are always shown
+        cls += onlyScale && f !== nut(s) ? ' plain out' : sc ? ' plain off' : ' plain';
       }
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
       if (cls.includes(' off-key')) title += `, not in ${sc.rootName} ${sc.def.short}`;
       if (f < nut(s)) title += `, behind the ${stop}`;
-      if (cls.includes(' mute')) title = `String ${num} not played`;
+      if (cls.includes(' mute')) title = cls.includes(' named') ? `${pitchText(midi, n)}, ${where}, not played` : `String ${num} not played`;
       const octave = octaveOf(s, f);
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
         `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}`;
-      const inner = cls.includes(' mute') ? MUTE_ICON : tx(text);
-      const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${octave}</span>` : '';
+      const inner = cls.includes(' mute') && !cls.includes(' named') ? MUTE_ICON : tx(text);
+      if (cls.includes(' named')) badge = MUTE_BADGE;
+      const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${tx(String(octave))}</span>` : '';
       html.push(
         `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
         `${octTag}<span class="${cls}" title="${esc(title)}">${inner}` +
-        `${badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
+        `${badge === MUTE_BADGE ? `<span class="deg-badge mute-badge" aria-hidden="true">${MUTE_ICON}</span>`
+          : badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
       );
     }
   });
@@ -3415,7 +3425,7 @@ function renderChordPanel(ch, sc) {
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
       `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
-      `<span class="np-loc"><kbd>${loc}</kbd></span></li>`;
+      `<span class="np-loc"><kbd>${tx(loc)}</kbd></span></li>`;
   }).join('');
 
   els.shapeList.innerHTML = ch.shapes.map((shape, i) => {
@@ -3475,7 +3485,7 @@ function renderScalePanel(sc, ch) {
   els.scaleAlt.textContent = relatives.length ? `Same notes as ${relatives.join(', ')}` : '';
 
   // Notes with their interval on top, and the step to the next note below
-  const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${deg === '1' ? 'R' : deg}</span>`;
+  const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${tx(deg === '1' ? 'R' : deg)}</span>`;
   const parts = [];
   sc.spell.notes.forEach((n, i) => {
     parts.push(`<li><button type="button" class="scale-note${i === 0 ? ' root' : ''}" data-i="${i}" ` +

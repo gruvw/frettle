@@ -72,7 +72,7 @@
   <header class="top">
     <h1>Frettle <span class="h1-sub">Fretboard visualizer</span></h1>
     <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is on the neck" aria-label="Share" aria-haspopup="dialog"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
-    <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog">About</button>
+    <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog"><span class="tx">About</span></button>
     <!-- Phones: the instrument menu sits here, centred above the neck -->
     <div id="instNarrowSlot" class="inst-slot"></div>
   </header>
@@ -167,7 +167,7 @@
               <span>Voicing</span>
               <button type="button" id="chordVoicing" class="select-btn" aria-haspopup="dialog" aria-label="Chord voicing"></button>
             </div>
-            <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>Strum</button>
+            <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="tx">Strum</span></button>
             <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
           </div>
 
@@ -197,7 +197,7 @@
           <div id="recentLine" class="line recent-line" hidden>
             <span class="label">List</span>
             <div class="recent-scroll"><ol id="recentList" class="recent-chips" aria-label="Chord list"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
-            <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg>Clear</button>
+            <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear the chord list"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg><span class="tx">Clear</span></button>
           </div>
         </section>
 
@@ -314,8 +314,8 @@
         and 5-string banjo, in standard tuning, Drop D, DADGAD, open G, double C and other alternate tunings, or custom ones saved by name, with or without a capo.</p>
     </div>
     <div class="about-links">
-      <a class="btn about-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener">Source code on GitHub</a>
-      <a class="btn about-link support" href="https://ko-fi.com/gruvw" target="_blank" rel="noopener"><svg class="ico heart" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>Support Frettle</a>
+      <a class="btn about-link" href="https://github.com/gruvw/frettle" target="_blank" rel="noopener"><span class="tx">Source code on GitHub</span></a>
+      <a class="btn about-link support" href="https://ko-fi.com/gruvw" target="_blank" rel="noopener"><svg class="ico heart" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg><span class="tx">Support Frettle</span></a>
     </div>
   </dialog>
 
@@ -349,8 +349,8 @@
       </button>
     </div>
     <div class="about-links share-actions">
-      <button type="button" id="shareCancel" class="btn">Cancel</button>
-      <button type="button" id="shareGo" class="btn primary">Copy link</button>
+      <button type="button" id="shareCancel" class="btn"><span class="tx">Cancel</span></button>
+      <button type="button" id="shareGo" class="btn primary"><span class="tx">Copy link</span></button>
     </div>
   </dialog>
 
@@ -384,8 +384,8 @@
       </button>
     </div>
     <div class="about-links share-actions">
-      <button type="button" id="linkKeep" class="btn">Cancel</button>
-      <button type="button" id="linkLoad" class="btn primary" autofocus>Load</button>
+      <button type="button" id="linkKeep" class="btn"><span class="tx">Cancel</span></button>
+      <button type="button" id="linkLoad" class="btn primary" autofocus><span class="tx">Load</span></button>
     </div>
   </dialog>
 
@@ -399,23 +399,23 @@
     <div class="picker-body tune-body">
       <div class="tune-head">
         <span id="tuneName" class="tune-name" aria-live="polite"></span>
-        <button type="button" id="tuneReset" class="btn tune-reset" title="Back to standard tuning">Reset</button>
+        <button type="button" id="tuneReset" class="btn tune-reset" title="Back to standard tuning"><span class="tx">Reset</span></button>
       </div>
       <ol id="tuneList" class="tune-list" aria-label="Strings"></ol>
     </div>
     <div id="tuneActions" class="about-links share-actions">
       <!-- Save: keep the tuning under a name, in the tuning menu (a bookmark on phones) -->
       <button type="button" id="tuneSave" class="btn icon tune-save" aria-label="Save" title="Save this tuning under a name"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg><span class="btn-label">Save</span></button>
-      <button type="button" id="tuneCancel" class="btn">Cancel</button>
-      <button type="button" id="tuneDone" class="btn primary">Select</button>
+      <button type="button" id="tuneCancel" class="btn"><span class="tx">Cancel</span></button>
+      <button type="button" id="tuneDone" class="btn primary"><span class="tx">Select</span></button>
     </div>
     <!-- Its name, asked once Save is pressed (in place of the buttons above) -->
     <form id="tuneNaming" class="about-links tune-naming" hidden>
       <input type="text" id="tuneSaveName" class="text-input" maxlength="24" placeholder="Name" aria-label="Name of the tuning"
              autocomplete="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="done">
       <div class="share-actions">
-        <button type="button" id="tuneNameCancel" class="btn">Cancel</button>
-        <button type="submit" id="tuneNameSave" class="btn primary" disabled>Save</button>
+        <button type="button" id="tuneNameCancel" class="btn"><span class="tx">Cancel</span></button>
+        <button type="submit" id="tuneNameSave" class="btn primary" disabled><span class="tx">Save</span></button>
       </div>
     </form>
   </dialog>
@@ -432,8 +432,8 @@
       <p class="delete-what"><span id="tuneDeleteName" class="delete-name"></span><span id="tuneDeleteNotes" class="delete-notes"></span></p>
     </div>
     <div class="about-links share-actions">
-      <button type="button" id="tuneDeleteCancel" class="btn">Cancel</button>
-      <button type="button" id="tuneDeleteGo" class="btn danger">Delete</button>
+      <button type="button" id="tuneDeleteCancel" class="btn"><span class="tx">Cancel</span></button>
+      <button type="button" id="tuneDeleteGo" class="btn danger"><span class="tx">Delete</span></button>
     </div>
   </dialog>
 

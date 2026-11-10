@@ -409,7 +409,6 @@ kbd {
   border-top-color: var(--accent);
 }
 .inst-name, .inst-tuning { overflow: hidden; text-overflow: ellipsis; }
-.inst-name, .inst-tuning { line-height: 1.3; }   /* the box cuts at its edges: room for a g's tail */
 .inst-name { flex: none; }   /* a long tuning name (a saved one) gives way, not the instrument's */
 .inst-tuning { min-width: 0; }
 /* Wide screens: it sits on the neck panel, which shares its colour, so its
@@ -723,14 +722,16 @@ button, a { scroll-margin: 6px; }
   z-index: 3;
   top: 2px;
   left: 2px;   /* clear of the interval badge (top-right) and the capo (bottom, or the right end) */
+  display: inline-flex;   /* (its number centred by its capitals, see .tx) */
+  align-items: center;
+  justify-content: center;
   min-width: 15px;
   height: 15px;
   padding: 0 4px;
   border-radius: var(--r-pill);
   background: var(--border);
   color: var(--text);
-  font: 700 var(--fs-tag)/15px var(--font);
-  text-align: center;
+  font: 700 var(--fs-tag)/1 var(--font);
   pointer-events: none;
 }
 /* Left-handed and across, the capo sits at the cell's left end */
@@ -829,11 +830,17 @@ button, a { scroll-margin: 6px; }
 .note.off-key .deg-badge { border-color: var(--warn); background: var(--warn); color: var(--pk-black); }
 .note.mute { background: transparent; box-shadow: none; color: var(--chord); }
 .mute-ico { width: 15px; height: 15px; }
+/* A string the shape does not play: its open note, darker like the notes
+   outside the scale (one look for "not part of this"), with a pink × in the
+   interval badge's place */
+.note.mute.named { box-shadow: inset 0 0 0 1px var(--border); }   /* (the note's own outline, which .mute drops; its colours: below) */
+.deg-badge.mute-badge { width: 18px; padding: 0; }
+.mute-badge .mute-ico { width: 10px; height: 10px; }
 
 /* Notes outside the shown scale are a little darker; with "Only scale
    notes" they are hidden, but still sound when tapped: the note shows for a
    moment, darker, as it rings */
-.note.off, .note.out { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
+.note.off, .note.out, .note.mute.named { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.out { visibility: hidden; }
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
@@ -1098,6 +1105,13 @@ button, a { scroll-margin: 6px; }
    the font. Browsers without trimming centre the whole line, as before. */
 .tx { display: block; text-box: trim-both cap alphabetic; }
 .chip, .status, kbd { text-box: trim-both cap alphabetic; }
+/* The same for the buttons' words (in a .tx, or their label spans) and the
+   menus (blocks themselves) */
+.btn-label, .strum-label, .select-btn { text-box: trim-both cap alphabetic; }
+/* The instrument button's two names are cut short with "…", so they clip
+   at their edges: cut to the capitals, they keep room around them for
+   accents and tails (padding, taken back by the margins) */
+.inst-name, .inst-tuning { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
 
 /* ==========================================================================
    Dock (phones): shape bar + tabs fixed at the bottom; a tab opens its panel
