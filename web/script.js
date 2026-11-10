@@ -79,9 +79,9 @@ const TUNINGS = {
 /* An instrument's tunings: its common ones, or just its standard one */
 const tuningsOf = (id) => TUNINGS[id] || [{ id: 'standard', name: 'Standard', strings: findInstrument(id).strings }];
 /* Your own tuning for an instrument (one each, kept in state.custom), named
-   by its notes: "C G D G B D". Each string within an octave of standard.
+   by its notes: "C G D G B D". Each string within two octaves of standard.
    None kept: it holds standard ("Tune each string" in the menu). */
-const CUSTOM_RANGE = 12;
+const CUSTOM_RANGE = 24;   // semitones either way from standard
 function customTuning(id) {
   const strings = typeof state === 'object' && state && state.custom && state.custom[id];
   return strings ? { id: 'custom', name: tuningNotes(strings, state.flats), short: 'Custom', custom: true, strings } : null;
@@ -843,18 +843,22 @@ const readTuning = (inst, id) => (tuningsOf(inst).some((t) => t.id === id) ? id 
    the strings are listed): "D2-A2-D3-G3-B3-E4" */
 const pitchToken = (m) => `${noteToken(plainNote(m, false))}${Math.floor(m / 12) - 1}`;
 const customText = (strings) => strings.map(pitchToken).join('-');
+// One string: its note and octave, then a hyphen before the next one. The
+// octave can be -1 (a 5-string bass's low B down an octave: "B-1-E1-..."),
+// so each note is read with its octave rather than split at every hyphen.
+const PITCH_RE = /^([A-Ga-g](?:[#s♯]{1,2}|[b♭]{1,2})?)(-?\d)(?:-(?=.)|$)/;
 function readCustom(inst, text) {   // → open string pitches, or null when wrong
   const base = tuningsOf(inst)[0].strings;
-  const parts = String(text || '').split('-');
-  if (parts.length !== base.length) return null;
-  const strings = parts.map((part) => {
-    const m = /^(.+?)(\d)$/.exec(part);
-    const pc = m && readNote(m[1]);
-    if (pc === null || !m) return null;
+  const strings = [];
+  for (let rest = String(text || ''), m; rest; rest = rest.slice(m[0].length)) {
+    m = PITCH_RE.exec(rest);
+    if (!m) return null;
+    const pc = readNote(m[1]);
     const letter = m[1][0].toUpperCase();
     const acc = mod12(pc - LETTER_PC[LETTERS.indexOf(letter)] + 6) - 6;   // -2..+2
-    return (Number(m[2]) + 1) * 12 + LETTER_PC[LETTERS.indexOf(letter)] + acc;
-  });
+    strings.push((Number(m[2]) + 1) * 12 + LETTER_PC[LETTERS.indexOf(letter)] + acc);
+  }
+  if (strings.length !== base.length) return null;
   return strings.every((m, i) => m !== null && Math.abs(m - base[i]) <= CUSTOM_RANGE) ? strings : null;
 }
 const maxCapo = (inst) => Math.min(MAX_CAPO, findInstrument(inst).frets - SHAPE_SPAN);   // a hand's width of frets stays
@@ -2490,7 +2494,7 @@ function placeSettings() {
 /* Custom tuning: a popup with each string laid out as on the neck (phones:
    columns, the lowest string on the left, mirrored left-handed; wide
    screens: rows, the highest string on top), each a semitone up or down at
-   a time, within an octave of standard. A note tuned away from standard is
+   a time, within two octaves of standard. A note tuned away from standard is
    in the accent colour, and its string number turns into a button that puts
    that string back; tapping a note plays it. The neck follows as you
    tune; landing on a preset (Drop D...) names it and picks it. Done keeps
