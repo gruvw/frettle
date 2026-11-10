@@ -84,33 +84,34 @@
       <h2 id="instWideSlot" class="neck-title">
         <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
       </h2>
-      <div id="settingsWideSlot" class="settings-slot"></div>
+      <!-- Neck settings: here on wide screens, in the "Neck" tab of the dock
+           on phones (script.js moves them). They start here, so the page is
+           in place before the script runs: on phones this header is hidden. -->
+      <div id="settingsWideSlot" class="settings-slot">
+        <div id="settings" class="settings">
+          <button type="button" id="tuningSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Tuning"
+                  title="How the strings are tuned"></button>
+          <button type="button" id="capoSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Capo position"
+                  title="Fret where the capo sits. Frets are then counted from the capo."></button>
+          <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
+                  title="Shade every other octave and show each octave's number (C4 = middle C)">
+            <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Octaves</span>
+          </button>
+          <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
+                  title="Use flats for notes outside the key, and for keys that can be written either way (F♯ / G♭)">
+            <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Flats</span>
+          </button>
+          <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false"
+                  title="Mirror the neck for left-handed players">
+            <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Left-handed</span>
+          </button>
+        </div>
+      </div>
     </div>
     <div class="neck-scroll">
       <div id="neck" class="neck" role="grid" aria-label="Fretboard notes"></div>
     </div>
   </section>
-
-  <!-- Neck settings: placed in the neck's header on wide screens and in the
-       "Neck" tab of the dock on phones (script.js moves it). -->
-  <div id="settings" class="settings">
-    <button type="button" id="tuningSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Tuning"
-            title="How the strings are tuned"></button>
-    <button type="button" id="capoSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Capo position"
-            title="Fret where the capo sits. Chord shapes are then counted from the capo."></button>
-    <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
-            title="Shade every other octave and show each octave's number (C4 = middle C)">
-      <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Octaves</span>
-    </button>
-    <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
-            title="Use flats for notes outside the key, and for keys that can be written either way (F♯ / G♭)">
-      <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Flats</span>
-    </button>
-    <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false"
-            title="Mirror the neck for left-handed players">
-      <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Left-handed</span>
-    </button>
-  </div>
 
   <div id="dock" class="dock">
     <div id="sheet" class="sheet">
@@ -125,6 +126,15 @@
           <div class="panel-head">
             <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span></h2>
             <span id="shapeCount" class="status chord-count" hidden></span>
+            <!-- The panel's switches: at the end of its title row on wide
+                 screens, under the menus on phones (script.js moves them).
+                 They start here: on phones the panel is closed at first. -->
+            <div class="switch-row">
+              <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
+                      title="Also mark every other place the chord's notes appear on the neck">
+                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
+              </button>
+            </div>
           </div>
 
           <div class="bar chord-bar">
@@ -139,12 +149,6 @@
             <div class="field grow voicing">
               <span>Voicing</span>
               <button type="button" id="chordVoicing" class="select-btn" aria-haspopup="dialog" aria-label="Chord voicing"></button>
-            </div>
-            <div class="switch-row">
-              <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
-                      title="Also mark every other place the chord's notes appear on the neck">
-                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
-              </button>
             </div>
             <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>Strum</button>
             <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
@@ -183,16 +187,6 @@
         <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
           <div class="panel-head">
             <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span></h2>
-          </div>
-          <div class="bar scale-bar">
-            <div class="field root">
-              <span>Root</span>
-              <button type="button" id="scaleRoot" class="select-btn" aria-haspopup="dialog" aria-label="Scale root"></button>
-            </div>
-            <div class="field scale-type">
-              <span>Type</span>
-              <button type="button" id="scaleType" class="select-btn" aria-haspopup="dialog" aria-label="Scale type"></button>
-            </div>
             <div class="switch-row">
               <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
                       title="Hide the notes that are not in the scale">
@@ -203,6 +197,17 @@
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Groups</span>
               </button>
             </div>
+          </div>
+          <div class="bar scale-bar">
+            <div class="field root">
+              <span>Root</span>
+              <button type="button" id="scaleRoot" class="select-btn" aria-haspopup="dialog" aria-label="Scale root"></button>
+            </div>
+            <div class="field scale-type">
+              <span>Type</span>
+              <button type="button" id="scaleType" class="select-btn" aria-haspopup="dialog" aria-label="Scale type"></button>
+            </div>
+            <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
             <button type="button" id="scaleClear" class="btn deselect push-right" title="Deselect the scale" aria-label="Deselect the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
           </div>
           <div id="scaleBody" class="np-body scale-body" aria-live="polite">
@@ -217,7 +222,6 @@
             <div class="np-tones notes-line">
               <span class="label">Notes</span>
               <ol id="scaleNotes" class="scale-chain" aria-label="Scale notes and steps"></ol>
-              <button type="button" id="scalePlay" class="btn primary scale-play" title="Play the scale, low to high" aria-label="Play the scale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="btn-label">Play</span></button>
             </div>
           </div>
           <div id="groupLine" class="line group-line" hidden>

@@ -15,7 +15,7 @@
   --bg: #121317;
   --panel: #1b1d23;
   --text: #e6e7eb;
-  --muted: #9097a3;
+  --muted: #a0a6b1;
   --border: #2d3039;
   --accent: #8c86f7;
   --accent-text: #11101f;
@@ -83,7 +83,12 @@
 /* ==========================================================================
    Base
    ========================================================================== */
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+  /* Every scrollbar on the site: thin, a soft grey thumb, no track */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
+}
 
 html { -webkit-text-size-adjust: 100%; }
 /* Phones (not the wide layout, see WIDE_QUERY): no page scrollbar, which
@@ -112,7 +117,17 @@ body {
   color: var(--text);
   font: var(--fs-md)/1.5 var(--font);
   -webkit-tap-highlight-color: transparent;
+  /* An app, not a page of text: quick taps and long presses select nothing
+     (buttons, switches, chips, labels, titles). Only the text meant for
+     reading can be selected: the chord's and the scale's descriptions and
+     the About text. */
+  -webkit-user-select: none;
+  user-select: none;
 }
+/* (popups and buttons are named too: browsers give them their own setting,
+   which would win over the page's) */
+dialog, button { -webkit-user-select: none; user-select: none; }
+.np-head, .about-body { -webkit-user-select: text; user-select: text; }
 
 body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
 body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* fewer than two recent chords: no row */
@@ -172,7 +187,7 @@ kbd {
 .share-btn.done { color: var(--ok); border-color: var(--ok); }   /* link copied, for a moment */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; }
+.inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before script.js places it: the neck does not jump */
 
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
@@ -238,7 +253,7 @@ kbd {
 }
 .tune-step.up { grid-area: up; }
 .tune-step.down { grid-area: down; }
-.tune-step:disabled { opacity: 0.3; cursor: default; }
+.tune-step[aria-disabled="true"] { opacity: 0.3; cursor: default; }   /* the end of the string's range */
 /* The note: just its name, large (the octave small beside it), in the
    accent colour when tuned away from standard */
 .tune-note {
@@ -266,7 +281,7 @@ kbd {
   .tune-step { height: 44px; }
 }
 @media (hover: hover) {
-  .tune-step:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 22%, var(--kbd-bg)); }
+  .tune-step:not([aria-disabled="true"]):hover { background: color-mix(in srgb, var(--accent) 22%, var(--kbd-bg)); }
   .tune-note:hover { background: var(--kbd-bg); }
 }
 
@@ -452,6 +467,7 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.select-btn:disabled { opacity: 0.45; cursor: default; }   /* switched off, like the buttons and switches */
 
 /* Buttons: outlined by default, .primary filled, .small compact, .icon square */
 .btn {
@@ -483,11 +499,19 @@ kbd {
 .btn-label { display: none; }
 .btn:not(:disabled):active { filter: brightness(1.15); }
 
+/* The keyboard focus: one ring for every control, 2px wide and 2px away, so
+   4px outside the control. A row that scrolls clips what sticks out of it:
+   those rows keep at least that much room around their controls. */
 .select-btn:focus-visible, .pick:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible,
-.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible {
+.tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible,
+.lk-row:focus-visible, .tune-step:focus-visible, .tune-note:focus-visible, .tune-num.reset:focus-visible, .recent-clear:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* A control that takes the keyboard focus is scrolled into view with its
+   ring (script.js), this far from the edge of the row, popup or page */
+button, a { scroll-margin: 6px; }
+.scale-note { scroll-margin: 10px; }   /* the root's two rings */
 
 /* Switch-style toggles and the capo button (the neck settings) */
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
@@ -618,6 +642,7 @@ kbd {
 .ruler.mark { color: var(--text); }
 .ruler i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }   /* same colour as the number */
 .ruler.capo { color: var(--accent); font-weight: 800; }
+.ruler.behind { opacity: 0.3; }   /* behind the capo: no number (frets count from the capo), its inlay dots faded like the frets */
 
 .slabel {
   display: grid;
@@ -941,8 +966,10 @@ kbd {
 .chip-list {
   position: relative;
   list-style: none;
-  margin: 0 0 calc(-1 * var(--scroll-gap));   /* keeps the row centred */
-  padding: 0 0 var(--scroll-gap);             /* keeps the scrollbar off the chips */
+  /* The row clips what sticks out: 4px of room around the chips for the
+     focus ring (taken back by the margins), and below them for the scrollbar */
+  margin: -4px -4px calc(-1 * var(--scroll-gap));   /* keeps the row centred */
+  padding: 4px 4px var(--scroll-gap);               /* keeps the scrollbar off the chips */
   display: flex;
   gap: 6px;
   flex: 1;
@@ -990,6 +1017,16 @@ kbd {
   cursor: pointer;
 }
 .scale-note.root { outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
+/* The root keeps its own teal ring when it has the focus: the focus ring is
+   drawn around it, as one more ring */
+.scale-note.root:focus-visible::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border: 2px solid var(--accent);
+  border-radius: var(--r-pill);
+  pointer-events: none;
+}
 .scale-note.octave { background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }
 /* Each note's interval, a badge on its corner like the chord's on the neck */
 .scale-deg {
@@ -1025,12 +1062,6 @@ kbd {
 
 .scale-gap > span { font-size: var(--fs-xs); font-weight: 800; line-height: 18px; color: var(--muted); white-space: nowrap; }
 
-/* Thin, rounded scrollbars for the sideways-scrolling rows */
-.neck-scroll, .np-notes, .chip-list, .scale-chain, .sheet-body {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent;
-}
-
 /* Optical centring of pill text where supported. Trimming only works on a
    block of text, not on the flex pills themselves, so the text of the note
    pills, chips and circles sits in a .tx block cut to its capital letters (cap
@@ -1063,10 +1094,10 @@ kbd {
   min-width: 0;
   display: flex;
   gap: 6px;
-  /* A little room inside the scrolling edge (taken back by the margin), so
-     the clip never shaves the round ends of a chip, whatever the pixel ratio */
-  margin: -2px;
-  padding: 2px;
+  /* Room inside the scrolling edge (taken back by the margin), so the clip
+     never shaves the round ends of a chip, nor its focus ring */
+  margin: -4px;
+  padding: 4px;
   list-style: none;
   overflow-x: auto;
   scrollbar-width: none;
@@ -1122,6 +1153,7 @@ kbd {
   cursor: pointer;
 }
 .recent-remove .ico { width: 12px; height: 12px; }
+.recent-remove:focus-visible { outline: 2px solid var(--chord-text); outline-offset: 1px; }   /* inside the pink pill: a white ring */
 /* Reordering: hold a chip (or drag it with a mouse). It lifts out of the
    row, bigger and with a shadow, and follows the pointer (a copy above
    everything, so the row does not clip it); a dashed slot shows where it
@@ -1277,6 +1309,9 @@ kbd {
 /* The handle and the panel titles can be dragged down to close the sheet */
 .sheet-close, .sheet .panel-head { touch-action: none; }
 .sheet-close span { width: 40px; height: 5px; border-radius: var(--r-pill); background: var(--border); }
+/* The sheet clips at its edges: the focus ring goes around the handle itself */
+.sheet-close:focus-visible { outline: none; }
+.sheet-close:focus-visible span { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* Phones in portrait: Strum becomes a square play button to leave room for the tab */
 @media (max-width: 429px) {
@@ -1325,12 +1360,18 @@ kbd {
   overflow-y: auto;
   overscroll-behavior: contain;   /* scrolling the list to its end does not scroll the page */
 }
+/* A list that runs down to the popup's bottom edge stops short of its round
+   corners (the room under the last tiles, outside the scrolling list rather
+   than inside it), so its scrollbar is never cut by them. The other popups
+   end with their buttons, under the list. */
+.picker-body:last-child { padding-bottom: 0; margin-bottom: var(--r-xl); }
 /* While a popup is open the page behind it stays put (the gutter keeps a
    desktop scrollbar's room, so nothing shifts) */
 html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* Section heading with a thin line running to the right */
 .picker-note { display: flex; align-items: center; gap: 7px; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); }
 .picker-note::before { flex: none; }
+.picker-note.empty::before { display: none; }   /* no tile has the dot: no dot to explain */
 .picker-label { display: flex; align-items: center; gap: var(--sp-3); margin-top: var(--sp-3); }
 /* Section titles centred between two thin lines */
 .picker-label::before, .picker-label::after { content: ""; flex: 1; height: 1px; background: var(--border); }
@@ -1425,9 +1466,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn.primary:not(:disabled):hover { filter: brightness(1.08); }
   .about-link.support:hover { border-color: var(--chord); background: color-mix(in srgb, var(--chord) 12%, transparent); }   /* stays pink */
   .btn:not(:disabled):active { filter: none; }
-  .select-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+  .select-btn:not(:disabled):hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
   .pick:hover { border-color: var(--accent); }
-  .pill-toggle:hover, .pill-select:hover { border-color: var(--accent); }
+  .pill-toggle:not(:disabled):hover, .pill-select:not(:disabled):hover { border-color: var(--accent); }
   .lk-row:not(:disabled):hover { border-color: var(--tone); }
   .chip:hover { box-shadow: inset 0 0 0 1px var(--chord); }
   .group-chip:hover { box-shadow: inset 0 0 0 1px var(--scale); }   /* scale groups: the scale's colour */
@@ -1490,6 +1531,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .neck-panel .panel-head { margin-bottom: var(--sp-3); min-height: 32px; }
   .neck-panel h2 { font-size: var(--fs-lg); }
   .neck-scroll { padding-bottom: var(--scroll-gap); }
+  /* Before script.js draws the neck, its room is kept (six strings, the
+     usual case), so the panels below do not jump down when it appears */
+  .neck:empty { min-height: calc(var(--ruler-row) + 6 * var(--row-h)); }
 
   /* Settings as a row of compact pills in the neck's header */
   .settings, .switch-row { display: flex; flex-wrap: wrap; align-items: center; }

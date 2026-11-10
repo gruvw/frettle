@@ -655,8 +655,9 @@ if (typeof module !== 'undefined') {
 }
 
 /* ==========================================================================
-   3. State (instrument, switches, capo, chord and scale are saved to
-   localStorage; the voicing and the shape shown are not)
+   3. State (instrument, switches, chord and scale are saved to
+   localStorage, the tuning and the capo for each instrument; the voicing
+   and the shape shown are not)
    ========================================================================== */
 function defaultState() {
   return {
@@ -668,11 +669,11 @@ function defaultState() {
     leftHanded: false,                // mirror the neck
     octaves: false,
     tuning: {},                       // tuning id per instrument ('custom': your own)
+    capo: {},                         // fret of the capo per instrument (none: left out)
     custom: {},                       // your own tuning per instrument: open string pitches
     chord: { on: true, root: 0, type: 'maj' },   // off: type null (see chordOff)
     recent: [],                       // the chord list [{ root, type, shapes }], shared by all instruments: none, or 2 or more
     solo: null,                       // the chord before there is a list (its shapes), the list's first chip to be
-    capo: 0,                          // fret of the capo, 0 = none (all instruments)
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: 0,                         // index in the shape list, this visit only
     scale: { on: false, root: 0, type: null },
@@ -706,9 +707,10 @@ function loadState() {
       if (t === 'custom' ? strings : readTuning(id, t)) s.tuning[id] = t;
       const preset = strings && matchPreset(id, strings);
       if (preset && s.tuning[id] === 'custom') s.tuning[id] = preset.id;   // the same as a preset: that one
+      // (one capo for all instruments, as it was first saved: the instrument on screen keeps it)
+      const c = readCapo(typeof work.capo === 'number' ? (id === s.instrument ? work.capo : 0) : work.capo && work.capo[id], id);
+      if (c) s.capo[id] = c;
     }
-    const c = readCapo(work.capo);
-    if (c !== null) s.capo = c;
     const chord = readChord(work.chord);
     if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id } : { on: false, root: chord.root, type: null };
     const scale = readScale(work.scale);
@@ -814,9 +816,10 @@ function readCustom(inst, text) {   // → open string pitches, or null when wro
   });
   return strings.every((m, i) => m !== null && Math.abs(m - base[i]) <= CUSTOM_RANGE) ? strings : null;
 }
-function readCapo(value) {
+const maxCapo = (inst) => Math.min(MAX_CAPO, findInstrument(inst).frets - SHAPE_SPAN);   // a hand's width of frets stays
+function readCapo(value, inst) {
   const c = Number(value);
-  return Number.isInteger(c) && c >= 0 && c <= MAX_CAPO ? c : null;
+  return Number.isInteger(c) && c >= 0 && c <= maxCapo(inst) ? c : null;
 }
 // A chip's remembered voicings: { instrument: voicing }
 function readVoicings(value) {
@@ -909,7 +912,7 @@ function applyLink(search, parts = null) {
     if (strings && !preset) state.custom[state.instrument] = strings;
     state.tuning[state.instrument] = preset ? preset.id : strings ? 'custom' : readTuning(state.instrument, p.get('tuning')) || 'standard';
   }
-  if (neck) state.capo = readCapo(p.get('capo') || 0) || 0;
+  if (neck) setCapo(readCapo(p.get('capo') || 0, state.instrument) || 0);
   const chord = readChord(p.get('chord'));
   if (take('chord')) {
     if (chord && chord.def) state.chord = { on: true, root: chord.root, type: chord.def.id };
@@ -1263,7 +1266,12 @@ let shapeCache = { key: '', shapes: [] };
 
 /* The selected instrument, in its selected tuning */
 const instrument = () => tunedInstrument(state.instrument, state.tuning[state.instrument]);
-const capo = () => state.capo;
+/* The capo, kept per instrument like the tuning: each instrument comes back
+   as it was left */
+const capo = () => state.capo[state.instrument] || 0;
+function setCapo(c) {
+  if (c) state.capo[state.instrument] = c; else delete state.capo[state.instrument];
+}
 
 /* The instrument as it sounds with the capo on: every open string raised,
    fewer frets left. Chord shapes are found on this, so their fret numbers
@@ -1654,15 +1662,25 @@ function selectShape(index) {
 }
 
 /* Scale groups overlap, so one is picked at a time (ui.group), stepped
-   through like a chord's shapes: the one last picked (ui.groupAt, the fret
-   in its middle), or the first one (nearest the nut) for new groups. */
+   through like a chord's shapes. The place picked on the neck is kept
+   (ui.groupAt: the group's lowest fret, as its chip names it, and the fret
+   in its middle), so the hand stays there when the scale changes (another
+   root or type, tuning or capo): the group that starts at the same fret if
+   there is one, else the nearest (the one whose middle is nearest of two
+   as near). Before any pick, or on another instrument: the first group
+   (nearest the nut). */
 const groupFrets = (g) => [Math.min(...g.bars.map((b) => b.a)), Math.max(...g.bars.map((b) => b.b))];
 const groupMid = (g) => { const [a, b] = groupFrets(g); return (a + b) / 2; };
 function pickGroup(groups) {
   if (!groups.length) return -1;
   if (ui.groupAt === null) return 0;
+  const far = (g) => [Math.abs(groupFrets(g)[0] - ui.groupAt.low), Math.abs(groupMid(g) - ui.groupAt.mid)];
   let best = 0;
-  groups.forEach((g, i) => { if (Math.abs(groupMid(g) - ui.groupAt) < Math.abs(groupMid(groups[best]) - ui.groupAt)) best = i; });
+  groups.forEach((g, i) => {
+    const [low, mid] = far(g);
+    const [bestLow, bestMid] = far(groups[best]);
+    if (low < bestLow || (low === bestLow && mid < bestMid)) best = i;
+  });
   return best;
 }
 function selectGroup(index) {
@@ -1670,12 +1688,13 @@ function selectGroup(index) {
   if (!groups.length) return;
   const i = (index + groups.length) % groups.length;
   stopGroup();
-  ui.groupAt = groupMid(groups[i]);
+  ui.groupAt = { low: groupFrets(groups[i])[0], mid: groupMid(groups[i]) };
   ui.revealGroup = true;
   render();
 }
-/* "Open" (a note at the nut, or at the capo), else its lowest fret */
-const groupPlace = (g, capo) => (g.bars.some((b) => b.a === capo) ? 'open' : `fret ${groupFrets(g)[0]}`);
+/* "Open" (a note at the nut, or at the capo), else its lowest fret, counted
+   from the capo like a chord shape's */
+const groupPlace = (g, capo) => (g.bars.some((b) => b.a === capo) ? 'open' : `fret ${groupFrets(g)[0] - capo}`);
 
 /* ==========================================================================
    4. Sound
@@ -2063,7 +2082,34 @@ const els = {};
 const tx = (s) => `<span class="tx">${esc(s)}</span>`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function render() {
+/* A row redrawn from scratch drops the keyboard focus with its old buttons
+   (the next Enter or Space would do nothing). The focus goes back to the
+   same button of the new row, found by its data- attributes; when that one
+   is gone or switched off (a string at the end of its range, a reset that
+   is no longer needed), to the nearest button of the same item, after it
+   first; else to the row's selected chip, or its first button. */
+const FOCUS_ROWS = '#tuneList, #shapeList, #groupList, #recentList, #dockRecentList, #scaleTriads, #scaleNotes';
+function keepFocus(redraw) {
+  const el = document.activeElement;
+  const row = el && el.closest ? el.closest(FOCUS_ROWS) : null;
+  if (!row) { redraw(); return; }
+  const key = [...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join('');
+  const item = el.closest('li');
+  const at = item ? [[...row.children].indexOf(item), [...item.children].indexOf(el)] : null;
+  redraw();
+  if (row.contains(document.activeElement)) return;   // not redrawn after all
+  const usable = (b) => Boolean(b && b.matches('button:not(:disabled)'));
+  let next = key ? row.querySelector(key) : null;
+  if (!usable(next) && at && row.children[at[0]]) {
+    const buttons = [...row.children[at[0]].children];
+    next = buttons.slice(at[1]).find(usable) || buttons.slice(0, at[1]).reverse().find(usable);
+  }
+  if (!usable(next)) next = row.querySelector('button.selected:not(:disabled)') || row.querySelector('button:not(:disabled)');
+  if (next) next.focus({ preventScroll: true });
+}
+
+function render() { keepFocus(draw); }
+function draw() {
   // While no scale is shown, its root follows the chord's: picking a scale
   // type then gives the scale of the chord you are on (A minor pentatonic
   // over A, not C). A root picked for the scale itself stays until the
@@ -2220,7 +2266,10 @@ function revealAcross(notes) {
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
    "Neck" tab on phones; the instrument menu in the neck's header, or above
-   the neck on phones. */
+   the neck on phones. In index.html everything starts in its wide-screen
+   place, which is right before this runs on both layouts: on phones those
+   places are hidden or in the closed sheet (only the instrument menu shows
+   on phones before that: its slot keeps its room, see .inst-slot). */
 function placeSettings() {
   const wide = isWide();
   const slot = wide ? els.settingsWideSlot : els.settingsNarrowSlot;
@@ -2245,7 +2294,9 @@ function placeSettings() {
 
 /* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
    [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick.
-   An optional `note` is a line of help under the tiles. */
+   An optional `note` is a line of help under the tiles: the legend of the
+   teal dot on the tiles that fit the scale. When no tile has the dot, it
+   says so instead (`noteNone`), without a dot. */
 /* Custom tuning: a popup with each string laid out as on the neck (phones:
    columns, the lowest string on the left, mirrored left-handed; wide
    screens: rows, the highest string on top), each a semitone up or down at
@@ -2276,7 +2327,7 @@ function tuneSet(strings) {
   state.shape = 0;
   recallChip();
   render();
-  renderTuneEdit();
+  keepFocus(renderTuneEdit);   // the + or − just used keeps the focus
 }
 function tuneStep(s, step) {
   const base = tuningsOf(state.instrument)[0].strings;
@@ -2289,7 +2340,10 @@ function tuneStep(s, step) {
 const RESET_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/></svg>';
 /* The strings in neck order, laid out by styles.css for the screen's width
    (as the neck itself): each with its number (a reset button when it is
-   tuned away from standard), + and −, and its note (tap: hear it) */
+   tuned away from standard), + and −, and its note (tap: hear it). At the
+   end of a string's range its + or − is greyed out but stays a button
+   (aria-disabled), so it keeps the keyboard focus: one more press does
+   nothing (tuneStep), rather than land on another button. */
 function renderTuneEdit() {
   const id = state.instrument;
   const base = tuningsOf(id)[0].strings;
@@ -2308,9 +2362,9 @@ function renderTuneEdit() {
       ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${noteText(plainNote(base[s], state.flats))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
       : `<span class="tune-num">${n}</span>`;
     return `<li class="tune-string">${num}` +
-      `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' disabled' : ''}>+</button>` +
+      `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' aria-disabled="true"' : ''}>+</button>` +
       `<button type="button" class="tune-note${off ? ' changed' : ''}" data-play="${m}" aria-label="String ${n}: ${name}${oct}, play it">${name}<span class="tune-oct">${oct}</span></button>` +
-      `<button type="button" class="tune-step down" data-string="${s}" data-step="-1" aria-label="String ${n} down a semitone"${off <= -CUSTOM_RANGE ? ' disabled' : ''}>−</button></li>`;
+      `<button type="button" class="tune-step down" data-string="${s}" data-step="-1" aria-label="String ${n} down a semitone"${off <= -CUSTOM_RANGE ? ' aria-disabled="true"' : ''}>−</button></li>`;
   }).join('');
   els.tuneReset.disabled = strings.every((m, i) => m === base[i]);
 }
@@ -2331,7 +2385,9 @@ function closeTuneEdit(keep) {
 }
 
 let pickerPick = null;
-function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
+function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick }) {
+  const dots = groups.some((g) => g.items.some((it) => it.cls === 'fits'));
+  const legend = !note ? '' : dots || !noteNone ? `<p class="picker-note">${esc(note)}</p>` : `<p class="picker-note empty">${esc(noteNone)}</p>`;
   els.pickerTitle.textContent = title;
   els.pickerBody.innerHTML = groups.map((g) =>
     (g.label ? `<div class="label picker-label">${esc(g.label)}</div>` : '') +
@@ -2344,7 +2400,7 @@ function openPicker({ title, groups, value, layout = '', note = '', onPick }) {
         `${it.tag ? `<span class="pick-tag">${esc(it.tag)}</span>` : ''}` +
         `${it.sub ? `<span class="pick-sub">${esc(it.sub)}</span>` : ''}</button>`;
     }).join('')}</div>`
-  ).join('') + (note ? `<p class="picker-note">${esc(note)}</p>` : '');
+  ).join('') + legend;
   pickerPick = onPick;
   if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', '');
   const selected = els.pickerBody.querySelector('.pick.selected');
@@ -2412,7 +2468,7 @@ function renderDock(ch, sc) {
   els.dockStrum.setAttribute('aria-label', playLabel);
   els.dockStrum.querySelector('.strum-label').textContent = playText;
   if (group) {
-    const [a, b] = groupFrets(group);
+    const [a, b] = groupFrets(group).map((f) => f - capo());   // counted from the capo
     els.dockPrev.disabled = els.dockNext.disabled = ui.groups.length < 2;
     els.dockStrum.disabled = false;
     els.dockSymbol.textContent = sc.rootName;
@@ -2851,11 +2907,11 @@ function renderNeck(ch, sc) {
   const keyFlats = sc ? sc.spell.flats : ch ? ch.spell.flats : state.flats || Boolean(inst.tuning && inst.tuning.flats);
   const onlyScale = Boolean(sc && state.scaleOnly);
   const groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
-  // New groups (another scale, root, instrument, tuning or capo): back to
-  // the first one. The same groups again (Groups switched off and on, any
-  // other change): the one picked stays.
-  if (groups.length && groups !== ui.groupsSeen) {
-    ui.groupsSeen = groups;
+  // Another instrument: back to the first group. Anything else (another
+  // scale root or type, tuning, capo, Groups switched off and on): the
+  // group at the place picked, or the nearest one (pickGroup).
+  if (ui.groupInst !== state.instrument) {
+    ui.groupInst = state.instrument;
     ui.groupAt = null;
   }
   ui.groups = groups;
@@ -2901,11 +2957,17 @@ function renderNeck(ch, sc) {
   const html = [];
   const singleDots = inst.dots ? inst.dots.single : SINGLE_DOTS;
   const doubleDots = inst.dots ? inst.dots.double : DOUBLE_DOTS;
+  // Fret numbers. With a capo they count from it, like everything else
+  // (chord shapes, their tab, scale groups, a note's place): the capo's fret
+  // says "Capo" (the horizontal neck; on the vertical one its bar shows it),
+  // the frets behind it have no number. The inlay dots stay where they are
+  // on the neck.
   for (let f = 1; f <= N; f++) {
     const dots = doubleDots.includes(f) ? 2 : singleDots.includes(f) ? 1 : 0;
-    const label = f === c && !vertical ? 'Capo' : `${f}${'<i></i>'.repeat(dots)}`;
+    const marks = '<i></i>'.repeat(dots);
+    const label = f < c ? marks : f === c ? (vertical ? '' : 'Capo') : `${f - c}${marks}`;
     const title = f === c ? ` title="Capo on fret ${f}"` : '';
-    html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : ''}" style="${rulerAt(f)}"${title}>${label}</div>`);
+    html.push(`<div class="ruler${dots ? ' mark' : ''}${f === c ? ' capo' : f < c ? ' behind' : ''}" style="${rulerAt(f)}"${title}>${label}</div>`);
   }
 
   inst.strings.forEach((open, s) => {
@@ -2928,7 +2990,10 @@ function renderNeck(ch, sc) {
       const midi = fretPitch(inst, s, f);
       const pc = mod12(midi);
       const key = `${s}:${f}`;
-      const where = f === start ? `string ${num}, open` : `string ${num}, fret ${f}`;
+      // Where it is played: its fret counted from the capo (a banjo's
+      // drone: from its spike), or open; behind the capo, only its string
+      const where = f < nut(s) ? `string ${num}` : f > nut(s) ? `string ${num}, fret ${f - c}`
+        : `string ${num}, ${c ? `at the ${stop}` : 'open'}`;
       // Each pill is spelled by its role: chord notes as in the chord, scale
       // notes as in the scale, other notes in the key's direction
       let cls = 'note';
@@ -3270,7 +3335,7 @@ function renderGroupLine(sc) {
   els.groupList.dataset.empty = 'No group fits on this neck';
   els.groupList.innerHTML = ui.groups.map((g, i) => {
     const sel = i === ui.group;
-    const [a, b] = groupFrets(g);
+    const [a, b] = groupFrets(g).map((f) => f - c);   // counted from the capo
     const place = groupPlace(g, c);
     return `<li><button type="button" class="chip group-chip${sel ? ' selected' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
       `title="Group ${i + 1}, frets ${a} to ${b}"><span class="tx">${place[0].toUpperCase()}${place.slice(1)}</span></button></li>`;
@@ -3380,8 +3445,8 @@ function init() {
   els.dockBar = document.querySelector('.dock-bar');
   els.chordBar = document.querySelector('.chord-bar');
   els.scaleBar = document.querySelector('.scale-bar');
-  els.chordSwitches = els.chordBar.querySelector('.switch-row');
-  els.scaleSwitches = els.scaleBar.querySelector('.switch-row');
+  els.chordSwitches = document.querySelector('#panelChord .switch-row');
+  els.scaleSwitches = document.querySelector('#panelScale .switch-row');
   els.chordHead = document.querySelector('#panelChord .panel-head');
   els.scaleHead = document.querySelector('#panelScale .panel-head');
   els.notesLine = document.querySelector('.notes-line');
@@ -3520,10 +3585,10 @@ function init() {
     groups: [
       { items: [{ value: 0, label: 'No capo', cls: 'none', style: 'grid-column: 1 / -1' }] },
       { label: 'Fret where the capo sits', items: Array.from(
-        { length: Math.min(MAX_CAPO, instrument().frets - SHAPE_SPAN) },
+        { length: maxCapo(state.instrument) },
         (_, i) => ({ value: i + 1, label: String(i + 1) })) },
     ],
-    onPick: (v) => { state.capo = Number(v); state.shape = 0; render(); },
+    onPick: (v) => { setCapo(Number(v)); state.shape = 0; render(); },
   }));
 
   // Clearing the chord or the scale also closes its panel on phones
@@ -3540,6 +3605,7 @@ function init() {
   els.chordRoot.addEventListener('click', () => openPicker({
     title: 'Chord root', layout: 'roots', value: state.chord.root,
     note: state.chord.on ? fitsNote(currentScale()) : rootNote(currentScale()),
+    noteNone: 'No root fits this chord type and scale',
     groups: state.chord.on
       ? rootItems((pc) => chordSpelling(pc, findChord(state.chord.type)).root, (pc) => fitsScale(pc, findChord(state.chord.type), currentScale()))
       : rootItems((pc) => plainRoot(pc), (pc) => inScale(pc, currentScale())),
@@ -3550,7 +3616,7 @@ function init() {
     },
   }));
   els.chordType.addEventListener('click', () => openPicker({
-    title: 'Chord type', note: fitsNote(currentScale()),
+    title: 'Chord type', note: fitsNote(currentScale()), noteNone: 'No chord type fits this root and scale',
     groups: [{ items: [{ value: '', label: 'None', sub: 'Hide the chord', cls: 'none' }] }, ...CHORDS.map((g) => ({
       label: g.group,
       items: g.items.map((c) => ({
@@ -3669,6 +3735,14 @@ function init() {
   // (Tab): a button that has the focus after a click or a tap (Strum, a
   // switch, or the menu button a popup hands the focus back to) would
   // otherwise take Space and act on it.
+  // A control that takes the keyboard focus shows whole, with its focus ring
+  // (browsers leave one that is half out of a scrolling row where it is, its
+  // ring cut off): the row, the popup or the page scrolls just enough (the
+  // room is the controls' scroll-margin in styles.css). Taps and clicks
+  // scroll nothing.
+  document.addEventListener('focusin', (e) => {
+    if (e.target.matches && e.target.matches(':focus-visible')) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
   let keyboardFocus = false;   // the focus was last moved with the keyboard
   document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
