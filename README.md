@@ -1,6 +1,6 @@
 # Frettle
 
-A fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. Pick a chord or a scale and see where every note sits on the neck.
+A chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo and piano. Pick a chord or a scale and see where every note sits on the neck or the keys.
 
 **Try it at [frettle.gruvw.com](https://frettle.gruvw.com)**
 
@@ -16,7 +16,7 @@ A fretboard visualizer for guitar, bass, ukulele, mandolin, mandola and banjo. P
 
 ## What it does
 
-- Every note on the neck: guitar, bass, ukulele, mandolin, mandola and banjo
+- Every note on the neck: guitar, bass, ukulele, mandolin, mandola and banjo, and on an 88-key piano
 - Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more, or custom ones, saved by name
 - Chords in any key, every shape up the neck, with intervals on each note
 - Name a chord: place notes on the neck to see which chord they make, any shape kept

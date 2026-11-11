@@ -474,6 +474,7 @@ kbd {
 .switch-row { order: 4; flex: 1 0 100%; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
 .chord-bar .switch-row { grid-template-columns: 1fr 1fr; }   /* phones: All chord tones and Name a chord, side by side */
 @media (max-width: 359px) { .chord-bar .switch-row { grid-template-columns: 1fr; } }
+.pill-toggle.namer-open { color: var(--text); }   /* (a button, not a switch: never dimmed like one that is off) */
 .namer-open .ico { flex: none; width: 16px; height: 16px; color: var(--accent); }
 .switch-row .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
@@ -853,6 +854,130 @@ button, a { scroll-margin: 6px; }
   100% { opacity: 0; transform: scale(1); }
 }
 
+/* Piano (script.js): 88 keys, placed from each key's place among the white
+   keys (--i; 52 white keys, --whites). Wide screens: from left to right,
+   the octave numbers above the keys' far ends, the keys as wide as the
+   panel allows but never narrower than --wk; phones: the same keyboard
+   turned a quarter turn, from the top down, the keys' near ends on the left
+   and the numbers on the right, at their far ends. On both, a key's note is
+   a pill as on the neck, near the key's near end (a white key's in the
+   part in front of the black keys), its interval badge just behind it,
+   along the key, where nothing else is. */
+.neck.piano {
+  --key-white: color-mix(in srgb, var(--pk-white) 84%, var(--bg));
+  --key-black: color-mix(in srgb, var(--pk-black) 70%, var(--bg));
+  --key-edge: color-mix(in srgb, var(--pk-grey) 55%, var(--bg));
+  --bl: 0.6;          /* a black key's length, of a white key's */
+  --badge-gap: 5px;   /* (clear of a root's ring) */
+  --badge-room: calc(18px + var(--badge-gap));
+  position: relative;
+  display: block;
+  isolation: isolate;
+}
+/* The keys in page order (a black key comes after both its white keys, so
+   it lies over them); every note over every key (as it pops when played,
+   too), its badge with it */
+.key { position: absolute; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.neck.piano .note { z-index: 1; }
+.key.white { background: var(--key-white); box-shadow: inset 0 0 0 0.5px var(--key-edge); }
+.key.black { background: var(--key-black); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pk-grey) 30%, transparent); }
+/* A plain note on a black key: the pill's outline brighter, to stand out
+   from the key as it does from the neck */
+.neck.piano .note.scale-root, .neck.piano .note.chord.root { box-shadow: 0 0 0 2px var(--bg); }   /* a root's ring as on the neck: dark between it and the note (the keys are lighter) */
+.key.black .note.plain { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pk-grey) 50%, var(--kbd-bg)); }
+.oct-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.oct-label.mid { color: var(--text); }   /* middle C's octave */
+/* Wide screens: the keys across */
+.neck.piano.horizontal {
+  --wk: max(30px, calc(100cqw / var(--whites)));   /* a white key's width: the panel's, shared out */
+  --bk: calc(var(--wk) * 0.6);
+  --kl: 170px;  /* a white key's length */
+  width: calc(var(--whites) * var(--wk));
+  height: calc(var(--ruler-row) + var(--kl));
+}
+.neck.piano.horizontal .key { top: var(--ruler-row); }
+.neck.piano.horizontal .key.white {
+  left: calc(var(--i) * var(--wk));
+  width: var(--wk);
+  height: var(--kl);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+  padding-top: calc(var(--kl) * var(--bl) + var(--badge-room));   /* the note in the front part, room behind it for the badge */
+}
+.neck.piano.horizontal .key.black {
+  left: calc(var(--i) * var(--wk) - var(--bk) / 2);
+  width: var(--bk);
+  height: calc(var(--kl) * var(--bl));
+  align-items: flex-end;
+  padding-bottom: 14px;
+  border-radius: 0 0 4px 4px;
+}
+.neck.piano.horizontal .deg-badge { top: auto; bottom: calc(100% + var(--badge-gap)); left: 50%; transform: translateX(-50%); }
+/* A C's number over the part of the key not under its black key (the last
+   C has none) */
+.neck.piano.horizontal .oct-label { top: 0; height: var(--ruler-row); left: calc(var(--i) * var(--wk)); width: calc(var(--wk) - var(--bk) / 2); }
+.neck.piano.horizontal .oct-label.last { width: var(--wk); }
+/* Phones: the keys down the page, as long as the panel allows, which goes
+   no wider than keys --kl long need (the page shows round it) */
+/* Phones: a neck's strings no further apart than --col-max however wide the
+   screen, the panel no wider than they need (the page shows round it).
+   --strings: set by script.js. */
+.neck-panel:has(> .neck-scroll > .neck.vertical:not(.piano)) {
+  --col-max: 80px;
+  width: calc(100% - 2 * var(--gutter));
+  max-width: calc(var(--label-w) + var(--strings, 6) * var(--col-max) + 2 * var(--sp-3) + 2px);   /* (its padding and border) */
+  margin-inline: auto;
+}
+.neck-panel:has(> .neck-scroll > .neck.piano.vertical) {
+  --kl: 340px;     /* the longest a white key gets (a phone fills its width) */
+  --oct-w: 18px;   /* the octave numbers' column */
+  width: calc(100% - 2 * var(--gutter));
+  max-width: calc(var(--kl) + var(--oct-w) + var(--sp-3) + var(--sp-2) + 2px);   /* (its padding and border) */
+  margin-inline: auto;
+  padding-right: var(--sp-2);
+}
+.neck.piano.vertical {
+  --wk: 36px;   /* a white key's height */
+  --bk: 22px;   /* a black key's */
+  height: calc(var(--whites) * var(--wk));
+}
+.neck.piano.vertical .key { left: 0; right: var(--oct-w); }
+.neck.piano.vertical .key.white {
+  top: calc(var(--i) * var(--wk));
+  height: var(--wk);
+  border-radius: var(--r-sm) 0 0 var(--r-sm);   /* the near end */
+  padding-right: calc((100% - var(--oct-w)) * var(--bl) + var(--badge-room));   /* (as across: 100% is the keyboard's width here) */
+}
+.neck.piano.vertical .key.black {
+  top: calc(var(--i) * var(--wk) - var(--bk) / 2);
+  height: var(--bk);
+  left: calc((100% - var(--oct-w)) * (1 - var(--bl)));
+  justify-content: flex-start;
+  padding-left: 14px;
+  border-radius: 4px 0 0 4px;
+}
+.neck.piano.vertical .deg-badge { top: 50%; left: calc(100% + var(--badge-gap)); transform: translateY(-50%); }
+/* As across: beside the part of the C not under its black key */
+.neck.piano.vertical .oct-label {   /* centred between the keys and the panel's edge */
+  right: calc(-1 * var(--sp-2));
+  width: calc(var(--oct-w) + var(--sp-2));
+  top: calc(var(--i) * var(--wk));
+  height: calc(var(--wk) - var(--bk) / 2);
+}
+.neck.piano.vertical .oct-label.last { height: var(--wk); }
+/* A piano has no tuning, capo, mirror image, octave shading or hand-sized
+   groups: their controls go (its octave numbers always show) */
+body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty,
+body.piano #tglScaleGroups { display: none; }
+body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; }
+
 /* The strip (script.js): each string's first cell, held at the edge of the
    view once the neck has scrolled past it, over everything on the neck.
    Phones: a row stuck to the top of the screen (the neck's scroller lets
@@ -1159,7 +1284,9 @@ button, a { scroll-margin: 6px; }
    height), so the two always touch, whatever the browser's bars or the
    phone's safe area do to the bar's height.
    ========================================================================== */
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; }
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; touch-action: none; }   /* a swipe on it does not scroll the page under it... */
+.dock .recent-chips { touch-action: pan-x; }   /* ... only its own rows of chips, sideways */
+.sheet-body { touch-action: pan-y; }           /* ... and its open panel (overscroll-behavior: contain, below) */
 .dock-bar {
   position: relative;
   z-index: 2;   /* in front of the sheet as it slides down behind it */
