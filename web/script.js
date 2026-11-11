@@ -2520,8 +2520,13 @@ function flashKey(k, delay = 0) {   // a piano key
    own, so two quick taps both sound. */
 const TAP_DELAY = 120;  // ms (long enough for a swipe to have moved by then)
 const TAP_SLOP = 8;     // px a finger may move and still count as a tap
-let lastScroll = -Infinity;   // when anything last scrolled (the page or a row)
-document.addEventListener('scroll', () => { lastScroll = performance.now(); }, { capture: true, passive: true });
+// A glide is set going by a finger and lasts a few seconds at most: only
+// those scrolls count (not the page's own, as it brings a shape into view,
+// which a touch does not stop: a tap then still plays)
+let lastSwipe = -Infinity;    // when a finger last moved
+let lastScroll = -Infinity;   // when something (the page, a row) last scrolled after one
+document.addEventListener('touchmove', () => { lastSwipe = performance.now(); }, { capture: true, passive: true });
+document.addEventListener('scroll', () => { if (performance.now() - lastSwipe < 3000) lastScroll = performance.now(); }, { capture: true, passive: true });
 const stillScrolling = () => performance.now() - lastScroll < 120;
 function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
@@ -3592,6 +3597,9 @@ function setupSheetDrag() {
   };
   const handles = [els.sheetClose, ...els.sheet.querySelectorAll('.panel-head')];
   for (const h of handles) h.addEventListener('pointerdown', begin);
+  // While dragging, the finger moves the sheet, nothing else (no scroll:
+  // cancelled at its first move, as on the dock, setupDockTouch)
+  for (const h of handles) h.addEventListener('touchmove', (e) => { if (startY !== null && e.cancelable) e.preventDefault(); }, { passive: false });
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', end);
   window.addEventListener('pointercancel', end);
@@ -3608,6 +3616,34 @@ function setupSheetDrag() {
       openTab(null);
     });
   }
+}
+
+/* Phones: a swipe on the dock does not scroll the page under it; only
+   something in the dock that can scroll that way does (a row of chips
+   sideways, an open panel up and down). The first move of the touch is
+   cancelled, so the browser never starts a scroll (touch-action: none, on
+   the other hand, still starts an unseen glide, and the next tap is lost
+   stopping it). */
+function setupDockTouch() {
+  const dock = document.getElementById('dock');
+  let x0 = 0;
+  let y0 = 0;
+  const scrolls = (el, sideways) => {
+    for (; el && el !== dock.parentElement; el = el.parentElement) {
+      const style = getComputedStyle(el);
+      const overflow = sideways ? style.overflowX : style.overflowY;
+      const room = sideways ? el.scrollWidth > el.clientWidth : el.scrollHeight > el.clientHeight;
+      if (room && (overflow === 'auto' || overflow === 'scroll')) return true;
+    }
+    return false;
+  };
+  dock.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  dock.addEventListener('touchmove', (e) => {
+    if (!e.cancelable || isWide()) return;   // (a scroll already under way: its own; wide screens: the dock is part of the page)
+    const t = e.touches[0];
+    const sideways = Math.abs(t.clientX - x0) > Math.abs(t.clientY - y0);
+    if (e.touches.length > 1 || !scrolls(e.target, sideways)) e.preventDefault();
+  }, { passive: false });
 }
 
 /* A stepper's middle button: the panel it steps through. Phones: its
@@ -4831,6 +4867,7 @@ function init() {
   els.quickGroupInfo.addEventListener('click', () => showPanel('scale'));
   for (const tab of els.tabs) tab.addEventListener('click', () => openTab(tab.dataset.tab));
   setupSheetDrag();
+  setupDockTouch();
 
   // Switching between phone and wide layouts (rotating, resizing)
   const relayout = () => {
