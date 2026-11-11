@@ -84,7 +84,7 @@ const tuningsOf = (id) => TUNINGS[id] || [{ id: 'standard', name: 'Standard', st
 const CUSTOM_RANGE = 24;   // semitones either way from standard
 function customTuning(id) {
   const strings = typeof state === 'object' && state && state.custom && state.custom[id];
-  return strings ? { id: 'custom', name: tuningNotes(strings, state.flats), short: 'Custom', custom: true, strings } : null;
+  return strings ? { id: 'custom', name: tuningNotes(strings, state.flats, id), short: 'Custom', custom: true, strings } : null;
 }
 /* Saved tunings: custom tunings kept under a name, any number per
    instrument (state.saved: { instrument: [{ name, strings }] }), in the
@@ -285,14 +285,16 @@ function plainNote(pc, flats) {
 }
 
 /* Spell a scale or chord from its root. offsets: letter offset of each note
-   from the root (null: no letters, e.g. chromatic). */
-function spellNotes(root, steps, offsets, flats) {
+   from the root (null: no letters, e.g. chromatic). A note that would need
+   more accidentals than `most` is written plainly instead (in the
+   direction it leans: B♭♭ as A, F♭♭ as E♭, F♯♯ as G). */
+function spellNotes(root, steps, offsets, flats, most = 2) {
   return steps.map((step, i) => {
     const n = offsets ? spellAs(root.pc + step, (root.letter + offsets[i]) % 7) : plainNote(root.pc + step, flats);
-    return Math.abs(n.acc) > 2 ? plainNote(root.pc + step, flats) : n;
+    return Math.abs(n.acc) > most ? plainNote(root.pc + step, most < 2 ? n.acc < 0 : flats) : n;
   });
 }
-function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorKey = false) {
+function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorKey = false, most = 2) {
   const minor = minorKey || (steps.some((x) => mod12(x) === 3) && !steps.some((x) => mod12(x) === 4));
   const keySteps = KEY_STEPS[minor ? 'minor' : 'major'];
   const keyNotes = (root) => keySteps.map((st, i) => spellAs(root.pc + st, (root.letter + i) % 7));
@@ -309,7 +311,7 @@ function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorK
   }
   const lean = keyNotes(root).reduce((sum, n) => sum + n.acc, 0);
   const flats = lean < 0 || (lean === 0 && preferFlats);
-  const notes = spellNotes(root, steps, offsets, flats);
+  const notes = spellNotes(root, steps, offsets, flats, most);
   const names = new Map();
   for (const n of notes) if (!names.has(n.pc)) names.set(n.pc, n);
   return { root, notes, names, flats };
@@ -322,8 +324,12 @@ function spellScale(rootPc, def, preferFlats) {
   return spellKey(rootPc, def.steps, offsets, preferFlats, null, dark);
 }
 const degreeOffset = (deg) => (deg === 'R' ? 0 : (Number(deg.replace(/\D/g, '')) - 1) % 7);
+/* A chord's notes as chord charts write them: no double sharps or flats
+   (Cdim7 is C E♭ G♭ A, E7♯9 is E G♯ B D G); its interval badges keep the
+   theory (♭♭7, ♯9). Scales keep theirs: each letter once (G♯ harmonic
+   minor has F♯♯). */
 function spellChord(rootPc, def, preferFlats, forcedRoot = null) {
-  return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), preferFlats, forcedRoot);
+  return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), preferFlats, forcedRoot, false, 1);
 }
 
 /* ==========================================================================
@@ -1343,7 +1349,7 @@ function customOff(custom) {
 function customLine(custom, on) {
   const mine = customOff(custom);
   if (!mine) return '';
-  const notes = (list) => tuningNotes(list, state.flats);
+  const notes = (list) => tuningNotes(list, state.flats, custom.inst);
   return `<span class="lk-extra">${lkValue(notes(mine), on ? 'lose' : 'win')}`
     + `<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${lkValue(notes(custom.strings), on ? 'win' : 'lose')}</span></span>`;
 }
@@ -2272,7 +2278,7 @@ function ping(el) {
   }
 }
 function flashCell(s, f, delay = 0) {
-  setTimeout(() => ping(els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`)), delay * 1000);
+  setTimeout(() => els.neck.querySelectorAll(`.cell[data-s="${s}"][data-f="${f}"] .note`).forEach(ping), delay * 1000);   // (and its copy in the strip)
 }
 
 /* Tap a note on the neck to hear it (not behind the capo; a note hidden by
@@ -2287,7 +2293,7 @@ function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
   const playable = (target) => {
     const cell = target.closest('.cell');
-    return cell && !cell.matches('.behind, .no-string') ? cell : null;
+    return cell && !cell.matches('.behind, .no-string, .waiting') ? cell : null;
   };
   const play = (cell) => {
     if (naming) { namerTap(cell); return; }
@@ -2447,6 +2453,7 @@ function closeNamer(select) {
   const reading = select ? namerReadings()[naming.pick] : null;
   if (select && !reading) return;
   const text = fretsText(naming.frets);
+  const focused = els.namer.contains(document.activeElement);
   naming = null;
   document.body.classList.remove('naming');
   if (reading) {
@@ -2461,6 +2468,9 @@ function closeNamer(select) {
     ui.reveal = true;
   }
   render();
+  // The keyboard goes back to where it came from (the bar is hidden now):
+  // the mode's button, or on phones, where it sits in the closed sheet, the Chord tab
+  if (focused) (isWide() ? els.namerOpen : document.querySelector('.tab[data-tab="chord"]')).focus({ preventScroll: true });
 }
 // A tap on the neck while naming
 function namerTap(cell) {
@@ -2703,7 +2713,7 @@ function draw() {
 function revealGroup() {
   const g = ui.groups[ui.group];
   if (!g) return;
-  revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`))).filter(Boolean));
+  revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean));
 }
 
 /* The chord list's chips, then (after a thin line) the recent chords',
@@ -2807,7 +2817,7 @@ function chipInView(row, smooth) {   // scroll a row of chips sideways so the se
    are. The page never scrolls past the top of the neck panel and the margin
    above it (with a capo, past the capo's fret), so the highest position
    still shows that edge. The same for a scale group (revealGroup). */
-function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
+function revealShape(notes = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord')]) {
   if (!notes.length) return;
   if (isWide()) { revealAcross(notes); return; }
   const rects = notes.map((n) => n.getBoundingClientRect());
@@ -2815,8 +2825,11 @@ function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
   const bottom = Math.max(...rects.map((r) => r.bottom));
   const cover = els.sheet.classList.contains('open') ? els.sheet : els.dockBar;
   const viewBottom = cover.getBoundingClientRect().top;
+  // The view starts under the strip (held at the top once the nut is past)
+  const strip = els.neck.querySelector('.neck-strip');
+  const viewTop = strip ? strip.offsetHeight : 0;
   // Centre the shape; one too tall to fit starts at the top of the view
-  const delta = bottom - top > viewBottom - 24 ? top - 24 : (top + bottom) / 2 - viewBottom / 2;
+  const delta = bottom - top > viewBottom - viewTop - 24 ? top - viewTop - 24 : (top + bottom) / 2 - (viewTop + viewBottom) / 2;
   // Highest: the neck panel with its margin, or with a capo, its fret (the
   // frets behind it cannot be played) with more room, part of the fret
   // behind it showing and the interval badges clear of the edge
@@ -2835,19 +2848,24 @@ function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
 function revealAcross(notes) {
   const box = els.neck.closest('.neck-scroll');
   if (box.scrollWidth <= box.clientWidth + 1) return;
-  const view = box.getBoundingClientRect();
+  const frame = box.getBoundingClientRect();
   const rects = notes.map((n) => n.getBoundingClientRect());
   const left = Math.min(...rects.map((r) => r.left));
   const right = Math.max(...rects.map((r) => r.right));
   const pad = 24;
   const lefty = box.classList.contains('lefty');   // the nut on the right
+  // The view starts after the strip (held at the nut's end once it is past)
+  const strip = els.neck.querySelector('.neck-strip');
+  const held = strip ? strip.offsetWidth : 0;
+  const view = { left: frame.left + (lefty ? 0 : held), right: frame.right - (lefty ? held : 0) };
+  view.width = view.right - view.left;
   let delta = right - left > view.width - 2 * pad
     ? (lefty ? right - (view.right - pad) : left - (view.left + pad))
     : (left + right) / 2 - (view.left + view.right) / 2;
   const capoCell = capo() ? els.neck.querySelector(`.cell[data-f="${capo()}"]`) : null;
   if (capoCell) {   // the frets behind the capo stay out of view, as on phones (the capo's fret at the edge, with some room)
     const c = capoCell.getBoundingClientRect();
-    delta = lefty ? Math.min(delta, c.right - (view.right - 20)) : Math.max(delta, c.left - (view.left + 20));
+    delta = lefty ? Math.min(delta, c.right - (frame.right - 20)) : Math.max(delta, c.left - (frame.left + 20));
   }
   if (Math.abs(delta) > 1) box.scrollBy({ left: delta, behavior: 'smooth' });
 }
@@ -2957,13 +2975,14 @@ function renderTuneEdit() {
   else updateNaming();
   els.tuneList.classList.toggle('lefty', state.leftHanded);
   els.tuneList.style.setProperty('--n', strings.length);
+  const inst = findInstrument(id);
   els.tuneList.innerHTML = strings.map((m, s) => {
     const n = strings.length - s;   // string 1: the highest
     const off = m - base[s];
-    const name = noteText(plainNote(m, state.flats));
+    const name = stringNote(inst, s, noteText(plainNote(m, state.flats)));   // (a drone: g4)
     const oct = Math.floor(m / 12) - 1;
     const num = off
-      ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${noteText(plainNote(base[s], state.flats))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
+      ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${stringNote(inst, s, noteText(plainNote(base[s], state.flats)))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
       : `<span class="tune-num">${n}</span>`;
     return `<li class="tune-string">${num}` +
       `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' aria-disabled="true"' : ''}>+</button>` +
@@ -3013,12 +3032,12 @@ function openTuningMenu() {
   openPicker({
     title: 'Tuning', value: instrument().tuning.id,
     groups: [
-      { items: tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })) },
+      { items: tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats), state.instrument) })) },
       { label: 'Custom', items: [
         { value: 'custom', label: 'Custom', icon: EDIT_ICON, cls: 'custom-pick', title: 'Tune each string',
-          sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
+          sub: own ? tuningNotes(own, state.flats, state.instrument) : 'Tune each string' },
         ...savedTunings(state.instrument).map((t) => ({ value: t.id, label: t.name, icon: BOOKMARK_ICON, title: t.name,
-          sub: tuningNotes(t.strings, state.flats), remove: `Delete ${t.name}` })),
+          sub: tuningNotes(t.strings, state.flats, state.instrument), remove: `Delete ${t.name}` })),
       ] },
     ],
     onPick: (v) => {
@@ -3037,7 +3056,7 @@ function askDeleteTuning(tuningId) {
   if (!t) return;
   deleting = t.id;
   els.tuneDeleteName.textContent = t.name;
-  els.tuneDeleteNotes.textContent = tuningNotes(t.strings, state.flats);
+  els.tuneDeleteNotes.textContent = tuningNotes(t.strings, state.flats, state.instrument);
   if (els.tuneDelete.showModal) els.tuneDelete.showModal(); else els.tuneDelete.setAttribute('open', '');
   els.tuneDeleteCancel.focus();
 }
@@ -3331,8 +3350,14 @@ function renderHeader() {
 
 /* "Drop D", "C G D G B D" (custom), or '' for the standard tuning */
 const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? inst.tuning.name : '');
-/* Open string names, low to high: "D A D G B E" */
-const tuningNotes = (strings, flats = false) => strings.map((m) => noteText(plainNote(m, flats))).join(' ');
+/* Open string names, low to high: "D A D G B E". A short string (a banjo's
+   drone) is written in small letters, as banjo players write it: "g D G B D".
+   (Words only: links and saved tunings keep the pitches.) */
+function tuningNotes(strings, flats = false, instId = null) {
+  const inst = instId && findInstrument(instId);
+  return strings.map((m, s) => stringNote(inst, s, noteText(plainNote(m, flats)))).join(' ');
+}
+const stringNote = (inst, s, name) => (inst && startFret(inst, s) ? name.charAt(0).toLowerCase() + name.slice(1) : name);
 
 const MUTE_BADGE = '×';   // (a muted string's badge: drawn as MUTE_ICON)
 const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
@@ -3633,6 +3658,7 @@ function renderNeck(ch, sc) {
   // than a fret wire; its notes get as much room as any other
   els.neck.style.gridTemplateRows = vertical ? 'var(--ruler-row) calc(var(--row-h) + 3px)' : 'var(--ruler-row)';
   els.neck.style.gridAutoRows = 'var(--row-h)';
+  els.neck.style.setProperty('--strings', n);   // (the strip's grid, see styles.css)
   els.neck.classList.toggle('vertical', vertical);
   els.neck.classList.toggle('horizontal', !vertical);
   els.neck.classList.toggle('octaves', state.octaves);
@@ -3701,6 +3727,7 @@ function renderNeck(ch, sc) {
   }
 
   const html = [];
+  const starts = [];   // each string's first cell (the nut, the capo, a drone's start or spike), for the strip
   const singleDots = inst.dots ? inst.dots.single : SINGLE_DOTS;
   const doubleDots = inst.dots ? inst.dots.double : DOUBLE_DOTS;
   // Fret numbers. With a capo they count from it, like everything else
@@ -3780,12 +3807,11 @@ function renderNeck(ch, sc) {
       const inner = cls.includes(' mute') && !cls.includes(' named') ? MUTE_ICON : tx(text);
       if (cls.includes(' named')) badge = MUTE_BADGE;
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${tx(String(octave))}</span>` : '';
-      html.push(
-        `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
-        `${octTag}<span class="${cls}" title="${esc(title)}">${inner}` +
+      const pill = `<span class="${cls}" title="${esc(title)}">${inner}` +
         `${badge === MUTE_BADGE ? `<span class="deg-badge mute-badge" aria-hidden="true">${MUTE_ICON}</span>`
-          : badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
-      );
+          : badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span>`;
+      html.push(`<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">${octTag}${pill}</div>`);
+      if (f === nut(s)) starts.push({ s, f, cellCls, sw, pill, num, octTag });
     }
   });
   // The capo clamps all strings just behind its fret wire (a banjo's drone:
@@ -3808,9 +3834,69 @@ function renderNeck(ch, sc) {
     }
   }
   html.push('<svg class="group-layer" aria-hidden="true"></svg>');
+  html.push(stripHtml(vertical, n, c, short, starts));
   els.neck.innerHTML = html.join('');
   drawGroups();
+  placeStrip();
 }
+
+/* The strip: each string's first cell (its open note at the nut, or at the
+   capo, a banjo's drone at its start or its spike), as on the neck, with
+   the chord's ✕ or open mark, held at the edge of the view once the neck
+   has scrolled past it: phones, at the top of the screen as the page
+   scrolls down; wide screens, at the nut's end of the neck as it scrolls
+   sideways. It is drawn over the neck (its notes, barres, capo and group
+   outlines pass under it), is tapped as the neck is, and stays within the
+   neck. Where a string's first cell has not reached it yet (a drone
+   starting at the 5th fret), the neck shows through. Not a copy that
+   speaks: the neck's own cells do (aria-hidden). */
+function stripHtml(vertical, n, c, short, starts) {
+  // Phones: row 1 is room above the notes (for their badges), row 2 the
+  // cells; wide screens: row 1 is the fret numbers' row, then one per string
+  const at = (s, col) => (vertical ? `grid-row:2;grid-column:${s + 2}` : `grid-row:${n - s + 1};grid-column:${col}`);
+  const under = (s) => (vertical ? `grid-row:1 / 3;grid-column:${s + 2}` : `grid-row:${n - s + 1};grid-column:2`);
+  // Its background is laid under each string's place (not the whole strip),
+  // so the neck shows through a place still waiting
+  const parts = [vertical ? '<i class="strip-under" style="grid-row:1 / 3;grid-column:1"></i>'
+    : `<i class="strip-under" style="grid-row:1 / span ${n + 1};grid-column:1"></i><i class="strip-under" style="grid-row:1;grid-column:2"></i>`];
+  for (const x of starts) {
+    parts.push(`<i class="strip-under" data-s="${x.s}" style="${under(x.s)}"></i>`);
+    if (!vertical) parts.push(`<div class="slabel" data-s="${x.s}" style="${at(x.s, 1)}">${x.num}</div>`);   // (a drone's: with its cell, its own number beside it until then)
+    parts.push(`<div class="${x.cellCls} strip-cell" data-s="${x.s}" data-f="${x.f}" style="${at(x.s, 2)};--sw:${x.sw}px">${x.octTag}${x.pill}</div>`);
+  }
+  if (c) {   // the capo across the strings from the nut, a spike on a drone
+    parts.push(`<div class="capo-bar" style="${vertical ? `grid-row:2;grid-column:${short + 2} / span ${n - short}` : `grid-row:2 / span ${n - short};grid-column:2`}"></div>`);
+    for (const x of starts) if (x.s < short) parts.push(`<div class="capo-bar spike" data-s="${x.s}" style="${at(x.s, 2)}"></div>`);
+  }
+  const place = vertical ? 'grid-row:2;grid-column:1 / -1' : `grid-row:1 / span ${n + 1};grid-column:1 / span 2`;
+  return `<div class="neck-strip" aria-hidden="true" style="${place}">${parts.join('')}</div>`;
+}
+/* A string's place in the strip shows once its first cell on the neck has
+   reached it (and goes on under it, out of view): the two are then in the
+   same spot, so the note does not jump. Each string on its own (a drone
+   starting at the 5th fret comes later); the strip shows with the first. */
+function placeStrip() {
+  const strip = els.neck.querySelector('.neck-strip');
+  if (!strip) return;
+  const vertical = els.neck.classList.contains('vertical');
+  const lefty = state.leftHanded;
+  let any = false;
+  for (const cell of strip.querySelectorAll('.strip-cell')) {
+    const { s, f } = cell.dataset;
+    const real = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell)`);
+    if (!real) continue;
+    // (by their nut's edge, the same line for every string in the strip,
+    // so a drone's nut or a capo meets the others' exactly)
+    const a = real.getBoundingClientRect();
+    const b = cell.getBoundingClientRect();
+    const past = vertical ? a.bottom < b.bottom - 0.5 : lefty ? a.left > b.left + 0.5 : a.right < b.right - 0.5;
+    for (const part of strip.querySelectorAll(`[data-s="${s}"]`)) part.classList.toggle('waiting', !past);   // (its cell, background, number and spike)
+    any = any || past;
+  }
+  strip.classList.toggle('on', any);
+}
+let stripFrame = 0;
+const queueStrip = () => { if (!stripFrame) stripFrame = requestAnimationFrame(() => { stripFrame = 0; placeStrip(); }); };
 
 /* Draw the group picked (ui.groups[ui.group]) in the scale's colour, one
    at a time (the arrows and chips step through them). It is an outline
@@ -3835,7 +3921,7 @@ function drawGroups() {
   // the capo's padding: the note sits in the middle of what is left, so a
   // group gets the same room before its first note as after its last.
   const cellBox = (s, f) => {
-    const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]`);
+    const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell)`);
     const r = cell.getBoundingClientRect();
     const cs = getComputedStyle(cell);
     const px = (prop) => parseFloat(cs[prop]) || 0;
@@ -4239,7 +4325,7 @@ function init() {
         // a preset in its usual spelling (Open D's F♯, E♭ for half step down);
         // a custom tuning as the Flats switch says
         const flats = t.tuning.custom || t.tuning.saved ? state.flats : Boolean(t.tuning.flats);
-        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats) };
+        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats, i.id) };
       }),
     })),
     onPick: (v) => {
@@ -4372,8 +4458,12 @@ function init() {
   if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
   else wideMedia.addListener(relayout);
   if (window.ResizeObserver) {
-    new ResizeObserver(() => drawGroups()).observe(els.neck);   // keep group outlines on their cells
+    new ResizeObserver(() => { drawGroups(); queueStrip(); }).observe(els.neck);   // keep group outlines on their cells
   }
+  // The strip follows the page (phones) and the neck's own scroll (wide screens)
+  window.addEventListener('scroll', queueStrip, { passive: true });
+  window.addEventListener('resize', queueStrip, { passive: true });
+  els.neck.parentElement.addEventListener('scroll', queueStrip, { passive: true });
 
   // Root alone never turns a chord or scale on: "None" in the type menu means off
   // Moving the capo keeps the chord and shows its first shape from the capo
