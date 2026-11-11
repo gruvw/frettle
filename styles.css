@@ -505,6 +505,41 @@ kbd {
 }
 .select-btn:disabled { opacity: 0.45; cursor: default; }   /* switched off, like the buttons and switches */
 
+/* The suggestion to install the app: a small card at the top of the
+   screen, until it is answered (script.js: setupInstallTip). Icon, text,
+   buttons in a row; on narrow phones the buttons under the text. */
+.install-tip {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + var(--sp-2));
+  left: 50%;
+  z-index: 40;   /* (over the page and the dock; under the menus' popups) */
+  width: min(560px, calc(100vw - 2 * var(--gutter)));
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "icon text actions";
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  animation: tip-in 200ms ease-out;
+}
+.install-tip[hidden] { display: none; }
+@keyframes tip-in { from { opacity: 0; transform: translate(-50%, -8px); } }
+.install-icon { grid-area: icon; width: 32px; height: 32px; border-radius: var(--r-sm); }
+.install-text { grid-area: text; margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); line-height: 1.35; color: var(--muted); }
+.install-text strong { color: var(--text); font-size: var(--fs-md); font-weight: 600; }
+.install-text .ico { display: inline-block; width: 15px; height: 15px; vertical-align: -2px; color: var(--text); }
+.install-actions { grid-area: actions; display: flex; gap: var(--sp-2); }
+.install-actions [hidden] { display: none; }   /* ("Not now" once the steps show: "Done" answers) */
+@media (max-width: 479.98px) {
+  .install-tip { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon text" "actions actions"; }
+  .install-actions { justify-content: flex-end; }
+}
+
 /* Buttons: outlined by default, .primary filled, .small compact, .icon square */
 .btn {
   display: inline-flex;

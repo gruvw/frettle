@@ -4,6 +4,15 @@
    Frettle: chord and scale visualizer
    1. Music data      2. Chord shape finder (pure, no DOM)
    3. State           4. Sound          5. Rendering      6. Events
+
+   A rule for touch screens: a swipe to scroll must never set anything off.
+   Plain actions listen for 'click' (the browser already leaves out swipes,
+   and taps that only stop a scroll still gliding). Anything that acts on
+   press (a sound, mostly) goes through onPress, or the neck's own handler
+   (setupNeckTaps): never a bare 'pointerdown' listener, which fires as soon
+   as a finger lands, swipe or not. The few 'pointerdown' listeners left
+   only watch (the chord list's drag, the sheet's drag, the scroll check,
+   keeping the screen on, the install card's count).
    ========================================================================== */
 
 /* ==========================================================================
@@ -2628,10 +2637,10 @@ function setupNeckTaps() {
    or a pen; with a finger after TAP_DELAY (or on lifting it, if sooner), and
    not at all if it moves past TAP_SLOP first (it was a swipe to scroll).
    Enter or Space on a focused one plays it too. */
-function onPress(box, selector, act) {
+function onPress(box, selector, act) {   // (selector null: the box itself, a button)
   const taps = new Map();
   const target = (e) => {
-    const el = e.target.closest(selector);
+    const el = selector ? e.target.closest(selector) : box;
     return el && box.contains(el) && !el.disabled ? el : null;
   };
   const cancel = (e) => {
@@ -4867,10 +4876,11 @@ function init() {
   // keyboard (Enter, or Space on a button reached with Tab) still strums.
   // With no chord, the dock's button plays the scale group shown.
   const strumOrPlay = () => (currentChord() ? strum() : playGroup());
+  // (on touch screens, as the neck's notes: a swipe to scroll that starts
+  // on them plays nothing, onPress)
   for (const btn of [els.chordStrum, els.dockStrum, els.quickGroupPlay]) {
     const act = btn === els.dockStrum ? strumOrPlay : btn === els.quickGroupPlay ? playGroup : strum;
-    btn.addEventListener('pointerdown', (e) => { if (e.button === 0 && !btn.disabled) act(); });
-    btn.addEventListener('click', (e) => { if (e.detail === 0) act(); });
+    onPress(btn, null, act);
   }
 
   // Name a chord: in and out, Mute, Clear, the names; Play sounds on press
@@ -4881,8 +4891,7 @@ function init() {
   els.namerPrev.addEventListener('click', () => namerStep(-1));
   els.namerNext.addEventListener('click', () => namerStep(1));
   els.namerMute.addEventListener('click', () => { state.muteTaps = !state.muteTaps; render(); });
-  els.namerPlay.addEventListener('pointerdown', (e) => { if (e.button === 0 && !els.namerPlay.disabled) namerPlay(); });
-  els.namerPlay.addEventListener('click', (e) => { if (e.detail === 0) namerPlay(); });
+  onPress(els.namerPlay, null, namerPlay);
 
   // The chord list and the recent chords: tap to switch, × on the current
   // list chip to take it out, + on a recent one to put it in, Clear to
@@ -5052,8 +5061,7 @@ function init() {
   els.linkOpen.addEventListener('click', (e) => { if (e.target === els.linkOpen) closeLink(false); });
   els.linkOpen.addEventListener('close', () => closeLink(false));   // Escape
   // Play (Stop) on press, like the strum buttons; from the keyboard too
-  els.scalePlay.addEventListener('pointerdown', (e) => { if (e.button === 0 && !els.scalePlay.disabled) playScale(); });
-  els.scalePlay.addEventListener('click', (e) => { if (e.detail === 0) playScale(); });
+  onPress(els.scalePlay, null, playScale);
   // A note of the Notes row: heard on press (a swipe to scroll the row plays nothing)
   onPress(els.scaleNotes, '.scale-note', (note) => playScaleNote(Number(note.dataset.i)));
   els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
@@ -5154,6 +5162,7 @@ function init() {
   if (pendingLink) openLinkPopup();
   keepScreenOn();
   installable();
+  setupInstallTip();
 }
 
 /* Keep the screen from dimming while Frettle is open (handy on a music
@@ -5180,6 +5189,105 @@ if (typeof document !== 'undefined') {
 function installable() {
   if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
   navigator.serviceWorker.register('sw.js').catch(() => { /* offline use simply stays unavailable */ });
+}
+
+/* Suggest installing the app, gently: only in a browser that can (or
+   where it can be done by hand: not in another app's built-in browser),
+   only if not installed already, and only once the app has been in use a
+   while on this visit (two minutes on screen and a few taps), at a pause
+   (a few seconds without one), never right away. It stays until answered. "Not now": asked once more on a visit a
+   week or more later (again after a while); "Not now" again, or the app
+   installed: never again. "Install": the browser's own install where it
+   offers one, else the steps for this browser. */
+const INSTALL_KEY = 'frettle-install-tip';
+const INSTALL_AFTER = 120;   // seconds on screen this visit
+const INSTALL_TAPS = 6;      // ... and presses (a touch, a click or a key)
+const INSTALL_PAUSE = 4000;  // ms without one, just before
+const INSTALL_AGAIN = 7 * 24 * 3600 * 1000;   // ms before asking the second time
+function setupInstallTip() {
+  const tip = document.getElementById('installTip');
+  const text = document.getElementById('installText');
+  const later = document.getElementById('installLater');
+  const now = document.getElementById('installNow');
+  const read = () => { try { return JSON.parse(localStorage.getItem(INSTALL_KEY)) || {}; } catch { return {}; } };
+  const write = (v) => { try { localStorage.setItem(INSTALL_KEY, JSON.stringify(v)); } catch { /* not kept: asked again next visit */ } };
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (standalone) { write({ ...read(), installed: true }); return; }
+  let offer = null;   // the browser's own install (Chrome, Edge, Samsung Internet...)
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); offer = e; });   // (its own banner: not shown, this one is, later)
+  window.addEventListener('appinstalled', () => { write({ ...read(), installed: true }); tip.hidden = true; });
+
+  // Where installing is done by hand: the steps (null: not possible here,
+  // without the browser's own). Not in another app's built-in browser
+  // (Instagram, Facebook...: no "Add to Home Screen" there): on iPhones those
+  // leave Safari's name out of theirs, or add their own. Chrome, Edge,
+  // Samsung Internet on Android offer their own install (none: installed
+  // already, or not possible).
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const inApp = /FBAN|FBAV|Instagram|Line\/|MicroMessenger|Snapchat|TikTok|musical_ly|Bytedance|Pinterest|LinkedInApp|GSA\/|; wv\)/.test(ua) || (ios && !/Safari\//.test(ua));
+  const macSafari = !ios && /Macintosh/.test(ua) && /Version\/(\d+)/.test(ua) && Number(ua.match(/Version\/(\d+)/)[1]) >= 17 && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox|OPR/.test(ua);   // ("Add to Dock": Safari 17 on)
+  const SHARE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  const steps = inApp ? null
+    : ios ? `Tap ${SHARE_ICON} Share, then “More” (if shown), then “Add to Home Screen”.`
+      : macSafari ? 'In the menu bar: File, then “Add to Dock”.'
+        : /Android/.test(ua) && /Firefox/.test(ua) ? 'Open the menu (⋮), then “Install”.'
+          : null;
+
+  const due = () => {
+    const v = read();
+    if (v.installed || (v.declined || 0) >= 2) return false;
+    return !v.declined || Date.now() - (v.at || 0) >= INSTALL_AGAIN;
+  };
+  if (!due()) return;
+  // Installed already? Chrome and Edge can tell (manifest.json:
+  // related_applications); elsewhere it can't be known from the browser
+  let installed = false;
+  if (navigator.getInstalledRelatedApps) {
+    navigator.getInstalledRelatedApps().then((apps) => {
+      if (apps.length) { installed = true; write({ ...read(), installed: true }); }
+    }).catch(() => { /* unknown: as if not */ });
+  }
+  const answer = () => {   // "Not now", or the steps read
+    const v = read();
+    write({ ...v, declined: (v.declined || 0) + 1, at: Date.now() });
+    tip.hidden = true;
+  };
+  later.addEventListener('click', answer);
+  now.addEventListener('click', async () => {
+    if (offer) {
+      const asked = offer;
+      offer = null;   // (the browser's install asks only once)
+      asked.prompt();
+      const { outcome } = await asked.userChoice.catch(() => ({ outcome: 'dismissed' }));
+      if (outcome === 'accepted') { write({ ...read(), installed: true }); tip.hidden = true; } else answer();
+      return;
+    }
+    text.innerHTML = `<strong>Install Frettle</strong><span>${steps}</span>`;
+    later.hidden = true;
+    now.textContent = 'Done';
+    now.classList.remove('primary');
+    now.onclick = answer;   // (replaces this handler's work: the steps are read)
+  }, { once: true });
+
+  // On screen and in use a while (time only counts while the page shows)
+  let seconds = 0;
+  let taps = 0;
+  let lastTap = 0;
+  const tap = () => { taps++; lastTap = performance.now(); };
+  document.addEventListener('pointerdown', tap, true);
+  document.addEventListener('keydown', tap, true);
+  const tick = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    seconds++;
+    if (installed) { clearInterval(tick); return; }
+    if (seconds < INSTALL_AFTER || taps < INSTALL_TAPS || performance.now() - lastTap < INSTALL_PAUSE) return;
+    if (document.querySelector('dialog[open]') || !(offer || steps)) return;   // (a menu open: once it closes; no way to install yet: maybe later)
+    clearInterval(tick);
+    document.removeEventListener('pointerdown', tap, true);
+    document.removeEventListener('keydown', tap, true);
+    tip.hidden = false;
+  }, 1000);
 }
 
 if (typeof document !== 'undefined') init();
