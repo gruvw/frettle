@@ -726,7 +726,7 @@ button, a { scroll-margin: 6px; }
 .neck.octaves .cell.fret.o-alt, .neck.octaves .cell.open.o-alt { background: var(--octave-alt); }
 .oct {
   position: absolute;
-  z-index: 3;
+  z-index: 5;   /* (over the notes, those at the capo too, see .cell.capo .note) */
   top: 2px;
   left: 2px;   /* clear of the interval badge (top-right) and the capo (bottom, or the right end) */
   display: inline-flex;   /* (its number centred by its capitals, see .tx) */
@@ -764,6 +764,7 @@ button, a { scroll-margin: 6px; }
 .neck.horizontal .capo-bar { justify-self: end; width: 8px; margin-block: 3px; margin-inline: 0 6px; }
 .neck.vertical .cell.capo { padding-bottom: 14px; }    /* keep the notes clear of the capo */
 .neck.horizontal .cell.capo { padding-inline-end: 14px; }
+.cell.capo .note { z-index: 4; }   /* its badge (an interval, or the ✕ of a string not played) over the capo bar */
 .cell.behind { cursor: default; }
 .cell.behind .note, .cell.behind::before, .cell.behind .oct { opacity: 0.3; }
 
@@ -775,14 +776,8 @@ button, a { scroll-margin: 6px; }
 .cell.no-string::before { display: none; }
 .neck.horizontal .slabel.short { justify-self: end; padding-inline-end: 8px; }
 .cell.string-start::before { opacity: 0.45; }
-.cell.string-start::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  background: var(--nut);
-}
-.neck.vertical .cell.string-start::after { left: 0; right: 0; bottom: -2px; height: 5px; }
-.neck.horizontal .cell.string-start::after { top: 0; bottom: 0; inset-inline-end: -2px; width: 5px; }
+.neck.vertical .cell.string-start { border-bottom: 5px solid var(--nut); }   /* (drawn as the nut is, to the same width) */
+.neck.horizontal .cell.string-start { border-inline-end: 5px solid var(--nut); }
 /* Its open note sits off the fingerboard, like the other open notes */
 .neck:not(.octaves) .cell.fret.string-start { background: transparent; }
 
@@ -857,6 +852,41 @@ button, a { scroll-margin: 6px; }
   100% { opacity: 0; transform: scale(1); }
 }
 
+/* The strip (script.js): each string's first cell, held at the edge of the
+   view once the neck has scrolled past it, over everything on the neck.
+   Phones: a row stuck to the top of the screen (the neck's scroller lets
+   the page do the scrolling), with room above it for the badges, lifted by
+   that room so its cells sit where the neck's first cells are; wide
+   screens: the string numbers and the first cells, stuck to the nut's end
+   of the neck's scroller. Hidden until a string's first cell gets there
+   (.on); its background is under each string's place, so a place still
+   waiting is see-through, and taps go to the neck under it. */
+.neck-scroll:has(> .neck.vertical) { overflow: visible; }
+.neck-strip {
+  --room: 14px;
+  position: sticky;
+  z-index: 5;
+  display: grid;
+  visibility: hidden;
+  pointer-events: none;
+}
+.neck-strip > * { pointer-events: auto; }
+.neck-strip.on { visibility: visible; }
+.strip-under { background: var(--panel); }
+.neck.vertical .neck-strip {
+  top: env(safe-area-inset-top, 0px);
+  align-self: start;
+  margin-top: calc(-1 * var(--room));
+  grid-template-columns: var(--label-w) repeat(var(--strings), minmax(0, 1fr));
+  grid-template-rows: var(--room) calc(var(--row-h) + 3px);
+}
+.neck.horizontal .neck-strip {
+  inset-inline-start: 0;
+  grid-template-columns: var(--label-w) var(--open-w);
+  grid-template-rows: var(--ruler-row) repeat(var(--strings), var(--row-h));
+}
+.neck-strip .waiting { visibility: hidden; }
+
 /* Scale groups: rounded outlines (an SVG drawn by script.js), above the
    strings and fret wires, below the note pills: one at a time, the group
    picked, in the scale's colour */
@@ -920,6 +950,7 @@ button, a { scroll-margin: 6px; }
 .np-title { font-size: var(--fs-lg); font-weight: 700; line-height: 1.25; }   /* long names wrap */
 .np-meta { font-size: var(--fs-sm); }
 .np-alt { font-size: var(--fs-sm); color: var(--muted); }
+.np-alt:empty { display: none; }   /* (no other way to write it: no empty line) */
 .np-capo { color: var(--accent); font-weight: 600; }
 /* Whether the chord fits the shown scale: teal dot if it does, amber if not */
 .np-key { display: flex; align-items: center; gap: 7px; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }

@@ -2272,7 +2272,7 @@ function ping(el) {
   }
 }
 function flashCell(s, f, delay = 0) {
-  setTimeout(() => ping(els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`)), delay * 1000);
+  setTimeout(() => els.neck.querySelectorAll(`.cell[data-s="${s}"][data-f="${f}"] .note`).forEach(ping), delay * 1000);   // (and its copy in the strip)
 }
 
 /* Tap a note on the neck to hear it (not behind the capo; a note hidden by
@@ -2287,7 +2287,7 @@ function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
   const playable = (target) => {
     const cell = target.closest('.cell');
-    return cell && !cell.matches('.behind, .no-string') ? cell : null;
+    return cell && !cell.matches('.behind, .no-string, .waiting') ? cell : null;
   };
   const play = (cell) => {
     if (naming) { namerTap(cell); return; }
@@ -2703,7 +2703,7 @@ function draw() {
 function revealGroup() {
   const g = ui.groups[ui.group];
   if (!g) return;
-  revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"] .note`))).filter(Boolean));
+  revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean));
 }
 
 /* The chord list's chips, then (after a thin line) the recent chords',
@@ -2807,7 +2807,7 @@ function chipInView(row, smooth) {   // scroll a row of chips sideways so the se
    are. The page never scrolls past the top of the neck panel and the margin
    above it (with a capo, past the capo's fret), so the highest position
    still shows that edge. The same for a scale group (revealGroup). */
-function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
+function revealShape(notes = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord')]) {
   if (!notes.length) return;
   if (isWide()) { revealAcross(notes); return; }
   const rects = notes.map((n) => n.getBoundingClientRect());
@@ -2815,8 +2815,11 @@ function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
   const bottom = Math.max(...rects.map((r) => r.bottom));
   const cover = els.sheet.classList.contains('open') ? els.sheet : els.dockBar;
   const viewBottom = cover.getBoundingClientRect().top;
+  // The view starts under the strip (held at the top once the nut is past)
+  const strip = els.neck.querySelector('.neck-strip');
+  const viewTop = strip ? strip.offsetHeight : 0;
   // Centre the shape; one too tall to fit starts at the top of the view
-  const delta = bottom - top > viewBottom - 24 ? top - 24 : (top + bottom) / 2 - viewBottom / 2;
+  const delta = bottom - top > viewBottom - viewTop - 24 ? top - viewTop - 24 : (top + bottom) / 2 - (viewTop + viewBottom) / 2;
   // Highest: the neck panel with its margin, or with a capo, its fret (the
   // frets behind it cannot be played) with more room, part of the fret
   // behind it showing and the interval badges clear of the edge
@@ -2835,19 +2838,24 @@ function revealShape(notes = [...els.neck.querySelectorAll('.note.chord')]) {
 function revealAcross(notes) {
   const box = els.neck.closest('.neck-scroll');
   if (box.scrollWidth <= box.clientWidth + 1) return;
-  const view = box.getBoundingClientRect();
+  const frame = box.getBoundingClientRect();
   const rects = notes.map((n) => n.getBoundingClientRect());
   const left = Math.min(...rects.map((r) => r.left));
   const right = Math.max(...rects.map((r) => r.right));
   const pad = 24;
   const lefty = box.classList.contains('lefty');   // the nut on the right
+  // The view starts after the strip (held at the nut's end once it is past)
+  const strip = els.neck.querySelector('.neck-strip');
+  const held = strip ? strip.offsetWidth : 0;
+  const view = { left: frame.left + (lefty ? 0 : held), right: frame.right - (lefty ? held : 0) };
+  view.width = view.right - view.left;
   let delta = right - left > view.width - 2 * pad
     ? (lefty ? right - (view.right - pad) : left - (view.left + pad))
     : (left + right) / 2 - (view.left + view.right) / 2;
   const capoCell = capo() ? els.neck.querySelector(`.cell[data-f="${capo()}"]`) : null;
   if (capoCell) {   // the frets behind the capo stay out of view, as on phones (the capo's fret at the edge, with some room)
     const c = capoCell.getBoundingClientRect();
-    delta = lefty ? Math.min(delta, c.right - (view.right - 20)) : Math.max(delta, c.left - (view.left + 20));
+    delta = lefty ? Math.min(delta, c.right - (frame.right - 20)) : Math.max(delta, c.left - (frame.left + 20));
   }
   if (Math.abs(delta) > 1) box.scrollBy({ left: delta, behavior: 'smooth' });
 }
@@ -3633,6 +3641,7 @@ function renderNeck(ch, sc) {
   // than a fret wire; its notes get as much room as any other
   els.neck.style.gridTemplateRows = vertical ? 'var(--ruler-row) calc(var(--row-h) + 3px)' : 'var(--ruler-row)';
   els.neck.style.gridAutoRows = 'var(--row-h)';
+  els.neck.style.setProperty('--strings', n);   // (the strip's grid, see styles.css)
   els.neck.classList.toggle('vertical', vertical);
   els.neck.classList.toggle('horizontal', !vertical);
   els.neck.classList.toggle('octaves', state.octaves);
@@ -3701,6 +3710,7 @@ function renderNeck(ch, sc) {
   }
 
   const html = [];
+  const starts = [];   // each string's first cell (the nut, the capo, a drone's start or spike), for the strip
   const singleDots = inst.dots ? inst.dots.single : SINGLE_DOTS;
   const doubleDots = inst.dots ? inst.dots.double : DOUBLE_DOTS;
   // Fret numbers. With a capo they count from it, like everything else
@@ -3780,12 +3790,11 @@ function renderNeck(ch, sc) {
       const inner = cls.includes(' mute') && !cls.includes(' named') ? MUTE_ICON : tx(text);
       if (cls.includes(' named')) badge = MUTE_BADGE;
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${tx(String(octave))}</span>` : '';
-      html.push(
-        `<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">` +
-        `${octTag}<span class="${cls}" title="${esc(title)}">${inner}` +
+      const pill = `<span class="${cls}" title="${esc(title)}">${inner}` +
         `${badge === MUTE_BADGE ? `<span class="deg-badge mute-badge" aria-hidden="true">${MUTE_ICON}</span>`
-          : badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span></div>`
-      );
+          : badge ? `<span class="deg-badge" aria-hidden="true">${tx(badge)}</span>` : ''}</span>`;
+      html.push(`<div class="${cellCls}" role="gridcell" data-s="${s}" data-f="${f}" style="${cellAt(s, f)};--sw:${sw}px">${octTag}${pill}</div>`);
+      if (f === nut(s)) starts.push({ s, f, cellCls, sw, pill, num, octTag });
     }
   });
   // The capo clamps all strings just behind its fret wire (a banjo's drone:
@@ -3808,9 +3817,69 @@ function renderNeck(ch, sc) {
     }
   }
   html.push('<svg class="group-layer" aria-hidden="true"></svg>');
+  html.push(stripHtml(vertical, n, c, short, starts));
   els.neck.innerHTML = html.join('');
   drawGroups();
+  placeStrip();
 }
+
+/* The strip: each string's first cell (its open note at the nut, or at the
+   capo, a banjo's drone at its start or its spike), as on the neck, with
+   the chord's ✕ or open mark, held at the edge of the view once the neck
+   has scrolled past it: phones, at the top of the screen as the page
+   scrolls down; wide screens, at the nut's end of the neck as it scrolls
+   sideways. It is drawn over the neck (its notes, barres, capo and group
+   outlines pass under it), is tapped as the neck is, and stays within the
+   neck. Where a string's first cell has not reached it yet (a drone
+   starting at the 5th fret), the neck shows through. Not a copy that
+   speaks: the neck's own cells do (aria-hidden). */
+function stripHtml(vertical, n, c, short, starts) {
+  // Phones: row 1 is room above the notes (for their badges), row 2 the
+  // cells; wide screens: row 1 is the fret numbers' row, then one per string
+  const at = (s, col) => (vertical ? `grid-row:2;grid-column:${s + 2}` : `grid-row:${n - s + 1};grid-column:${col}`);
+  const under = (s) => (vertical ? `grid-row:1 / 3;grid-column:${s + 2}` : `grid-row:${n - s + 1};grid-column:2`);
+  // Its background is laid under each string's place (not the whole strip),
+  // so the neck shows through a place still waiting
+  const parts = [vertical ? '<i class="strip-under" style="grid-row:1 / 3;grid-column:1"></i>'
+    : `<i class="strip-under" style="grid-row:1 / span ${n + 1};grid-column:1"></i><i class="strip-under" style="grid-row:1;grid-column:2"></i>`];
+  for (const x of starts) {
+    parts.push(`<i class="strip-under" data-s="${x.s}" style="${under(x.s)}"></i>`);
+    if (!vertical) parts.push(`<div class="slabel" data-s="${x.s}" style="${at(x.s, 1)}">${x.num}</div>`);   // (a drone's: with its cell, its own number beside it until then)
+    parts.push(`<div class="${x.cellCls} strip-cell" data-s="${x.s}" data-f="${x.f}" style="${at(x.s, 2)};--sw:${x.sw}px">${x.octTag}${x.pill}</div>`);
+  }
+  if (c) {   // the capo across the strings from the nut, a spike on a drone
+    parts.push(`<div class="capo-bar" style="${vertical ? `grid-row:2;grid-column:${short + 2} / span ${n - short}` : `grid-row:2 / span ${n - short};grid-column:2`}"></div>`);
+    for (const x of starts) if (x.s < short) parts.push(`<div class="capo-bar spike" data-s="${x.s}" style="${at(x.s, 2)}"></div>`);
+  }
+  const place = vertical ? 'grid-row:2;grid-column:1 / -1' : `grid-row:1 / span ${n + 1};grid-column:1 / span 2`;
+  return `<div class="neck-strip" aria-hidden="true" style="${place}">${parts.join('')}</div>`;
+}
+/* A string's place in the strip shows once its first cell on the neck has
+   reached it (and goes on under it, out of view): the two are then in the
+   same spot, so the note does not jump. Each string on its own (a drone
+   starting at the 5th fret comes later); the strip shows with the first. */
+function placeStrip() {
+  const strip = els.neck.querySelector('.neck-strip');
+  if (!strip) return;
+  const vertical = els.neck.classList.contains('vertical');
+  const lefty = state.leftHanded;
+  let any = false;
+  for (const cell of strip.querySelectorAll('.strip-cell')) {
+    const { s, f } = cell.dataset;
+    const real = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell)`);
+    if (!real) continue;
+    // (by their nut's edge, the same line for every string in the strip,
+    // so a drone's nut or a capo meets the others' exactly)
+    const a = real.getBoundingClientRect();
+    const b = cell.getBoundingClientRect();
+    const past = vertical ? a.bottom < b.bottom - 0.5 : lefty ? a.left > b.left + 0.5 : a.right < b.right - 0.5;
+    for (const part of strip.querySelectorAll(`[data-s="${s}"]`)) part.classList.toggle('waiting', !past);   // (its cell, background, number and spike)
+    any = any || past;
+  }
+  strip.classList.toggle('on', any);
+}
+let stripFrame = 0;
+const queueStrip = () => { if (!stripFrame) stripFrame = requestAnimationFrame(() => { stripFrame = 0; placeStrip(); }); };
 
 /* Draw the group picked (ui.groups[ui.group]) in the scale's colour, one
    at a time (the arrows and chips step through them). It is an outline
@@ -3835,7 +3904,7 @@ function drawGroups() {
   // the capo's padding: the note sits in the middle of what is left, so a
   // group gets the same room before its first note as after its last.
   const cellBox = (s, f) => {
-    const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]`);
+    const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell)`);
     const r = cell.getBoundingClientRect();
     const cs = getComputedStyle(cell);
     const px = (prop) => parseFloat(cs[prop]) || 0;
@@ -4372,8 +4441,12 @@ function init() {
   if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
   else wideMedia.addListener(relayout);
   if (window.ResizeObserver) {
-    new ResizeObserver(() => drawGroups()).observe(els.neck);   // keep group outlines on their cells
+    new ResizeObserver(() => { drawGroups(); queueStrip(); }).observe(els.neck);   // keep group outlines on their cells
   }
+  // The strip follows the page (phones) and the neck's own scroll (wide screens)
+  window.addEventListener('scroll', queueStrip, { passive: true });
+  window.addEventListener('resize', queueStrip, { passive: true });
+  els.neck.parentElement.addEventListener('scroll', queueStrip, { passive: true });
 
   // Root alone never turns a chord or scale on: "None" in the type menu means off
   // Moving the capo keeps the chord and shows its first shape from the capo
