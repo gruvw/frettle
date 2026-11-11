@@ -74,6 +74,15 @@
   <!-- Mobile first: on phones the neck is vertical and the controls live in a
        dock at the bottom (tabs open a sheet). On wide screens the neck is
        horizontal and the panels sit below it. -->
+  <!-- Suggests installing the app, once it has been used a while (script.js: setupInstallTip) -->
+  <aside id="installTip" class="install-tip" aria-label="Install Frettle" hidden>
+    <img class="install-icon" src="favicon.svg" alt="" width="32" height="32">
+    <p class="install-text" id="installText"><strong>Frettle works better as an app</strong><span>Full screen, and it works offline.</span></p>
+    <div class="install-actions">
+      <button type="button" id="installLater" class="btn small">Not now</button>
+      <button type="button" id="installNow" class="btn small primary">Install</button>
+    </div>
+  </aside>
   <header class="top">
     <h1>Frettle <span class="h1-sub">Chord &amp; scale visualizer</span></h1>
     <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is on the neck" aria-label="Share" aria-haspopup="dialog"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
