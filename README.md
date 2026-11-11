@@ -16,7 +16,7 @@ A chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo
 
 ## What it does
 
-- Every note on the neck: guitar, bass, ukulele, mandolin, mandola and banjo, and on an 88-key piano
+- Every note on the neck of a guitar, bass, ukulele, mandolin, mandola or banjo, or on the keys of an 88-key piano
 - Alternate tunings: Drop D, DADGAD, open G, low G ukulele, banjo double C and more, or custom ones, saved by name
 - Chords in any key, every shape up the neck, with intervals on each note
 - Name a chord: place notes on the neck to see which chord they make, any shape kept
