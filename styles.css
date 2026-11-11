@@ -1284,9 +1284,7 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
    height), so the two always touch, whatever the browser's bars or the
    phone's safe area do to the bar's height.
    ========================================================================== */
-.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; touch-action: none; }   /* a swipe on it does not scroll the page under it... */
-.dock .recent-chips { touch-action: pan-x; }   /* ... only its own rows of chips, sideways */
-.sheet-body { touch-action: pan-y; }           /* ... and its open panel (overscroll-behavior: contain, below) */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; }   /* (a swipe on it does not scroll the page under it: setupDockTouch) */
 .dock-bar {
   position: relative;
   z-index: 2;   /* in front of the sheet as it slides down behind it */
@@ -1603,8 +1601,6 @@ body.naming .neck-panel { border-color: var(--accent); }
   background: var(--panel);
   cursor: pointer;
 }
-/* The handle and the panel titles can be dragged down to close the sheet */
-.sheet-close, .sheet .panel-head { touch-action: none; }
 .sheet-close span { width: 40px; height: 5px; border-radius: var(--r-pill); background: var(--border); }
 /* The sheet clips at its edges: the focus ring goes around the handle itself */
 .sheet-close:focus-visible { outline: none; }
@@ -2055,7 +2051,6 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .sheet .panel { display: block; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--panel); padding: 20px; }
   .sheet .panel.narrow-only { display: none; }
   .sheet-close { display: none; }
-  .sheet .panel-head { touch-action: auto; }   /* no sheet to drag: touch screens scroll the page from the titles too */
 
   /* Chords panel: description and notes side by side */
   /* 396px leaves the notes 618px on large screens: room for a 6-string
