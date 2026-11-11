@@ -806,11 +806,12 @@ button, a { scroll-margin: 6px; }
 .note.chord { background: var(--chord); color: var(--chord-text); box-shadow: none; font-weight: 800; }
 .note.chord.root { outline: 2px solid var(--chord); outline-offset: 2px; }
 /* Chord notes show their name; the interval (R, 3, 5, ♭7…) sits in a small
-   badge on the pill's top-right corner */
+   badge on the pill's top-right corner, held by its left end: a longer one
+   (♭♭7, ♯11) grows away from the note rather than over it */
 .deg-badge {
   position: absolute;
   top: -9px;
-  right: -11px;
+  left: calc(100% - 7px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -870,7 +871,7 @@ button, a { scroll-margin: 6px; }
   visibility: hidden;
   pointer-events: none;
 }
-.neck-strip > * { pointer-events: auto; }
+.neck-strip > :not(.capo-bar) { pointer-events: auto; }   /* (a tap on its capo goes to the note above it, as on the neck) */
 .neck-strip.on { visibility: visible; }
 .strip-under { background: var(--panel); }
 .neck.vertical .neck-strip {
@@ -1777,9 +1778,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     container-type: inline-size;
     margin: var(--sp-2) -20px calc(-1 * var(--sp-4));
     padding: var(--sp-3) 20px;
-    border-top: 1px solid var(--divider);
-    border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);   /* the panel's corners, inside its border */
-    background: var(--panel);
+    border-top: 1px solid var(--divider);   /* (no background of its own: the panel's shows, and its rounded border stays whole) */
   }
   /* Name a chord: its bar in the quick bar's place. Two rows: the title,
      Mute and Clear, with Cancel and Select at the end; under them, the
@@ -1799,9 +1798,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     gap: var(--sp-3) var(--sp-4);
     margin: var(--sp-2) -20px calc(-1 * var(--sp-4));
     padding: var(--sp-3) 20px;
-    border-top: 1px solid var(--divider);
-    border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
-    background: var(--panel);
+    border-top: 1px solid var(--divider);   /* (as the quick bar's) */
   }
   .namer-head { grid-area: head; height: auto; margin: 0; gap: var(--sp-3); }
   .namer-title { margin-right: var(--sp-2); }

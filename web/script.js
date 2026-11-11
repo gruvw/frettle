@@ -84,7 +84,7 @@ const tuningsOf = (id) => TUNINGS[id] || [{ id: 'standard', name: 'Standard', st
 const CUSTOM_RANGE = 24;   // semitones either way from standard
 function customTuning(id) {
   const strings = typeof state === 'object' && state && state.custom && state.custom[id];
-  return strings ? { id: 'custom', name: tuningNotes(strings, state.flats), short: 'Custom', custom: true, strings } : null;
+  return strings ? { id: 'custom', name: tuningNotes(strings, state.flats, id), short: 'Custom', custom: true, strings } : null;
 }
 /* Saved tunings: custom tunings kept under a name, any number per
    instrument (state.saved: { instrument: [{ name, strings }] }), in the
@@ -285,14 +285,16 @@ function plainNote(pc, flats) {
 }
 
 /* Spell a scale or chord from its root. offsets: letter offset of each note
-   from the root (null: no letters, e.g. chromatic). */
-function spellNotes(root, steps, offsets, flats) {
+   from the root (null: no letters, e.g. chromatic). A note that would need
+   more accidentals than `most` is written plainly instead (in the
+   direction it leans: B♭♭ as A, F♭♭ as E♭, F♯♯ as G). */
+function spellNotes(root, steps, offsets, flats, most = 2) {
   return steps.map((step, i) => {
     const n = offsets ? spellAs(root.pc + step, (root.letter + offsets[i]) % 7) : plainNote(root.pc + step, flats);
-    return Math.abs(n.acc) > 2 ? plainNote(root.pc + step, flats) : n;
+    return Math.abs(n.acc) > most ? plainNote(root.pc + step, most < 2 ? n.acc < 0 : flats) : n;
   });
 }
-function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorKey = false) {
+function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorKey = false, most = 2) {
   const minor = minorKey || (steps.some((x) => mod12(x) === 3) && !steps.some((x) => mod12(x) === 4));
   const keySteps = KEY_STEPS[minor ? 'minor' : 'major'];
   const keyNotes = (root) => keySteps.map((st, i) => spellAs(root.pc + st, (root.letter + i) % 7));
@@ -309,7 +311,7 @@ function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorK
   }
   const lean = keyNotes(root).reduce((sum, n) => sum + n.acc, 0);
   const flats = lean < 0 || (lean === 0 && preferFlats);
-  const notes = spellNotes(root, steps, offsets, flats);
+  const notes = spellNotes(root, steps, offsets, flats, most);
   const names = new Map();
   for (const n of notes) if (!names.has(n.pc)) names.set(n.pc, n);
   return { root, notes, names, flats };
@@ -322,8 +324,12 @@ function spellScale(rootPc, def, preferFlats) {
   return spellKey(rootPc, def.steps, offsets, preferFlats, null, dark);
 }
 const degreeOffset = (deg) => (deg === 'R' ? 0 : (Number(deg.replace(/\D/g, '')) - 1) % 7);
+/* A chord's notes as chord charts write them: no double sharps or flats
+   (Cdim7 is C E♭ G♭ A, E7♯9 is E G♯ B D G); its interval badges keep the
+   theory (♭♭7, ♯9). Scales keep theirs: each letter once (G♯ harmonic
+   minor has F♯♯). */
 function spellChord(rootPc, def, preferFlats, forcedRoot = null) {
-  return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), preferFlats, forcedRoot);
+  return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), preferFlats, forcedRoot, false, 1);
 }
 
 /* ==========================================================================
@@ -1343,7 +1349,7 @@ function customOff(custom) {
 function customLine(custom, on) {
   const mine = customOff(custom);
   if (!mine) return '';
-  const notes = (list) => tuningNotes(list, state.flats);
+  const notes = (list) => tuningNotes(list, state.flats, custom.inst);
   return `<span class="lk-extra">${lkValue(notes(mine), on ? 'lose' : 'win')}`
     + `<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${lkValue(notes(custom.strings), on ? 'win' : 'lose')}</span></span>`;
 }
@@ -2447,6 +2453,7 @@ function closeNamer(select) {
   const reading = select ? namerReadings()[naming.pick] : null;
   if (select && !reading) return;
   const text = fretsText(naming.frets);
+  const focused = els.namer.contains(document.activeElement);
   naming = null;
   document.body.classList.remove('naming');
   if (reading) {
@@ -2461,6 +2468,9 @@ function closeNamer(select) {
     ui.reveal = true;
   }
   render();
+  // The keyboard goes back to where it came from (the bar is hidden now):
+  // the mode's button, or on phones, where it sits in the closed sheet, the Chord tab
+  if (focused) (isWide() ? els.namerOpen : document.querySelector('.tab[data-tab="chord"]')).focus({ preventScroll: true });
 }
 // A tap on the neck while naming
 function namerTap(cell) {
@@ -2965,13 +2975,14 @@ function renderTuneEdit() {
   else updateNaming();
   els.tuneList.classList.toggle('lefty', state.leftHanded);
   els.tuneList.style.setProperty('--n', strings.length);
+  const inst = findInstrument(id);
   els.tuneList.innerHTML = strings.map((m, s) => {
     const n = strings.length - s;   // string 1: the highest
     const off = m - base[s];
-    const name = noteText(plainNote(m, state.flats));
+    const name = stringNote(inst, s, noteText(plainNote(m, state.flats)));   // (a drone: g4)
     const oct = Math.floor(m / 12) - 1;
     const num = off
-      ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${noteText(plainNote(base[s], state.flats))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
+      ? `<button type="button" class="tune-num reset" data-reset="${s}" title="String ${n} back to standard (${stringNote(inst, s, noteText(plainNote(base[s], state.flats)))})" aria-label="String ${n} back to standard">${RESET_ICON}${n}</button>`
       : `<span class="tune-num">${n}</span>`;
     return `<li class="tune-string">${num}` +
       `<button type="button" class="tune-step up" data-string="${s}" data-step="1" aria-label="String ${n} up a semitone"${off >= CUSTOM_RANGE ? ' aria-disabled="true"' : ''}>+</button>` +
@@ -3021,12 +3032,12 @@ function openTuningMenu() {
   openPicker({
     title: 'Tuning', value: instrument().tuning.id,
     groups: [
-      { items: tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats)) })) },
+      { items: tuningsOf(state.instrument).map((t) => ({ value: t.id, label: t.name, sub: tuningNotes(t.strings, Boolean(t.flats), state.instrument) })) },
       { label: 'Custom', items: [
         { value: 'custom', label: 'Custom', icon: EDIT_ICON, cls: 'custom-pick', title: 'Tune each string',
-          sub: own ? tuningNotes(own, state.flats) : 'Tune each string' },
+          sub: own ? tuningNotes(own, state.flats, state.instrument) : 'Tune each string' },
         ...savedTunings(state.instrument).map((t) => ({ value: t.id, label: t.name, icon: BOOKMARK_ICON, title: t.name,
-          sub: tuningNotes(t.strings, state.flats), remove: `Delete ${t.name}` })),
+          sub: tuningNotes(t.strings, state.flats, state.instrument), remove: `Delete ${t.name}` })),
       ] },
     ],
     onPick: (v) => {
@@ -3045,7 +3056,7 @@ function askDeleteTuning(tuningId) {
   if (!t) return;
   deleting = t.id;
   els.tuneDeleteName.textContent = t.name;
-  els.tuneDeleteNotes.textContent = tuningNotes(t.strings, state.flats);
+  els.tuneDeleteNotes.textContent = tuningNotes(t.strings, state.flats, state.instrument);
   if (els.tuneDelete.showModal) els.tuneDelete.showModal(); else els.tuneDelete.setAttribute('open', '');
   els.tuneDeleteCancel.focus();
 }
@@ -3339,8 +3350,14 @@ function renderHeader() {
 
 /* "Drop D", "C G D G B D" (custom), or '' for the standard tuning */
 const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? inst.tuning.name : '');
-/* Open string names, low to high: "D A D G B E" */
-const tuningNotes = (strings, flats = false) => strings.map((m) => noteText(plainNote(m, flats))).join(' ');
+/* Open string names, low to high: "D A D G B E". A short string (a banjo's
+   drone) is written in small letters, as banjo players write it: "g D G B D".
+   (Words only: links and saved tunings keep the pitches.) */
+function tuningNotes(strings, flats = false, instId = null) {
+  const inst = instId && findInstrument(instId);
+  return strings.map((m, s) => stringNote(inst, s, noteText(plainNote(m, flats)))).join(' ');
+}
+const stringNote = (inst, s, name) => (inst && startFret(inst, s) ? name.charAt(0).toLowerCase() + name.slice(1) : name);
 
 const MUTE_BADGE = '×';   // (a muted string's badge: drawn as MUTE_ICON)
 const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
@@ -4308,7 +4325,7 @@ function init() {
         // a preset in its usual spelling (Open D's F♯, E♭ for half step down);
         // a custom tuning as the Flats switch says
         const flats = t.tuning.custom || t.tuning.saved ? state.flats : Boolean(t.tuning.flats);
-        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats) };
+        return { value: i.id, label: i.name, sub: tuningNotes(t.strings, flats, i.id) };
       }),
     })),
     onPick: (v) => {
