@@ -2189,7 +2189,7 @@ const groupPlace = (g, capo) => (g.bars.some((b) => b.a === capo) ? 'open' : `fr
    Plucked strings synthesised in the browser (Karplus-Strong): a short burst
    of noise circulates in a delay line one period long and is softened a
    little on every pass, which sounds like a plucked string. Each pitch is
-   computed once, on first use, and kept.
+   computed once and kept: ahead, in a worker (warmUp), or on first use.
    To sound clear but not buzzy: the burst is softened more for high notes
    (a softer pick) and shaped as if plucked away from the bridge (some
    harmonics cancel), low strings lose a little of their long-ringing fizz,
@@ -2231,8 +2231,8 @@ function startAudioEarly() {
   EARLY_EVENTS.forEach((type) => document.addEventListener(type, start, true));
 }
 const EARLY_EVENTS = ['pointerdown', 'pointerup', 'keydown', 'touchend'];
-/* Make sounds ahead, a few at a time when the page is idle: the room, then
-   the chord's and the scale's notes (likely played first), then every
+/* Make sounds ahead, one at a time in a worker (or when the page is
+   idle): the room, then the chord's and the scale's notes (likely played first), then every
    other note of the instrument, from the middle out. Called on every
    render: the list starts over (anything made is kept). */
 let warmList = [];
@@ -2257,7 +2257,11 @@ function warmUp(ch, sc) {
     do {
       const job = warmList.shift();
       if (!job) break;
-      if (job.room) roomImpulse(); else if (job.piano) pianoTone(job.midi); else pluck(job.midi);
+      if (job.room) roomImpulse();
+      else if ((job.piano ? pianoCache : pluckCache).has(job.midi)) continue;
+      else if (makeInWorker(job, () => later(step))) return;   // (made in the background: on with the list once it is back)
+      else if (job.piano) pianoTone(job.midi);
+      else pluck(job.midi);
     } while (deadline && !deadline.didTimeout && deadline.timeRemaining() > 8);
     if (warmList.length) later(step); else warming = false;
   };
@@ -2330,9 +2334,9 @@ function roomImpulse(sr = SOUND_RATE) {
   return ir;
 }
 
-function pluck(midi) {
-  if (pluckCache.has(midi)) return pluckCache.get(midi);
-  const sr = SOUND_RATE;
+/* A plucked note's samples, at `sr`, and the playback rate that puts it in
+   tune. Self contained (no outside names): it also runs in a worker. */
+function pluckSamples(midi, sr) {
   const freq = 440 * 2 ** ((midi - 69) / 12);
   // Averaging each sample with the next one shortens the loop by half a
   // sample, so it sounds at sr / (n - 0.5); playbackRate fixes the rounding
@@ -2340,8 +2344,7 @@ function pluck(midi) {
   const rate = freq / (sr / (n - 0.5));
   const seconds = midi < 48 ? 1.55 : 1.2;   // note length (low notes ring a bit longer)
   const len = Math.floor(sr * seconds);
-  const buffer = newBuffer(1, len, sr);
-  const data = buffer.getChannelData(0);
+  const data = new Float32Array(len);
 
   // Excitation: smoothed noise, smoother for higher notes (a softer pick
   // where the buzz would be), without DC offset
@@ -2377,9 +2380,7 @@ function pluck(midi) {
     loop[k] = damping * 0.5 * (loop[k] + loop[next]);
     k = next;
   }
-  const sound = { buffer, rate };
-  pluckCache.set(midi, sound);
-  return sound;
+  return { data, rate };
 }
 
 /* The piano: each key's sound worked out once (then kept), as a struck
@@ -2390,17 +2391,13 @@ function pluck(midi) {
    slowly (the strike, then the ring); two strings a hair apart from the
    bass up (one at the very bottom), which slowly beat; and the hammer's
    soft knock. Kept at a low rate (the top harmonic kept is under 7.5 kHz)
-   to be quick to work out. */
-const PIANO_RATE = 24000;
-const pianoCache = new Map();
-function pianoTone(midi) {
-  if (pianoCache.has(midi)) return pianoCache.get(midi);
-  const sr = PIANO_RATE;
+   to be quick to work out. Self contained (no outside names): it also
+   runs in a worker. */
+function pianoSamples(midi, sr) {
   const f0 = 440 * 2 ** ((midi - 69) / 12);
-  const x = Math.min(1, Math.max(0, (midi - PIANO_LOW) / (PIANO_KEYS - 1)));   // 0 at the bottom, 1 at the top
+  const x = Math.min(1, Math.max(0, (midi - 21) / 87));   // 0 at the bottom (A0), 1 at the top (C8)
   const len = Math.floor(sr * (2.6 - 1.4 * x));   // (seconds)
-  const buffer = newBuffer(1, len, sr);
-  const data = buffer.getChannelData(0);
+  const data = new Float32Array(len);
   const stiff = 0.00008 * 2 ** (3.6 * x);         // how sharp the harmonics run
   const ring = 0.35 + 3 * (1 - x) ** 1.7;         // the fundamental's slow fade (seconds)
   const felt = 900 + 3200 * x;                    // where the harmonics start to give out (Hz)
@@ -2452,8 +2449,57 @@ function pianoTone(midi) {
   const rise = sr * 0.002;
   const fade = sr * 0.4;
   for (let i = 0; i < len; i++) data[i] *= gain * Math.min(1, i / rise, (len - i) / fade);
-  pianoCache.set(midi, buffer);
+  return data;
+}
+const PIANO_RATE = 24000;
+const pianoCache = new Map();   // a key's sound (an AudioBuffer), by MIDI number
+const toBuffer = (data, rate) => {
+  const buffer = newBuffer(1, data.length, rate);
+  buffer.getChannelData(0).set(data);
   return buffer;
+};
+/* A note's sound, made now if not made yet (most are made ahead: warmUp) */
+function pluck(midi) {
+  if (!pluckCache.has(midi)) keepSound({ piano: false, midi, ...pluckSamples(midi, SOUND_RATE) });
+  return pluckCache.get(midi);
+}
+function pianoTone(midi) {
+  if (!pianoCache.has(midi)) keepSound({ piano: true, midi, data: pianoSamples(midi, PIANO_RATE) });
+  return pianoCache.get(midi);
+}
+function keepSound({ piano, midi, data, rate }) {
+  if (piano) { if (!pianoCache.has(midi)) pianoCache.set(midi, toBuffer(data, PIANO_RATE)); }
+  else if (!pluckCache.has(midi)) pluckCache.set(midi, { buffer: toBuffer(data, SOUND_RATE), rate });
+}
+/* Sounds made ahead in a worker, so the page never waits on them (where
+   one can't be made: in idle time, warmUp). `done` is called once the
+   sound is back; false: no worker. */
+let soundWorker = null;   // (false: none to be had)
+let soundDone = null;
+function makeInWorker(job, done) {
+  if (soundWorker === null) {
+    try {
+      const code = `${pluckSamples}\n${pianoSamples}\nonmessage = (e) => {
+        const { piano, midi } = e.data;
+        const made = piano ? { data: pianoSamples(midi, ${PIANO_RATE}) } : pluckSamples(midi, ${SOUND_RATE});
+        postMessage({ piano, midi, ...made }, [made.data.buffer]);
+      };`;
+      soundWorker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+      const next = () => {
+        const then = soundDone;
+        soundDone = null;
+        if (then) then();
+      };
+      soundWorker.onmessage = (e) => { keepSound(e.data); next(); };
+      soundWorker.onerror = () => { soundWorker = false; next(); };   // (none after all: on in idle time)
+    } catch {
+      soundWorker = false;
+    }
+  }
+  if (!soundWorker) return false;
+  soundDone = done;
+  soundWorker.postMessage({ piano: job.piano, midi: job.midi });
+  return true;
 }
 /* Strike a key; returns something to stop it (the damper: a quick fade) */
 function strike(a, midi, delay, level) {
