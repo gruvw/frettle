@@ -945,7 +945,7 @@ button, a { scroll-margin: 6px; }
 }
 .neck.piano.vertical {
   --wk: 36px;   /* a white key's height */
-  --bk: 22px;   /* a black key's */
+  --bk: 26px;   /* a black key's (room round a note: --pill-h and 2px each side) */
   height: calc(var(--whites) * var(--wk));
 }
 .neck.piano.vertical .key { left: 0; right: var(--oct-w); }

@@ -2983,10 +2983,24 @@ function draw() {
   ui.revealGroup = false;
 }
 
-function revealGroup() {
+/* The phone turned (or the window resized past the layout's edge): the
+   page starts over in its new layout, so the chord's shape is brought back
+   into view, or else the scale group, middle C on a piano, or the neck. */
+function refocus() {
+  const panel = els.neck.closest('.neck-panel');
+  const toPanel = () => window.scrollTo({ top: panel.getBoundingClientRect().top + window.scrollY - parseFloat(getComputedStyle(panel).marginTop), behavior: 'auto' });
+  if (isWide()) toPanel();   // (the neck in view; then sideways, below)
+  const shape = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord, .key .note.chord')];
+  if (shape.length) revealShape(shape, 'auto');
+  else if (ui.groups[ui.group]) revealGroup('auto');
+  else if (instrument().piano) revealShape([els.neck.querySelector(`.key[data-key="${60 - PIANO_LOW}"]`)], 'auto');
+  else if (!isWide()) toPanel();
+}
+
+function revealGroup(behavior) {
   const g = ui.groups[ui.group];
   if (!g) return;
-  revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean));
+  revealShape(g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean), behavior);
 }
 
 /* The chord list's chips, then (after a thin line) the recent chords',
@@ -4874,6 +4888,7 @@ function init() {
     placeSettings();
     if (isWide()) ui.tab = null;
     render();
+    requestAnimationFrame(refocus);   // (once the new layout is in place)
   };
   if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
   else wideMedia.addListener(relayout);
