@@ -321,6 +321,29 @@ kbd {
 .delete-notes[hidden] { display: none; }
 .delete-chips { font-size: var(--fs-sm); margin: 2px 0; }   /* chord chips, as in the share popup (.lk-val) */
 .btn.danger { border-color: var(--danger); color: var(--danger); }
+.delete-chips[hidden], .delete-name[hidden] { display: none; }
+.delete-chips + .delete-name { margin-top: var(--sp-2); }   /* Clear chords: the recent ones, after the saved ones */
+/* ... quieter than the saved ones: a small grey line, dashed chips (as in
+   the chord list) */
+#listClearRecentCount { font: 500 var(--fs-sm)/1.3 var(--font); color: var(--muted); }
+.lk-val.recent .lk-chip { position: relative; background: transparent; color: var(--muted); font-weight: 500; }
+/* Clear chords with its three buttons (Clear recent shown): sharing the row */
+#listClear .share-actions .btn[hidden] { display: none; }
+#listClear { container: clear-chords / inline-size; }   /* (its width set: min(440px, the screen's less 24px)) */
+#listClear .share-actions:has(#listClearRecentGo:not([hidden])) .btn { flex: 1 1 0; min-width: 0; }
+/* too narrow for three in a row with a button's own padding (Clear recent
+   the widest): Clear recent on a line of its own, Cancel and Clear all
+   under it */
+@container clear-chords (max-width: 409.98px) {
+  #listClear .share-actions:has(#listClearRecentGo:not([hidden])) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "recent recent" "cancel all";
+  }
+  #listClearRecentGo { grid-area: recent; }
+  #listClearCancel { grid-area: cancel; }
+  #listClearGo { grid-area: all; }
+}
 
 /* Share and Load link popups: one row per part of the neck (the neck
    itself, the chord, the chord list, the scale): a switch, the name, a tag
@@ -1395,6 +1418,14 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
   visibility: hidden;
 }
 .recent-scroll.scrolls .scroll-hint { visibility: visible; }
+/* With the bar shown, the chips and the bin go up to the middle of the
+   room above it (--row-lift: from the edge above the row, through its
+   padding, to the bar, 3px under the row), the bar staying where it is:
+   the phone's dock, and the quick bar when the list has a row of its own
+   above the steppers (set there). When the list shares one row with the
+   steppers, the bar goes a little lower instead (and the chips stay). */
+.dock-recent { --row-lift: calc((var(--sp-2) - 3px) / 2); }   /* (the dock's padding) */
+.dock-recent:has(.recent-scroll.scrolls) :is(.recent-chips, .recent-clear) { position: relative; top: calc(-1 * var(--row-lift)); }
 .scroll-hint i {
   position: absolute;
   top: 0;
@@ -2048,7 +2079,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
      side (one row when there is room, below) */
   .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button scrolls its panel to the top, with this room above */
   .quick-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--sp-3) var(--sp-4); }
-  .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; }
+  .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; --row-lift: calc((var(--sp-3) - 3px) / 2); }   /* (the quick bar's padding: see .scroll-hint) */
   /* The two steppers share their row, half each, a thin line between them
      (placed there, see order): the shape (or group) takes what its arrows
      and button leave, a width set by the window, not by the name, so the
@@ -2069,7 +2100,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   @container (min-width: 1100px) {
     .quick-inner { display: flex; gap: var(--sp-4); }
     .quick-inner::after { display: none; }   /* the lines are the steppers' own */
-    .quick-inner .dock-recent { flex: 1 1 0; min-width: 0; }
+    .quick-inner .dock-recent { flex: 1 1 0; min-width: 0; --row-lift: 0px; }
+    .quick-inner .scroll-hint { bottom: -8px; }   /* (sharing the row: lower, see .scroll-hint) */
     .quick-inner #dockShapeBar, .quick-inner #quickGroupBar,
     .quick-inner #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
     .quick-inner .dock-shape-info { flex: none; width: 200px; }
@@ -2079,7 +2111,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   @container (min-width: 600px) {
     .quick-inner:has(> .dock-shape[hidden]) { display: flex; gap: var(--sp-4); }
     .quick-inner:has(> .dock-shape[hidden])::after { display: none; }   /* the lines are the steppers' own */
-    .quick-inner:has(> .dock-shape[hidden]) .dock-recent { flex: 1 1 0; min-width: 0; }
+    .quick-inner:has(> .dock-shape[hidden]) .dock-recent { flex: 1 1 0; min-width: 0; --row-lift: 0px; }
+    .quick-inner:has(> .dock-shape[hidden]) .scroll-hint { bottom: -8px; }
     .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar, .quick-inner:has(> .dock-shape[hidden]) #quickGroupBar,
     .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
     .quick-inner:has(> .dock-shape[hidden]) .dock-shape-info { flex: none; width: 200px; }
