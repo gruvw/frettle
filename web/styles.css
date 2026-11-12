@@ -888,6 +888,7 @@ button, a { scroll-margin: 6px; }
    notes" they are hidden, but still sound when tapped: the note shows for a
    moment, darker, as it rings */
 .note.off, .note.out, .note.mute.named { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
+.note.mute.named.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }   /* (a string not played, its open note in the scale: a scale note, with its ×) */
 .note.out { visibility: hidden; }
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {

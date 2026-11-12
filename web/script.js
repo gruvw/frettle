@@ -2663,8 +2663,10 @@ const TAP_SLOP = 8;     // px a finger may move and still count as a tap
 // which a touch does not stop: a tap then still plays)
 let lastSwipe = -Infinity;    // when a finger last moved
 let lastScroll = -Infinity;   // when something (the page, a row) last scrolled after one
-document.addEventListener('touchmove', () => { lastSwipe = performance.now(); }, { capture: true, passive: true });
-document.addEventListener('scroll', () => { if (performance.now() - lastSwipe < 3000) lastScroll = performance.now(); }, { capture: true, passive: true });
+if (typeof document !== 'undefined') {   // (not in tests/, which run this file without a page)
+  document.addEventListener('touchmove', () => { lastSwipe = performance.now(); }, { capture: true, passive: true });
+  document.addEventListener('scroll', () => { if (performance.now() - lastSwipe < 3000) lastScroll = performance.now(); }, { capture: true, passive: true });
+}
 const stillScrolling = () => performance.now() - lastScroll < 120;
 function setupNeckTaps() {
   const taps = new Map();   // pointerId → { cell, x, y, timer, done }
@@ -3978,9 +3980,9 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
 /* Scale groups, as players learn them (the five pentatonic boxes, the CAGED
    positions of the major scale): the scale as it lies under the hand in one
    place on the neck, string after string, each string's notes within reach
-   of the fingers. Neighbouring groups share their edge notes, so moving from
-   one to the next keeps a note or two under the fingers, and together they
-   cover the whole neck.
+   of the fingers. Neighbouring groups share notes (less than 3/4 of them),
+   so moving from one to the next keeps a note or two under the fingers, and
+   together they cover the whole neck.
    Each group is an unbroken run of the scale from its lowest note to its
    highest: 2 or 3 notes on a string (2 in a pentatonic), no string's notes
    spread over more than 4 frets (one finger per fret), the group 5 frets
@@ -3991,7 +3993,8 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
    Only complete groups are returned: every string, every note playable (not
    cut off by the nut, the capo or the last fret), in order up the neck. Each
    group is a list of bars, one per string: the frets from its first to its
-   last note. A banjo's drone is left out: groups are played on the long
+   last note (a to b), and its outline's (da to db: further, to meet the
+   string before or after, see handGroups). A banjo's drone is left out: groups are played on the long
    strings.
    Returns [{ id, bars: [{ s, a, b }] }]. */
 const groupsCache = { key: null, groups: [] };
@@ -4035,23 +4038,31 @@ const rankSemis = (sc, r) => {
    stretch. */
 const REACH = { long: { run: 3, group: 4 }, short: { run: 6, group: 6 } };
 /* What a note left out of every group costs (below the first group, above
-   the last, or where no group can be played). More than a stretch: a group
-   that can be played there is shown. */
+   the last, or between two). More than a stretch: a group that can be
+   played there is shown. */
 const MISS_COST = 4;
+/* What a group whose strings don't all share a fret with the next costs,
+   each such string: compact groups first, where they can be played */
+const FOLD_COST = 1.5;
 const fewer = (x, y) => {   // compare two costs, most important first
   for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i];
   return false;
 };
 /* First every group the hand can play: from each note of the lowest string,
    every way to split the run up the strings (2 notes or more on a string,
-   each string's notes within reach, each string sharing a fret with the
-   next, the whole within a stretch). Then the groups to show, by
-   dynamic programming from the nut up, each one starting inside the one
-   before on every string (on its last note, at best) or on the note right
-   after it: a note is left out between two groups only where no group can
-   play it. Costs compared most important first:
-   - together: notes left out of every group (MISS_COST); groups wider than the reach, 2 (twice a cube of the frets
-     too many); and notes a group passes over (a scale note inside its
+   each string's notes within reach, the whole within a stretch). A string
+   that shares no fret with the one before (FOLD_COST: compact groups
+   first) has its outline stretched to meet it, within a string's reach
+   (bridge): one outline, round a note or two not in it. Then the groups to
+   show, by dynamic programming from the nut up, each one starting on a
+   fret higher up than the one before, no lower on any string, sharing less
+   than 3/4 of its notes with it (starting inside it on every string, on
+   its last note at best, or on the note right after it, unless leaving
+   notes out costs less than the groups that would take them in). Costs
+   compared most important first:
+   - together: notes left out of every group (MISS_COST); groups wider than
+     the reach, 2 (twice a cube of the frets too many); strings sharing no
+     fret with the one before (FOLD_COST); and notes a group passes over (a scale note inside its
      frets, on a string, that it leaves out though it would go on with it),
      2 each; a group wider than the tightest one starting on the same note,
      0.75 a fret; and neighbours that share no note on a string, 0.3 a
@@ -4096,6 +4107,24 @@ function handGroups(inst, sc, capo, order, reach) {
   };
   // What a group itself costs: 2 for one fret too wide (see the costs
   // above), 2 for each note passed over
+  // Two strings side by side in a group, the second's notes from fret a to
+  // b, the first's outline from pa to pb: their outlines, made to share a
+  // fret where the notes don't (the second's stretched towards the first,
+  // else the first's towards the second), no outline over more frets than a
+  // string's notes may be (reach.run); null: they can't be. Returns [the
+  // first's from, to, the second's from, to, 1 if stretched].
+  const bridge = (pa, pb, a, b) => {
+    if (b >= pa && a <= pb) return [pa, pb, a, b, 0];
+    const fits = (x, y) => y - fret1(x) <= reach.run;
+    if (b < pa) {
+      if (fits(a, pa)) return [pa, pb, a, pa, 1];
+      if (fits(b, pb)) return [b, pb, a, b, 1];
+    } else {
+      if (fits(pb, b)) return [pa, pb, pb, b, 1];
+      if (fits(pa, a)) return [pa, a, a, b, 1];
+    }
+    return null;
+  };
   const groupCost = (span, passed) => 2 * Math.max(0, span - reach.group) ** 3 + 2 * passed;
 
   // The groups, with at least minLen notes a string and no wider than
@@ -4105,13 +4134,16 @@ function handGroups(inst, sc, capo, order, reach) {
     const S = new Array(n);   // first rank on each string
     const A = new Array(n);   // first fret on each string
     const B = new Array(n);   // last fret on each string
+    const DA = new Array(n);  // the outline's first fret on each string (see bridge)
+    const DB = new Array(n);  // and its last
     // Runs on string q from rank r on; low and high: the group's frets so far
-    // (fretted notes only), pa and pb: the string before's
-    const walk = (q, r, low, high, pa, pb) => {
+    // (fretted notes only); folds: strings sharing no fret with the one before
+    const walk = (q, r, low, high, folds) => {
       if (q === n) {
         const E = S.map((x, i) => (i + 1 < n ? S[i + 1] : r) - 1);   // last rank on each string
         const span = high - low;
-        cands.push({ S: S.slice(), E, A: A.slice(), B: B.slice(), cost: groupCost(span, passedOver(A, B, low, high, S[0], E[n - 1])), span });
+        const cost = groupCost(span, passedOver(A, B, low, high, S[0], E[n - 1])) + FOLD_COST * folds;
+        cands.push({ S: S.slice(), E, A: A.slice(), B: B.slice(), DA: DA.slice(), DB: DB.slice(), cost, span, low });
         return;
       }
       if (r < lo[q] || r > hi[q]) return;
@@ -4120,25 +4152,30 @@ function handGroups(inst, sc, capo, order, reach) {
         const b = fret(q, r + len - 1);
         const from = fret1(a);
         if (b - from > reach.run) break;
-        if (q && b < pa) continue;
-        if (q && a > pb) break;
         const l2 = Math.min(low, from);
         const h2 = Math.max(high, b);
         if (h2 - l2 > stretch) { if (b > high) break; continue; }
+        const was = q ? [DA[q - 1], DB[q - 1]] : null;
+        const join = q ? bridge(DA[q - 1], DB[q - 1], a, b) : [0, 0, a, b, 0];
+        if (!join) continue;
         S[q] = r;
         A[q] = a;
         B[q] = b;
-        walk(q + 1, r + len, l2, h2, a, b);
+        if (q) [DA[q - 1], DB[q - 1]] = [join[0], join[1]];
+        [DA[q], DB[q]] = [join[2], join[3]];
+        walk(q + 1, r + len, l2, h2, folds + join[4]);
+        if (q) [DA[q - 1], DB[q - 1]] = was;
       }
     };
-    for (let r = lo[0]; r <= hi[0]; r++) walk(0, r, Infinity, -Infinity, 0, 0);
+    for (let r = lo[0]; r <= hi[0]; r++) walk(0, r, Infinity, -Infinity, 0);
     // The open position as players know it: every scale note from the nut
     // (or the capo) to the 4th fret, on every string. Its run may play a note
     // twice (where two strings are a third apart, like a guitar's G and B),
     // but it skips none, and it takes in the open strings a straight run
     // would leave out (D major pentatonic on guitar: 0,2 | 0,2 | 0,2,4 |
     // 2,4 | 0,3 | 0,2).
-    const box = { S: [], E: [], A: [], B: [] };
+    const box = { S: [], E: [], A: [], B: [], DA: [], DB: [] };
+    let boxFolds = 0;
     let ok = true;
     for (let q = 0; q < n && ok; q++) {
       const ranks = [];
@@ -4150,20 +4187,27 @@ function handGroups(inst, sc, capo, order, reach) {
       ok = ranks.length >= minLen && ranks.length > 0;
       if (!ok) break;
       if (q && ranks[0] > box.E[q - 1] + 1) ok = false;   // a note skipped
-      if (q && (frets[frets.length - 1] < box.A[q - 1] || frets[0] > box.B[q - 1])) ok = false;   // no fret shared with the string before
+      const [a, b] = [frets[0], frets[frets.length - 1]];
+      const join = q ? bridge(box.DA[q - 1], box.DB[q - 1], a, b) : [0, 0, a, b, 0];
+      if (!join) { ok = false; break; }
+      if (q) [box.DA[q - 1], box.DB[q - 1]] = [join[0], join[1]];
+      boxFolds += join[4];
       box.S.push(ranks[0]);
       box.E.push(ranks[ranks.length - 1]);
-      box.A.push(frets[0]);
-      box.B.push(frets[frets.length - 1]);
+      box.A.push(a);
+      box.B.push(b);
+      box.DA.push(join[2]);
+      box.DB.push(join[3]);
     }
     if (ok) {
       const low = Math.min(...box.A.map(fret1));
       const high = Math.max(...box.B);
       const span = high - low;
-      if (span <= stretch) cands.push({ ...box, cost: groupCost(span, 0), span });
+      if (span <= stretch) cands.push({ ...box, cost: groupCost(span, 0) + FOLD_COST * boxFolds, span, low });
     }
     if (!cands.length) return [];
-    cands.sort((g, h) => g.S[0] - h.S[0]);   // stable: in order of their first note
+    for (const g of cands) g.size = g.S.reduce((k, x, q) => k + g.E[q] - x + 1, 0);   // its notes
+    cands.sort((g, h) => g.S[0] - h.S[0] || g.low - h.low);   // in order of their first note, then of their first fret
     // A group wider than the tightest one starting on the same note: 0.75 for
     // each fret more (banjo G minor at fret 17: frets 17 to 20, not 16 to 20)
     const tightest = new Map();
@@ -4180,25 +4224,23 @@ function handGroups(inst, sc, capo, order, reach) {
     };
     const best = cands.map((g) => ({ cost: [left(g, lo.map((a) => a - 1)) + g.cost, 0, 1, g.span], prev: -1 }));
     const back = 2 * (reach.run + 2);   // how far back (in ranks of the lowest string) the group before can start
-    // Notes some group can play: a note left out between two groups only
-    // where none can (a stretch of the neck where the scale doesn't fit
-    // under the hand)
-    const playable = new Set();
-    for (const g of cands) for (let q = 0; q < n; q++) for (let r = g.S[q]; r <= g.E[q]; r++) playable.add(q * 10000 + r);
     let from = 0;
     for (let j = 0; j < cands.length; j++) {
       const g = cands[j];
       while (cands[from].S[0] < g.S[0] - back) from++;
       for (let i = from; i < j; i++) {
         const p = cands[i];
-        let up = true;   // g is higher on every string, and leaves out no note after p that a group can play
+        // g starts on a fret higher up, goes no lower on any string, and
+        // shares less than 3/4 of its notes with p (or of p's)
+        let up = g.low > p.low;
         let apart = 0;   // strings where they share no note
+        let shared = 0;
         for (let q = 0; q < n && up; q++) {
-          up = g.S[q] > p.S[q] && g.E[q] > p.E[q];
-          for (let r = p.E[q] + 1; r < g.S[q] && up; r++) up = !playable.has(q * 10000 + r);
+          up = g.S[q] >= p.S[q] && g.E[q] >= p.E[q];
           if (g.S[q] > p.E[q]) apart++;
+          shared += Math.max(0, Math.min(g.E[q], p.E[q]) - Math.max(g.S[q], p.S[q]) + 1);
         }
-        if (!up) continue;
+        if (!up || shared >= 0.75 * Math.min(g.size, p.size)) continue;
         const c = best[i].cost;
         const cost = [c[0] + left(g, p.E) + g.cost + 0.3 * apart, c[1] + apart, c[2] + 1, c[3] + g.span];
         if (fewer(cost, best[j].cost)) best[j] = { cost, prev: i };
@@ -4225,8 +4267,7 @@ function handGroups(inst, sc, capo, order, reach) {
   for (let i = 0; i < L; i++) if (rankSemis(sc, i + 1) - rankSemis(sc, i) > reach.run) minLen = 1;
   // Some scales and tunings leave no straight run within a stretch over most
   // of the neck (the whole-tone scale on guitar, open C): then single notes
-  // on a string too, if groups then cover more of it. Some leave none at all
-  // (hirajoshi on guitar, but in the open position): no groups.
+  // on a string too, if groups then cover more of it
   const all = lo.reduce((k, a, q) => k + hi[q] - a + 1, 0);
   const covered = (groups) => {
     const notes = new Set();
@@ -4241,7 +4282,7 @@ function handGroups(inst, sc, capo, order, reach) {
     if (k > most) { groups = found; most = k; }
     if (most >= 0.6 * all) break;
   }
-  return groups.map((g, id) => ({ id, bars: order.map(({ s }, q) => ({ s, a: g.A[q], b: g.B[q] })) }));
+  return groups.map((g, id) => ({ id, bars: order.map(({ s }, q) => ({ s, a: g.A[q], b: g.B[q], da: g.DA[q], db: g.DB[q] })) }));
 }
 
 function renderNeck(ch, sc) {
@@ -4400,10 +4441,11 @@ function renderNeck(ch, sc) {
       if (f < nut(s)) {
         cls += ' plain';   // behind the capo: shown for reference, but cannot be played
       } else if (f === nut(s) && ch && ch.shape && ch.shape.frets[s] < 0) {
-        // A string the shape does not play: its open note, quiet, with a
-        // pink × badge where a chord note has its interval (with "Only
-        // scale notes" too: it says which string, not a note to play)
-        cls += ' mute named';
+        // A string the shape does not play: its open note, with a pink ×
+        // badge where a chord note has its interval (with "Only scale
+        // notes" too: it says which string, not a note to play); quiet,
+        // or as a scale note when the scale shown has it
+        cls += ` mute named${sc && sc.set.has(pc) ? ` scale${pc === sc.root ? ' scale-root' : ''}` : ''}`;
         n = ch.spell.names.get(pc) || (sc && sc.spell.names.get(pc)) || n;
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
@@ -4620,9 +4662,9 @@ function drawGroups() {
         v0: r.top - box.top, v1: r.bottom - box.top };
   };
   layer.innerHTML = [group].map((g) => {   // one group at a time: the one picked
-    const bars = g.bars.map(({ s, a, b }) => {
-      const first = cellBox(s, a);
-      const last = cellBox(s, b);
+    const bars = g.bars.map(({ s, a, b, da = a, db = b }) => {   // (its outline: past its notes where a string shares no fret with the next)
+      const first = cellBox(s, da);
+      const last = cellBox(s, db);
       // min / max: on a mirrored (left-handed) neck the frets run leftwards
       return { u0: Math.min(first.u0, last.u0), u1: Math.max(first.u1, last.u1), v0: first.v0, v1: first.v1 };
     }).sort((p, q) => p.v0 - q.v0);
