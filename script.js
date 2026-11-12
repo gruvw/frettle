@@ -245,7 +245,9 @@ const DEGREE_NAMES = {
   '#9': 'Augmented 9th', 11: 'Perfect 11th', 13: 'Major 13th',
   b6: 'Minor 6th', '#11': 'Augmented 11th', b13: 'Minor 13th',
 };
-const INVERSION_NAMES = ['Root position', '1st inversion', '2nd inversion', '3rd inversion', '4th inversion', '5th inversion'];
+// (as many as a chord can have notes: the namer's readings run to seven,
+// a 13th with its tensions, and a piano key can be any of them)
+const INVERSION_NAMES = ['Root position', '1st inversion', '2nd inversion', '3rd inversion', ...[4, 5, 6, 7, 8, 9, 10, 11].map((n) => `${n}th inversion`)];
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 const TRIAD_TYPES = ['maj', 'min', 'dim', 'aug'];
 const STEP_NAMES = { 1: 'H', 2: 'W', 3: 'W+H', 4: '2W' };
@@ -1178,12 +1180,12 @@ function readShapes(value) {
    shape list changes. */
 const NONE = 'none';   // a link's chord or scale: none on the neck it was shared from
 const LINK_KEYS = ['instrument', 'tuning', 'capo', 'voicing', 'chord', 'scale', 'list'];
-const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
+const VOICINGS = [...INVERSION_NAMES.keys()].map(String).concat('any');   // a bass note (any of a chord's, up to seven: see INVERSION_NAMES), or any
 /* A chord of the link with its shape, when not the first one and only with
    the neck (a custom shape always: it is not among the shapes found where
-   the link opens). The chord on screen: its shape (its voicing, a link
-   key, says its bass otherwise). A chip of the list: its name, bass and
-   all (D/F♯), and the shape it comes back with (see recallChip). */
+   the link opens). The chord on screen and a chip of the list: the name,
+   bass and all (D/F♯: kept without the neck too, see keepBass), and the
+   shape (the chip's: the one it comes back with, see recallChip). */
 function shapeToken(root, def, { shapes, index, voicing }) {
   const home = homeShape(shapes, root, voicing);
   const shape = shapes[index];
@@ -1191,7 +1193,7 @@ function shapeToken(root, def, { shapes, index, voicing }) {
 }
 function chordToken(neck) {
   const ch = currentChord();
-  return chordText(ch.root, ch.def) + (neck ? shapeToken(ch.root, ch.def, ch) : '');
+  return chordBassText(ch.root, ch.def, ch.bassIndex) + (neck ? shapeToken(ch.root, ch.def, ch) : '');
 }
 function listToken(entry, neck) {
   const def = findChord(entry.type);
