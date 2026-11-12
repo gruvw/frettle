@@ -1144,6 +1144,7 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
   overflow: hidden;
 }
 .np-symbol.on { background: var(--chord); color: var(--chord-text); }
+.np-symbol.two { line-height: 1.1; text-align: center; }   /* a long name on two lines (fitSymbol) */
 
 .np-desc { display: grid; gap: 2px; min-width: 0; }
 .np-desc > div { min-height: 1.4em; overflow: hidden; text-overflow: ellipsis; }

@@ -3974,6 +3974,51 @@ function fitText(el, min = 0) {   // (min: no smaller than this, the rest cut wi
   if (width > room) el.style.fontSize = `${Math.max(min, Math.floor((size * room) / width))}px`;
 }
 
+/* The chord's name in its card: on one line, a smaller font where it does
+   not fit, down to SYMBOL_SPLIT of its size; past that, on two lines where
+   a name can break (before its brackets or its bass note, after a comma in
+   its brackets: "B♭m7♭5" / "(add11,♭9,♭13)/F♭"), at that size, smaller
+   again only if it must (to its width, or its height). The split that
+   lets it be largest, the more natural ones first when nearly as large:
+   the bass note under the chord (as written as a fraction), then the
+   brackets on a line of their own, then after a comma. Two lines only
+   where they let it be larger than one would. */
+const SYMBOL_SPLIT = 0.65;
+function fitSymbol(el, text, slashBass) {
+  el.textContent = text;
+  el.classList.remove('two');
+  el.style.fontSize = '';
+  const cs = getComputedStyle(el);
+  const room = parseFloat(cs.width) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const high = parseFloat(cs.height);
+  const size = parseFloat(cs.fontSize);
+  if (!(room > 0)) return;
+  measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+  measureCtx.font = `${cs.fontWeight} ${size}px ${cs.fontFamily}`;
+  const width = (t) => measureCtx.measureText(t).width;   // (at the full size)
+  const one = Math.min(size, (size * room) / width(text));
+  if (one >= size * SYMBOL_SPLIT) { if (one < size) el.style.fontSize = `${Math.floor(one)}px`; return; }
+  // Where it can break: before "(", before its bass note's "/" (not the one
+  // of 6/9), after a "," in the brackets
+  const breaks = [];   // [where, how natural: the larger, the more]
+  for (let i = 1; i < text.length; i++) {
+    if (slashBass && i === text.lastIndexOf('/')) breaks.push([i, 1 / 0.85]);
+    else if (text[i] === '(') breaks.push([i, 1 / 0.9]);
+    else if (text[i - 1] === ',') breaks.push([i, 1]);
+  }
+  let best = null;
+  for (const [i, natural] of breaks) {
+    const lines = [text.slice(0, i), text.slice(i)];
+    const wide = Math.max(...lines.map(width));
+    const fit = Math.min(size * SYMBOL_SPLIT, (size * room) / wide, high / (2 * 1.1));   // (two lines of 1.1 high)
+    if (!best || fit * natural > best.fit * best.natural) best = { lines, fit, natural };
+  }
+  if (!best || best.fit <= one) { el.style.fontSize = `${Math.floor(one)}px`; return; }
+  el.innerHTML = best.lines.map(esc).join('<br>');
+  el.classList.add('two');
+  el.style.fontSize = `${Math.floor(best.fit)}px`;
+}
+
 /* The middle of a stepper, or of Name a chord: the name (a pill) beside
    two lines, its number ("Shape 1/4, fret 11", "Name 1/3") over what it
    is (its frets, the notes, its meaning). The name whole, beside room for
@@ -5101,9 +5146,8 @@ function renderChordPanel(ch, sc) {
   }
 
   const rootName = ch.rootName;
-  els.chordSymbol.textContent = ch.symbol;
   els.chordSymbol.classList.add('on');
-  fitText(els.chordSymbol);
+  fitSymbol(els.chordSymbol, ch.symbol, ch.bassIndex > 0);
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
   const optional = optionalTones(ch.def, String(ch.bassIndex), Boolean(instrument().piano));   // (in brackets, as in the Chord type menu; never the shape's bass)
   const formula = ch.def.degrees.map((d, i) => {
