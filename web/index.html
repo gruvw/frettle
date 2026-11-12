@@ -485,10 +485,10 @@
     </div>
   </dialog>
 
-  <!-- Clearing a chord list of more than two chords: asked first -->
+  <!-- Clearing the chords, when some are saved: asked first -->
   <dialog id="listClear" class="picker share" aria-labelledby="listClearTitle">
     <div class="picker-head">
-      <h2 id="listClearTitle">Clear all chords</h2>
+      <h2 id="listClearTitle">Clear chords</h2>
       <button type="button" id="listClearClose" class="btn icon" aria-label="Close">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -497,12 +497,14 @@
       <div class="delete-what">
         <span id="listClearCount" class="delete-name"></span>
         <span id="listClearNames" class="delete-chips"></span>
-        <span id="listClearRecent" class="delete-notes">The recent chords are cleared too</span>
+        <span id="listClearRecentCount" class="delete-name"></span>
+        <span id="listClearRecentNames" class="delete-chips"></span>
       </div>
     </div>
     <div class="about-links share-actions">
       <button type="button" id="listClearCancel" class="btn"><span class="tx">Cancel</span></button>
-      <button type="button" id="listClearGo" class="btn danger"><span class="tx">Clear</span></button>
+      <button type="button" id="listClearRecentGo" class="btn"><span class="tx">Clear recent</span></button>
+      <button type="button" id="listClearGo" class="btn danger"><span class="tx">Clear all</span></button>
     </div>
   </dialog>
 

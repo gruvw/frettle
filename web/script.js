@@ -2271,14 +2271,22 @@ function setupChipDrag(row) {
 }
 
 /* The bin: the list and the recent chords empty, and the chord on screen
-   goes with them. A list of more than two chords is asked about first. */
+   goes with them. With chords saved in the list, asked first: all of them
+   (Clear all), or only the recent ones (Clear recent, when there are some:
+   the saved ones stay). With none saved, the recent ones go straight away. */
+const chordCount = (n, what) => `${n} ${what} chord${n === 1 ? '' : 's'}`;
 function askClearRecent() {
-  if (state.list.length <= 2) { clearRecent(); return; }
-  const names = state.list.map(entrySymbol);
-  els.listClearCount.textContent = `${names.length} chords`;
-  els.listClearNames.innerHTML = lkValue(names, 'win');   // chips, as in the share popup
-  els.listClearRecent.hidden = !shownRecent().length;
+  if (!state.list.length) { clearRecent(); return; }
+  const saved = state.list.map(entrySymbol);
+  const recent = shownRecent().map(entrySymbol);
+  els.listClearCount.textContent = chordCount(saved.length, 'saved');
+  els.listClearNames.innerHTML = lkValue(saved, 'win');   // chips, as in the share popup
+  // the recent ones under them, quieter: dashed chips, as in the chord list
+  els.listClearRecentCount.textContent = chordCount(recent.length, 'recent');
+  els.listClearRecentNames.innerHTML = `<span class="lk-val chips recent">${recent.map((n) => `<span class="lk-chip trail">${TRAIL_CHIP_EDGE}${esc(n)}</span>`).join('')}</span>`;
+  for (const el of [els.listClearRecentCount, els.listClearRecentNames, els.listClearRecentGo]) el.hidden = !recent.length;
   if (els.listClear.showModal) els.listClear.showModal(); else els.listClear.setAttribute('open', '');
+  fitDashes(els.listClearRecentNames, '.lk-chip.trail');
   els.listClearCancel.focus();
 }
 function closeClearRecent() {
@@ -2291,6 +2299,16 @@ function clearRecent() {
   state.list = [];
   state.recent = [];
   chordOff();
+  render();
+}
+// Only the recent chords: the saved ones stay, and so does the chord on
+// screen if it is one of them (a recent one goes with its chip)
+function clearRecentOnly() {
+  closeClearRecent();
+  const shown = recentEntry();
+  state.recent = [];
+  openEntry = null;
+  if (state.chord.on && !state.list.includes(shown)) chordOff();
   render();
 }
 
@@ -3218,6 +3236,7 @@ function revealGroup(behavior) {
    it out, a recent chip a + to put it in the list. */
 const X_CHIP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
 const TRAIL_EDGE = '<svg class="trail-edge" aria-hidden="true"><rect width="100%" height="100%" rx="15" ry="15"/></svg>';   // (rx: half of --recent-h)
+const TRAIL_CHIP_EDGE = TRAIL_EDGE.replace(/r([xy])="15"/g, 'r$1="11"');   // (a popup's chip, 22px high)
 const PLUS_CHIP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 function renderRecent() {
   const show = state.list.length + state.recent.length > 0;   // (some recent chord is always shown when any is kept)
@@ -3268,8 +3287,8 @@ function renderRecent() {
 /* A recent chip's dashes: about 6px with 4px gaps, stretched a little so a
    whole number of them goes round the edge (else the one where the edge
    closes comes out shorter). A row out of sight is fitted when it shows. */
-function fitDashes(row) {
-  for (const li of row.querySelectorAll('li.trail')) {
+function fitDashes(row, chips = 'li.trail') {
+  for (const li of row.querySelectorAll(chips)) {
     const rect = li.querySelector('.trail-edge rect');
     let edge = 0;
     try { edge = li.offsetWidth ? rect.getTotalLength() : 0; } catch { edge = 0; }   // (none while out of sight)
@@ -3827,7 +3846,9 @@ function fillStepper(bar, mode, ch, sc) {
   const [prevLabel, nextLabel, openLabel, playLabel, playText] = DOCK_LABELS[mode === 'chord' && instrument().piano ? 'keys' : mode];
   bar.prev.setAttribute('aria-label', prevLabel);
   bar.next.setAttribute('aria-label', nextLabel);
-  bar.info.setAttribute('aria-label', openLabel);
+  // (no shape: said first, the bar's words cut short or hidden on a narrow screen)
+  const infoLabel = mode === 'chord' && ch && !ch.shape ? `No playable shape, ${openLabel.toLowerCase()}` : openLabel;
+  bar.info.setAttribute('aria-label', infoLabel);
   bar.play.setAttribute('aria-label', playLabel);
   bar.play.querySelector('.strum-label').textContent = playText;
   if (group) {
@@ -3855,7 +3876,7 @@ function fillStepper(bar, mode, ch, sc) {
   // play the chord's shapes, or with no chord the scale's groups
   const keys = mode === 'chord' || !ch;
   for (const [btn, key] of [[bar.prev, '←'], [bar.next, '→'], [bar.play, 'Space']]) btn.title = btn.getAttribute('aria-label') + (keys ? ` (${key})` : '');
-  bar.info.title = openLabel;
+  bar.info.title = infoLabel;
   bar.symbol.title = ch && mode === 'chord' ? ch.symbol : '';
   fitInfo(bar.info);
 }
@@ -5182,7 +5203,7 @@ function init() {
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
     'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
-    'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecent', 'listClearCancel', 'listClearGo',
+    'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecentCount', 'listClearRecentNames', 'listClearRecentGo', 'listClearCancel', 'listClearGo',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
@@ -5332,6 +5353,7 @@ function init() {
   els.dockRecentClear.addEventListener('click', askClearRecent);
   els.recentClear.addEventListener('click', askClearRecent);
   els.listClearGo.addEventListener('click', clearRecent);
+  els.listClearRecentGo.addEventListener('click', clearRecentOnly);
   els.listClearCancel.addEventListener('click', closeClearRecent);
   els.listClearClose.addEventListener('click', closeClearRecent);
   els.listClear.addEventListener('click', (e) => { if (e.target === els.listClear) closeClearRecent(); });
