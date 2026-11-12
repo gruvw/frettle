@@ -458,6 +458,20 @@ function fingersFor(frets) {
   return { fingers, barre, barreFrom: barre ? lo : -1 };
 }
 
+/* The chord tones a shape may leave out (their places in the chord's
+   tones): the 5th of a chord of four notes or more, the 9th of an 11th or
+   13th; never the bass note asked for (voicing). None on a piano: its
+   shapes play every tone. */
+function optionalTones(def, voicing, piano = false) {
+  const out = new Set();
+  if (piano) return out;
+  const upper = def.degrees.includes('11') || def.degrees.includes('13');
+  def.degrees.forEach((d, i) => {
+    if (((d === '5' && def.degrees.length >= 4) || (d === '9' && upper)) && String(i) !== voicing) out.add(i);
+  });
+  return out;
+}
+
 /* extraPcs: notes also ringing (a banjo's open drone), which count as chord
    tones the shape has. forced: a chart shape kept even if it leaves out a
    required tone (the banjo's D7, 0 2 1 0, has no F♯). */
@@ -466,10 +480,7 @@ function shapeCandidates(inst, rootPc, def, voicing, extraPcs = [], forced = nul
   const n = inst.strings.length;
   const chordPcs = new Set(tones.map((t) => t.pc));
   const bassPc = voicing === 'any' ? null : tones[Number(voicing)].pc;
-  const hasUpper = def.degrees.includes('11') || def.degrees.includes('13');
-  const optional = tones
-    .filter((t) => ((t.deg === '5' && tones.length >= 4) || (t.deg === '9' && hasUpper)) && t.pc !== bassPc)
-    .map((t) => t.pc);
+  const optional = [...optionalTones(def, voicing)].map((i) => tones[i].pc);
   const required = tones.map((t) => t.pc).filter((pc) => !optional.includes(pc));
   const minSounding = Math.min(n, Math.max(required.length, tones.length <= 2 ? 2 : 3));
   const maxInner = n >= 6 ? 1 : 0;
@@ -3214,6 +3225,7 @@ function fitDashes(row) {
    all fit, its thumb as long as the part in view and where it is */
 function scrollHint(row) {
   const box = row.parentElement;
+  if (!box.querySelector('.scroll-hint')) return;   // (the chord panel's list: the site's own scrollbar)
   const max = row.scrollWidth - row.clientWidth;
   const scrolls = max > 1;
   box.classList.toggle('scrolls', scrolls);
@@ -3300,7 +3312,7 @@ function revealAcross(notes, behavior = 'smooth') {
 }
 
 /* Neck settings live in the neck's header on wide screens and in the dock's
-   "Neck" tab on phones; the instrument menu in the neck's header, or above
+   "Setup" tab on phones; the instrument menu in the neck's header, or above
    the neck on phones. In index.html everything starts in its wide-screen
    place, which is right before this runs on both layouts: on phones those
    places are hidden or in the closed sheet (only the instrument menu shows
@@ -3610,9 +3622,9 @@ function outsideScale(rootPc, def, sc) {
 const offKeyTest = (sc) => (sc && sc.def.steps.length < 12 ? (pc) => !sc.set.has(mod12(pc)) : () => false);
 const fitsScale = (rootPc, def, sc) => { const out = outsideScale(rootPc, def, sc); return Boolean(out && !out.length); };
 /* Help line for the chord pickers when a scale is shown */
-const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${sc.rootName} ${sc.def.short}` : '');
+const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${scaleInText(sc)}` : '');
 /* With no chord (type "None"), any note of the scale can be the root */
-const rootNote = (sc) => (sc && sc.def.steps.length < 12 ? `In ${sc.rootName} ${sc.def.short}` : '');
+const rootNote = (sc) => (sc && sc.def.steps.length < 12 ? `In ${scaleInText(sc)}` : '');
 const inScale = (pc, sc) => Boolean(sc && sc.def.steps.length < 12 && sc.set.has(pc));
 
 /* Shrink the text of a fixed-size box until it fits on one line (long chord
@@ -3702,6 +3714,30 @@ function fitInfo(info) {
   if (count) fitWords(count);
   if (main) fitText(main, 12);
 }
+/* A line in two parts, "Root position, formula 1 3 5": on one line, a comma
+   between them; too long for one, the second on a line of its own, as a
+   line starts ("Root position" / "Formula 1 3 5"), never cut in two.
+   Again when the line's width changes (setupInfoFit). */
+function splitLine(el, lead, rest) {
+  el.classList.add('np-split');
+  el.innerHTML = `${esc(lead)}<span class="np-sep">,</span> <span class="np-tail">${esc(rest)}</span>`;
+  fitSplit(el);
+}
+function fitSplit(el) {
+  const tail = el.querySelector('.np-tail');
+  el.classList.remove('wrapped');
+  if (!tail || !el.clientWidth) return;
+  el.classList.toggle('wrapped', tail.getBoundingClientRect().top - el.getBoundingClientRect().top > tail.offsetHeight / 2);   // (the second part under the first)
+}
+
+/* The shape's note cards: room for a scrollbar under them only when they
+   scroll (else the line under them, "Not in this shape", would sit far
+   below). Again when the row's width changes (setupInfoFit). */
+function fitNotesRow() {
+  const row = els.chordTones;
+  row.classList.remove('fits');
+  row.classList.toggle('fits', row.scrollWidth <= row.clientWidth);
+}
 const infoWidths = new WeakMap();
 function setupInfoFit() {
   if (!window.ResizeObserver) return;
@@ -3709,10 +3745,12 @@ function setupInfoFit() {
     for (const { target } of entries) {
       if (infoWidths.get(target) === target.clientWidth) continue;   // (a height change: nothing to fit)
       infoWidths.set(target, target.clientWidth);
-      fitInfo(target);
+      if (target === els.chordTones) fitNotesRow();
+      else if (target.classList.contains('np-split')) fitSplit(target);
+      else fitInfo(target);
     }
   });
-  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement]) watch.observe(info);
+  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement, els.chordTones, els.chordMeta]) watch.observe(info);
 }
 
 /* The steppers: a chord's shapes or a scale's groups, one at a time, with
@@ -3756,7 +3794,10 @@ function fillStepper(bar, mode, ch, sc) {
         `<span class="dock-main${ch.shape.piano ? ' dock-words' : ''}">${esc(shapeShort(ch.shape))}</span>`;   // (a piano's: notes, in words)
     }
   }
-  for (const btn of [bar.prev, bar.next, bar.play]) btn.title = btn.getAttribute('aria-label');
+  // Their keys, as the panels' buttons say them: the arrows and Space step and
+  // play the chord's shapes, or with no chord the scale's groups
+  const keys = mode === 'chord' || !ch;
+  for (const [btn, key] of [[bar.prev, '←'], [bar.next, '→'], [bar.play, 'Space']]) btn.title = btn.getAttribute('aria-label') + (keys ? ` (${key})` : '');
   bar.info.title = openLabel;
   bar.symbol.title = ch && mode === 'chord' ? ch.symbol : '';
   fitInfo(bar.info);
@@ -3789,12 +3830,11 @@ function renderDock(ch, sc) {
   els.tabScaleValue.textContent = sc ? `${sc.rootName} ${sc.def.short}` : 'None';
   fitText(els.tabChordValue, 10);   // (a long name: a smaller font first, then cut short)
   fitText(els.tabScaleValue, 10);
-  // What the Neck sheet sets: the capo if there is one, else the tuning
+  // What the Setup sheet sets: the capo if there is one, else the tuning
   // (the instrument has its own menu above the neck)
   // (the piano: its keys, nothing to tune)
   const tuning = instrument().tuning;
   const piano = Boolean(instrument().piano);
-  els.tabNeckLabel.textContent = els.neckTitle.textContent = piano ? 'Keys' : 'Neck';
   els.tabNeckValue.textContent = piano ? '88 keys' : capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
 
   const open = !isWide() && ui.tab !== null;
@@ -4463,7 +4503,7 @@ function renderNeck(ch, sc) {
       }
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
-      if (cls.includes(' off-key')) title += `, not in ${sc.rootName} ${sc.def.short}`;
+      if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
       if (f < nut(s)) title += `, behind the ${stop}`;
       if (cls.includes(' mute')) title = cls.includes(' named') ? `${pitchText(midi, n)}, ${where}, not played` : `String ${num} not played`;
       const octave = octaveOf(s, f);
@@ -4550,7 +4590,7 @@ function renderPiano(ch, sc) {
       cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';
     }
     let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, key ${k + 1}`;
-    if (cls.includes(' off-key')) title += `, not in ${sc.rootName} ${sc.def.short}`;
+    if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
     const badge = deg ? `<span class="deg-badge" aria-hidden="true">${tx(fmtDeg(deg))}</span>` : '';
     const key = `<div class="key ${black ? 'black' : 'white'}" data-key="${k}" style="--i:${white}">` +
       `<span class="${cls}" title="${esc(title)}">${tx(noteText(n))}${badge}</span></div>`;
@@ -4727,7 +4767,11 @@ function renderChordPanel(ch, sc) {
 
   els.chordClear.disabled = !ch;
   els.chordVoicing.disabled = !ch;
-  els.tglAllTones.disabled = !ch;
+  // No shape to play: every chord tone shows on the neck (renderNeck), so the
+  // switch shows on, and can't be turned off
+  const noShape = Boolean(ch && !ch.shape);
+  els.tglAllTones.disabled = !ch || noShape;
+  if (noShape) els.tglAllTones.setAttribute('aria-pressed', 'true');
   els.shapePrev.disabled = els.shapeNext.disabled = !ch || ch.shapes.length < 2;
   els.chordStrum.disabled = !ch || !ch.shape;
   const piano = Boolean(instrument().piano);
@@ -4739,11 +4783,13 @@ function renderChordPanel(ch, sc) {
     els.chordSymbol.classList.remove('on');
     els.chordName.textContent = 'No chord selected';
     els.chordMeta.textContent = 'Pick a chord type, or tap a triad in the Scale panel.';
+    els.chordMeta.classList.remove('wrapped');
     els.chordShapeNote.textContent = '';
     els.chordAlt.textContent = '';
     els.chordCapo.hidden = true;
     els.chordKey.hidden = true;
     els.chordTones.innerHTML = '<li class="np-placeholder">The notes of the selected shape appear here.</li>';
+    els.chordMissing.hidden = true;
     els.shapeCount.hidden = true;
     els.shapeList.innerHTML = '';
     els.shapeList.dataset.empty = 'No chord selected';
@@ -4755,42 +4801,51 @@ function renderChordPanel(ch, sc) {
   els.chordSymbol.classList.add('on');
   fitText(els.chordSymbol);
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
-  const formula = ch.def.degrees.map((d) => fmtDeg(d === 'R' ? '1' : d)).join(' ');
-  els.chordMeta.textContent = `${INVERSION_NAMES[ch.bassIndex]}, formula ${formula}`;   // (the shape's: with "Any bass note" too)
-  // Phones: the shape in full (the dock's line can be cut short by a long name)
-  els.chordShapeNote.textContent = ch.shape
-    ? `Shape ${ch.index + 1}/${ch.shapes.length}, ${shapeWhere(ch.shape)}${ch.shape.drawn ? ', custom' : ''}: ${shapeTab(ch.shape)}`
-    : 'No playable shape';
+  const optional = optionalTones(ch.def, String(ch.bassIndex), Boolean(instrument().piano));   // (in brackets, as in the Chord type menu; never the shape's bass)
+  const formula = ch.def.degrees.map((d, i) => {
+    const deg = fmtDeg(d === 'R' ? '1' : d);
+    return optional.has(i) ? `(${deg})` : deg;
+  }).join(' ');
+  // (the shape's: with "Any bass note" too; on two lines, the break comes after the comma)
+  splitLine(els.chordMeta, INVERSION_NAMES[ch.bassIndex], `formula ${formula}`);
+  // Phones: where the shape is and its frets, as the dock writes them ("Open:
+  // x32010": the dock's line can be cut short by a long name; its number is
+  // there and on the panel's arrows); a piano's, its keys. A custom shape:
+  // a bookmark before it, as on its chip.
+  const where = ch.shape && shapeWhere(ch.shape);
+  els.chordShapeNote.innerHTML = !ch.shape ? 'No playable shape'
+    : `${ch.shape.drawn ? BOOKMARK_ICON : ''}${esc(`${ch.shape.piano ? '' : `${where[0].toUpperCase()}${where.slice(1)}: `}${shapeShort(ch.shape)}`)}`;   // ("Fret 9: 11 12 9 11 9 9", the place apart from the frets)
   const slash = ch.bassIndex ? `/${noteText(ch.spell.notes[ch.bassIndex])}` : '';
   const aliases = (CHORD_ALIASES[ch.def.id] || []).map((a) => rootName + a + slash);
-  els.chordAlt.textContent = aliases.length ? `= ${aliases.join(', ')}` : '';
+  els.chordAlt.textContent = aliases.length ? `=\u00a0${aliases.join(', ')}` : '';   // (the = never alone at a line's end)
   // With a capo, name the shape to play: the chord moved down by the capo
   const c = capo();
   els.chordCapo.hidden = !c;
   const moved = c ? spellChord(ch.root - c, ch.def, state.flats) : null;
   const shapeName = c ? noteText(moved.root) + ch.def.symbol + (ch.bassIndex ? `/${noteText(moved.notes[ch.bassIndex])}` : '') : '';
-  els.chordCapo.textContent = c ? `With capo ${c}, play the ${shapeName} shape` : '';
+  // (one idea: wrapped, the comma stays and the second half moves whole)
+  els.chordCapo.innerHTML = c ? `With capo ${c}, <span class="np-tail">play the ${esc(shapeName)} shape</span>` : '';
   els.tonesLabel.textContent = 'Shape notes, bass to top';
 
   // With a scale shown: does the chord fit it, and if not, which notes do not
   const outside = outsideScale(ch.root, ch.def, sc);
   els.chordKey.hidden = !outside;
   if (outside) {
-    const key = `${sc.rootName} ${sc.def.short}`;
+    const key = scaleInText(sc);
     els.chordKey.classList.toggle('out', outside.length > 0);
     // (the notes kept together: on two lines, the break comes after the colon)
     els.chordKey.innerHTML = outside.length
-      ? `<span>Outside ${esc(key)}: <span class="np-key-notes">${esc(outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', '))}</span></span>`
+      ? `<span>Outside ${esc(key)}: <span class="np-tail">${esc(outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', '))}</span></span>`
       : `<span>Every note is in ${esc(key)}</span>`;
   }
 
   els.shapeCount.hidden = false;
   els.shapeCount.classList.toggle('warn', !ch.shapes.length);
-  els.shapeCount.textContent = ch.shapes.length ? `Shape ${ch.index + 1} / ${ch.shapes.length}` : 'No shape';
+  els.shapeCount.textContent = ch.shapes.length ? `Shape ${ch.index + 1}/${ch.shapes.length}` : 'No shape';
 
   if (!ch.shape) {
-    els.chordTones.innerHTML = '<li class="np-placeholder">No playable shape for this voicing on this instrument. ' +
-      'Try “Any bass note”. Every chord tone is marked on the neck meanwhile.</li>';
+    els.chordTones.innerHTML = '<li class="np-placeholder">No playable shape for this voicing on this instrument. Try “Any bass note”.</li>';
+    els.chordMissing.hidden = true;
     els.shapeList.innerHTML = '';
     els.shapeList.dataset.empty = 'No shapes found';
     return;
@@ -4814,13 +4869,21 @@ function renderChordPanel(ch, sc) {
     const where = inst.piano ? `data-key="${x.k}"` : `data-s="${x.s}" data-f="${shapeNeckFret(inst, x.s, x.f, c)}"`;
     const off = offKey(x.midi);
     return `<li class="np-note${deg === 'R' ? ' root' : ''}${off ? ' off-key' : ''}" data-midi="${x.midi}" ${where} ` +
-      `title="Click to hear ${esc(name)}${off ? `, not in ${sc.rootName} ${sc.def.short}` : ''}">` +
+      `title="Click to hear ${esc(name)}${off ? `, not in ${scaleInText(sc)}` : ''}">` +
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
       `<span class="np-role" ${fitsAttr([DEGREE_NAMES[deg], shortWords(DEGREE_NAMES[deg])])}>${esc(DEGREE_NAMES[deg])}</span>` +
       `<span class="np-loc"><kbd>${tx(loc)}</kbd></span></li>`;
   }).join('');
   refitWords(els.chordTones);   // (each interval's name: shorter where it does not fit)
+  fitNotesRow();
+  // The chord's notes the shape leaves out (a 13th's 9th, say: see optionalTones)
+  const played = new Set(notes.map((x) => mod12(x.midi)));
+  const missing = chordTones(ch.root, ch.def).filter((t) => !played.has(t.pc));
+  els.chordMissing.hidden = !missing.length;
+  els.chordMissing.innerHTML = missing.length
+    ? `Not in this shape: <span class="np-tail">${missing.map((t) => `<span class="np-item">${esc(`${noteText(ch.spell.names.get(t.pc))} (${DEGREE_NAMES[t.deg].toLowerCase()})`)}</span>`).join(', ')}</span>`
+    : '';
 
   els.shapeList.innerHTML = ch.shapes.map((shape, i) => {
     const where = shapeWhere(shape);
@@ -4828,7 +4891,7 @@ function renderChordPanel(ch, sc) {
     const what = `${shape.drawn ? 'Custom shape, ' : ''}${shape.piano ? 'notes' : 'strings'} low to high`;
     return `<li><button type="button" class="chip${sel ? ' selected' : ''}${shape.drawn ? ' custom' : ''}" data-shape="${i}" aria-pressed="${sel}" ` +
       `title="${esc(what[0].toUpperCase() + what.slice(1))}: ${esc(shapeTab(shape))}">` +
-      `${shape.drawn ? BOOKMARK_ICON : ''}<span class="chip-num tx">${esc(where)}</span>` +
+      `${shape.drawn ? BOOKMARK_ICON : ''}<span class="chip-num tx">${esc(where[0].toUpperCase() + where.slice(1))}</span>` +   // ("Fret 5", "Open": as the group chips)
       `<span class="${shape.piano ? '' : 'mono '}tx">${esc(shape.piano ? shapeTab(shape).split(' ').slice(1).join(' ') : tabOf(shape))}</span></button></li>`;
   }).join('');
   keepChipVisible();
@@ -4855,7 +4918,7 @@ function renderScalePanel(sc, ch) {
   els.scaleClear.disabled = !sc;
   // The chromatic scale has every note: nothing to hide or to group
   els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
-  renderGroupLine(sc);
+  renderGroupLine(sc, ch);
 
   if (scaleRun && scaleRun.key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
   els.scalePlay.disabled = !sc;
@@ -4879,7 +4942,7 @@ function renderScalePanel(sc, ch) {
   els.scaleName.textContent = `${sc.rootName} ${scaleTitle(sc.def)}`;
   els.scaleMeta.textContent = `Formula ${degrees.join(' ')}`;
   const relatives = relativeScales(sc);
-  els.scaleAlt.textContent = relatives.length ? `Same notes as ${relatives.join(', ')}` : '';
+  els.scaleAlt.innerHTML = relatives.length ? `Same notes as <span class="np-tail">${relatives.map((r) => `<span class="np-item">${esc(r)}</span>`).join(', ')}</span>` : '';
 
   // Notes with their interval on top, and the step to the next note below
   const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${tx(deg === '1' ? 'R' : deg)}</span>`;
@@ -4914,10 +4977,17 @@ function renderScalePanel(sc, ch) {
 }
 
 /* The scale's groups as chips, from the nut up: shown while Groups is on */
-function renderGroupLine(sc) {
+function renderGroupLine(sc, ch) {
   const on = Boolean(sc && state.scaleGroups && sc.def.steps.length < 12 && !instrument().piano);   // (no groups on a piano)
   els.groupLine.hidden = !on;
   els.groupPrev.disabled = els.groupNext.disabled = ui.groups.length < 2;
+  // The arrow keys step the groups only with no chord (else its shapes)
+  els.groupPrev.title = `Previous group${ch ? '' : ' (←)'}`;
+  els.groupNext.title = `Next group${ch ? '' : ' (→)'}`;
+  // Its count by the panel's title, as the chord's shapes ("Group 2/9")
+  els.groupCount.hidden = !on;
+  els.groupCount.classList.toggle('warn', on && !ui.groups.length);
+  els.groupCount.textContent = !on ? '' : ui.groups.length ? `Group ${ui.group + 1}/${ui.groups.length}` : 'No group';
   if (!on) { els.groupList.innerHTML = ''; return; }
   const c = capo();
   els.groupList.dataset.empty = 'No group fits on this neck';
@@ -4981,6 +5051,12 @@ const SCALE_TITLES = {
 };
 const MODE_NAMES = ['Dorian', 'Phrygian', 'Lydian', 'Mixolydian', 'Locrian'];
 const scaleTitle = (def) => SCALE_TITLES[def.id] || (MODE_NAMES.includes(def.name) ? def.name : def.name.toLowerCase());
+// The scale's short name in a sentence ("Every note is in C major", "not in
+// D harm. min"): lower case, as its title is, but a name (Dorian, Hirajoshi)
+const scaleInText = (sc) => {
+  const short = sc.def.short;
+  return `${sc.rootName} ${/^[A-Z]/.test(scaleTitle(sc.def)) ? short : short[0].toLowerCase() + short.slice(1)}`;
+};
 
 /* Interval of each scale note from the root, by its degree (the letter the
    scale is spelled with) and how far it sits from the major scale's:
@@ -5020,7 +5096,7 @@ function relativeScales(sc) {
 function init() {
   for (const id of ['instrumentPicker', 'tuningSelect', 'neck', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
     'chordRoot', 'chordType', 'chordVoicing', 'chordClear', 'chordSymbol', 'chordName', 'chordMeta', 'chordShapeNote',
-    'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'shapeCount', 'shapePrev', 'shapeNext', 'shapeList',
+    'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'chordMissing', 'shapeCount', 'groupCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
@@ -5038,8 +5114,6 @@ function init() {
     els[id] = document.getElementById(id);
   }
   els.dockBar = document.querySelector('.dock-bar');
-  els.tabNeckLabel = document.querySelector('.tab[data-tab="neck"] .tab-label .tx');   // (as the others: their text in a .tx, the rows line up)
-  els.neckTitle = document.querySelector('#panelNeck h2');
   els.neckPanel = document.querySelector('.neck-panel');
   els.dockTabs = document.querySelector('.dock-bar .tabs');
   els.panelChord = document.getElementById('panelChord');
@@ -5257,7 +5331,11 @@ function init() {
         value: c.id,
         label: c.name,
         tag: noteText(chordSpelling(state.chord.root, c).root) + c.symbol,
-        sub: chordSpelling(state.chord.root, c).notes.map(noteText).join(' '),
+        // (in brackets: notes a shape may leave out, here: this instrument and bass note)
+        sub: (() => {
+          const optional = optionalTones(c, voicingFor(c), Boolean(instrument().piano));
+          return chordSpelling(state.chord.root, c).notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
+        })(),
         cls: fitsScale(state.chord.root, c, currentScale()) ? 'fits' : '',
       })),
     }))],
