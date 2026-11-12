@@ -98,7 +98,7 @@
       <h2 id="instWideSlot" class="neck-title">
         <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
       </h2>
-      <!-- Neck settings: here on wide screens, in the "Neck" tab of the dock
+      <!-- Neck settings: here on wide screens, in the "Setup" tab of the dock
            on phones (script.js moves them). They start here, so the page is
            in place before the script runs: on phones this header is hidden. -->
       <div id="settingsWideSlot" class="settings-slot">
@@ -178,7 +178,7 @@
               <button type="button" id="chordRoot" class="select-btn" aria-haspopup="dialog" aria-label="Chord root"></button>
             </div>
             <div class="field grow">
-              <span>Chord</span>
+              <span>Type</span>
               <button type="button" id="chordType" class="select-btn" aria-haspopup="dialog" aria-label="Chord type"></button>
             </div>
             <div class="field grow voicing">
@@ -204,6 +204,7 @@
             <div class="np-tones">
               <span id="tonesLabel" class="label">Shape notes, bass to top</span>
               <ol id="chordTones" class="np-notes"></ol>
+              <p id="chordMissing" class="np-missing" hidden></p>
             </div>
           </div>
 
@@ -215,7 +216,7 @@
           </div>
           <div id="recentLine" class="line recent-line" hidden>
             <span class="label">List</span>
-            <div class="recent-scroll"><ol id="recentList" class="recent-chips" aria-label="Chord list"></ol><span class="scroll-hint" aria-hidden="true"><i></i></span></div>
+            <div class="recent-scroll"><ol id="recentList" class="recent-chips" aria-label="Chord list"></ol></div>
             <button type="button" id="recentClear" class="btn small recent-clear-wide" title="Clear all chords"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.6A2.5 2.5 0 0 0 9.8 21h4.4a2.5 2.5 0 0 0 2.5-2.4L17.5 7"/></svg><span class="tx">Clear</span></button>
           </div>
         </section>
@@ -223,6 +224,7 @@
         <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
           <div class="panel-head">
             <h2 class="theory-title"><button type="button" class="panel-fold wide-only" aria-expanded="true" aria-controls="panelScale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span><span class="fold-value" hidden></span></h2>
+            <span id="groupCount" class="status group-count" hidden></span>
             <div class="switch-row">
               <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
                       title="Hide the notes that are not in the scale">
@@ -266,15 +268,15 @@
           </div>
           <div id="groupLine" class="line group-line" hidden>
             <span class="label">Groups</span>
-            <button type="button" id="groupPrev" class="btn small" title="Previous group (←)" aria-label="Previous group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
+            <button type="button" id="groupPrev" class="btn small" title="Previous group" aria-label="Previous group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
             <ol id="groupList" class="chip-list" aria-label="Scale groups, from the nut up the neck"></ol>
-            <button type="button" id="groupNext" class="btn small" title="Next group (→)" aria-label="Next group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+            <button type="button" id="groupNext" class="btn small" title="Next group" aria-label="Next group"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
           </div>
         </section>
 
-        <section class="panel narrow-only" id="panelNeck" data-tab="neck" aria-label="Neck settings">
+        <section class="panel narrow-only" id="panelNeck" data-tab="neck" aria-label="Setup">
           <div class="panel-head">
-            <h2>Neck</h2>
+            <h2>Setup</h2>
           </div>
           <div id="settingsNarrowSlot" class="settings-slot"></div>
         </section>
@@ -333,7 +335,7 @@
           <span id="tabScaleValue" class="tab-value"></span>
         </button>
         <button type="button" class="tab" data-tab="neck" aria-pressed="false">
-          <span class="tab-label"><span class="tx">Neck</span></span>
+          <span class="tab-label"><span class="tx">Setup</span></span>
           <span id="tabNeckValue" class="tab-value"></span>
         </button>
       </nav>
@@ -375,7 +377,7 @@
     <div class="picker-body lk-body">
       <button type="button" id="shareNeck" class="lk-row neck" aria-pressed="false">
         <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
-        <span class="lk-what">Neck</span><span class="lk-tag"></span>
+        <span class="lk-what">Setup</span><span class="lk-tag"></span>
         <span class="lk-change"></span>
       </button>
       <button type="button" id="shareChord" class="lk-row chord" aria-pressed="false">
@@ -410,7 +412,7 @@
     <div class="picker-body lk-body">
       <button type="button" id="linkNeck" class="lk-row neck" aria-pressed="true">
         <span class="pill-dot" aria-hidden="true"></span><span class="lk-icon" aria-hidden="true"></span>
-        <span class="lk-what">Neck</span><span class="lk-tag"></span>
+        <span class="lk-what">Setup</span><span class="lk-tag"></span>
         <span class="lk-change"></span>
       </button>
       <button type="button" id="linkChord" class="lk-row chord" aria-pressed="true">
