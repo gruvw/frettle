@@ -1119,6 +1119,7 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
 .np-key::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--scale); }
 .np-key.out { color: var(--warn); }
 .np-key.out::before { background: var(--warn); }
+.np-key-notes { display: inline-block; }   /* the notes outside the scale together: too long for one line, all of them go on the next */
 /* Scale panel: the same description block, in the scale's teal */
 .scale-body .np-symbol.on { background: var(--scale); color: var(--scale-text); }
 
@@ -1488,7 +1489,8 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
   cursor: pointer;
 }
 .dock-symbol {
-  flex: none;
+  flex: 0 1 auto;   /* (its whole width first; less only past the room there is: fitText then shrinks its font) */
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   height: 28px;
@@ -1497,14 +1499,14 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
   background: var(--chord);
   color: var(--chord-text);
   font: 800 var(--fs-md)/1 var(--font);
-  max-width: 50%;
+  max-width: 100%;
   overflow: hidden;
-  white-space: nowrap;   /* one line: a long name gets a smaller font instead (fitText) */
+  white-space: nowrap;   /* one line, whole: the name takes the room it needs (the lines beside it make do); a smaller font only past the room there is (fitInfo) */
 }
 .dock-symbol:empty { display: none; }
 .dock-symbol .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0.35em 0; margin: -0.35em 0; }   /* (the padding keeps j and brackets whole, as .inst-name) */   /* (past the smallest size: cut short, the whole name in its tooltip) */
 .dock-shape.groups .dock-symbol { background: var(--scale); color: var(--scale-text); }   /* no chord: the scale's groups */
-.dock-tab { display: grid; min-width: 0; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.dock-tab { flex: 1 1 0; display: grid; min-width: 2.6em; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
 .dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Its lines trimmed to their capitals and baseline (as .pill-label), so
    they sit in the middle of the name beside them whatever the font; the
@@ -1540,8 +1542,7 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
 .btn.small.namer-mute { width: var(--chip-h); padding: 0; }
 .namer-result { display: flex; align-items: center; gap: 6px; height: var(--control-h); }
 .namer-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1); }
-.namer-name .dock-tab { flex: 1 1 0; min-width: 72px; }   /* (the name first: its number and its bass take what is left) */
-.namer .dock-symbol { max-width: calc(100% - 72px - var(--sp-2)); }
+.namer-name .dock-tab { flex: 1 1 0; }   /* (the name first: its number and the notes take what is left) */
 /* What the name means, on its own line above it. With Cancel and Select
    at a small button's height, the rows add up to those they replace (the
    shape bar and the tabs, see --dock-h). */
@@ -1589,12 +1590,20 @@ body.naming .neck-panel { border-color: var(--accent); }
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 12px;   /* (a swatch's: the Neck tab has none, its rows line up with the others all the same) */
   font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .tab-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+/* The label and the value trimmed to their capitals and baseline: 12px
+   between the label's baseline and the value's capitals, the two in the
+   middle of the tab (the padding keeps g and y whole within the cut) */
+@supports (text-box: trim-both cap alphabetic) {
+  .tab { gap: 10.4px; padding-top: 6.2px; padding-bottom: 7.8px; }   /* (+ the label row's room round its capitals, as tall as the swatch: 12px in all; the padding: as much room above the capitals as under the baseline) */
+  .tab-value { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
+}
 .tab[aria-pressed="true"] {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
@@ -1647,15 +1656,10 @@ body.naming .neck-panel { border-color: var(--accent); }
   #dockStrum, #namerPlay { width: var(--control-h); padding: 0; }
 }
 /* Phones in portrait, naming: slimmer arrows and pill, to leave the name
-   whole; the smallest leave out its number and bass (the bass is in the
-   name, after its slash) */
+   whole */
 @media (max-width: 429px) {
   .namer-step.btn.icon { width: 34px; }
   .namer .dock-symbol { padding: 0 8px; }
-}
-@media (max-width: 349px) {
-  .namer-name .dock-tab:has(.namer-main) { display: none; }
-  .namer .dock-symbol { max-width: 100%; }
 }
 /* Very small phones: the chord name is already in the Chord tab below */
 @media (max-width: 349px) {
@@ -1891,6 +1895,33 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn.wide-only { display: inline-flex !important; }
   .narrow-only { display: none !important; }
 
+  /* The chord and scale panels fold away to their title row (a click on
+     the arrow or the title): just the other one to work with. Folded, the
+     title says what it shows. */
+  .theory-title { cursor: pointer; -webkit-user-select: none; user-select: none; }
+  .panel-fold {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: -4px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .panel-fold:hover { color: var(--text); }
+  .panel-fold .ico { width: 18px; height: 18px; transition: transform 150ms ease; }
+  .panel.folded .panel-fold .ico { transform: rotate(-90deg); }
+  .panel.folded > :not(.panel-head) { display: none !important; }
+  .panel.folded .panel-head { margin-bottom: 0; }
+  .panel.folded { cursor: pointer; }   /* (a click on it unfolds it) */
+  .panel.folded:hover { border-color: var(--divider); }
+  .fold-value { color: var(--muted); font-weight: 500; }
+
   /* Header: title | Share | About */
   /* Title bar: as wide as the neck under it (the top of the page reads as
      one block); the panels below keep their narrower column */
@@ -1964,7 +1995,6 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .namer-mute .tx { display: block; }
   .namer-result { grid-area: result; justify-self: start; width: 100%; max-width: 540px; }
   .namer-caption { display: none; }
-  .namer .dock-symbol { max-width: 50%; }   /* (what it means beside it) */
   .namer-actions { grid-area: actions; display: flex; padding: 0; }
   .namer-actions .btn { height: var(--control-h); min-width: 96px; }
   @container neck-panel (max-width: 579.98px) {
