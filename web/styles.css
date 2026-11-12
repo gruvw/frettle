@@ -1356,6 +1356,11 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
 /* The same for the buttons' words (in a .tx, or their label spans) and the
    menus (blocks themselves) */
 .btn-label, .strum-label, .select-btn { text-box: trim-both cap alphabetic; }
+/* Play / Stop: both words in one place, the one not said hidden, so the
+   button is as wide either way (playStopLabel) */
+.swap { display: inline-grid; }
+.swap > span { grid-area: 1 / 1; text-align: center; }
+.swap > .off { visibility: hidden; }
 /* The instrument button's two names are cut short with "…", so they clip
    at their edges: cut to the capitals, they keep room around them for
    accents and tails (padding, taken back by the margins) */

@@ -486,6 +486,10 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
   const required = tones.map((t) => t.pc).filter((pc) => !optional.includes(pc));
   const minSounding = Math.min(n, Math.max(required.length, tones.length <= 2 ? 2 : 3));
   const maxInner = n >= 6 ? 1 : 0;
+  // Top strings left out: one at most, but any number for a power chord (two
+  // notes) on a guitar's 5 strings or more, played on the low strings (G5:
+  // 3 5 5 x x x; a 4-string instrument plays its own across all four)
+  const maxTrail = tones.length <= 2 && n >= 5 ? n : 1;
   // On a re-entrant tuning (ukulele high G) the lowest note matters little
   const reentrant = inst.strings.some((m, i) => i > 0 && m < inst.strings[i - 1]);
   const found = [];
@@ -504,7 +508,7 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     const last = sound[sound.length - 1].s;
     const trail = n - 1 - last;
     const inner = last - first + 1 - sound.length;
-    if (inner > maxInner || trail > 1) return null;
+    if (inner > maxInner || trail > maxTrail) return null;
 
     const pcs = new Set(sound.map((x) => mod12(x.midi)));
     const complete = required.every((pc) => pcs.has(pc) || extraPcs.includes(pc));
@@ -529,12 +533,13 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     const maxFret = minFret + span;
     const small = n < 5;   // 4 strings: ukulele, bass, mandolin, mandola
     const feat = {
-      sound: sound.length,
+      // (a power chord: best on three strings, root, 5th and octave, G5 3 5 5 x x x)
+      sound: maxTrail > 1 ? -Math.abs(sound.length - 3) : sound.length,
       opt: optional.filter((pc) => pcs.has(pc) || extraPcs.includes(pc)).length,
       lead: small ? 0 : first,
       leadSmall: small ? first : 0,
       inner,
-      trail,
+      trail: maxTrail > 1 ? 0 : trail,   // (a power chord's: as it is played)
       fingers,
       barre: barre ? 1 : 0,
       span,
@@ -1269,6 +1274,9 @@ function applyLink(search, parts = null, fresh = false) {
   if (!LINK_KEYS.some((k) => p.has(k))) return false;
   const take = (k) => !parts || parts[k];
   const neck = take('neck') && p.has('instrument');   // (a link can leave the neck out)
+  // Your chord's chip, as it is on screen (its bass: the shape's), for when
+  // the link leaves your chord as it is
+  const own = state.chord.on ? { root: state.chord.root, type: state.chord.type, bass: shownBass() } : null;
   const linkInversion = p.has('inversion') ? p.get('inversion') : p.get('voicing');   // (a link from before: "voicing")
   // A chord's bass on the link's own neck (its shape's lowest note; else
   // its name's, the link's inversion, or the root) and the inversion that gives
@@ -1396,7 +1404,9 @@ function applyLink(search, parts = null, fresh = false) {
       state.recent = state.recent.filter((r) => !list.some((x) => sameEntry(x, r)));
     }
   }
-  if (!linkChord) recallChip();   // your own chord, as its chip remembers it
+  // Your own chord: on its chip, as it remembers it (the shape you had, a
+  // C/E stays C/E), where this neck can play it
+  if (!linkChord) recallChip((own && chipEntry(own.root, own.type, own.bass)) || recentEntry(), false, true);
   // The link's chord: its chip (one made for it if need be) remembers the
   // shape it came on, so a reload brings that shape back, not the chip's old one
   else if (state.chord.on) {
@@ -3217,15 +3227,16 @@ function renderNamer() {
   fitInfo(els.namerSymbol.parentElement);
 }
 
-/* Play the group shown, low to high, lighting each note on the neck.
-   Playing again starts it over. */
+/* Play the group shown, low to high, lighting each note on the neck. As
+   the scale's Play: pressing again (or Space) while it plays stops it, its
+   button a Stop meanwhile; picking another group, scale... stops it too. */
 const GROUP_GAP = 0.2;   // seconds between notes
 let groupRun = null;     // { sources, timers }
 function playGroup() {
   const g = ui.groups[ui.group];
   const sc = currentScale();
+  if (groupRun) { stopGroup(); return; }
   if (!g || !sc) return;
-  stopGroup();
   stopScale();
   const inst = instrument();
   const notes = [];
@@ -3238,6 +3249,9 @@ function playGroup() {
     groupRun.sources.push(playNote(x.midi, i * GROUP_GAP, 0.5));
     groupRun.timers.push(setTimeout(() => flashCell(x.s, x.f), i * GROUP_GAP * 1000));
   });
+  // Done once the last note has started: it rings on, and Play is back
+  groupRun.timers.push(setTimeout(() => { groupRun = null; renderGroupPlay(); }, (notes.length - 1) * GROUP_GAP * 1000 + 50));
+  renderGroupPlay();
 }
 // The group as played: another scale, tuning, capo or group stops it (see draw)
 const groupKey = (g, sc) => (g && sc ? [scaleKey(sc), g.bars.map((b) => `${b.s}:${b.a}-${b.b}`)].join('|') : '');
@@ -3246,6 +3260,19 @@ function stopGroup() {
   for (const src of groupRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
   for (const t of groupRun.timers) clearTimeout(t);
   groupRun = null;
+  renderGroupPlay();
+}
+// A group stepper's play button: Play, or Stop while the group plays
+function showGroupPlay(bar) {
+  const playing = Boolean(groupRun);
+  bar.play.querySelector('.ico').outerHTML = playing ? STOP_ICON : PLAY_ICON;
+  bar.play.querySelector('.strum-label').innerHTML = playStopLabel(playing);
+  bar.play.setAttribute('aria-label', playing ? 'Stop the group' : 'Play the group');
+  bar.play.title = bar.play.getAttribute('aria-label') + (keysOnGroups() ? ' (Space)' : '');
+}
+function renderGroupPlay() {
+  if (!els.quickGroupBar.hidden) showGroupPlay(groupStepper());
+  if (ui.dockMode === 'group' && !els.dockShapeBar.hidden) showGroupPlay(dockStepper());
 }
 
 /* Play the scale once, low to high (root to octave), from its lowest root
@@ -3293,9 +3320,12 @@ function playScaleNote(i) {
 const scaleKey = (sc) => (sc ? [sc.root, sc.def.id, instrument().strings, capo()].join('|') : '');
 const PLAY_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg>';
 const STOP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+// A Play / Stop label: both words, one over the other, the other one unseen,
+// so the button keeps one width either way (styles.css: .swap)
+const playStopLabel = (playing) => `<span class="swap"><span${playing ? ' class="off"' : ''}>Play</span><span${playing ? '' : ' class="off"'}>Stop</span></span>`;
 function renderPlayButton() {
   const playing = Boolean(scaleRun);
-  els.scalePlay.innerHTML = `${playing ? STOP_ICON : PLAY_ICON}<span class="btn-label">${playing ? 'Stop' : 'Play'}</span>`;
+  els.scalePlay.innerHTML = `${playing ? STOP_ICON : PLAY_ICON}<span class="btn-label">${playStopLabel(playing)}</span>`;
   els.scalePlay.setAttribute('aria-label', playing ? 'Stop the scale' : 'Play the scale');
   els.scalePlay.title = playing ? 'Stop' : 'Play the scale, low to high';
 }
@@ -3368,6 +3398,7 @@ function draw() {
   renderNeck(naming ? namerChord() : ch, sc);
   warmUp(ch, sc);
   if (groupRun && groupRun.key !== groupKey(ui.groups[ui.group], sc)) stopGroup();   // what it was playing is gone
+  const seen = noteFocus(ch, sc);   // (what was last acted on: the phone's stepper, the keys and the neck's scroll follow it)
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
   renderDock(ch, sc);
@@ -3380,13 +3411,7 @@ function draw() {
   // group when one is picked or the scale changes. Not while naming: the
   // neck stays where the notes are being placed.
   if (naming) return;
-  const neckKey = [state.instrument, instrument().strings, capo()].join('|');
-  const chordKey = ch && ch.shape ? [ch.symbol, tabOf(ch.shape)].join('|') : null;
-  const scaleKey = sc && ui.groups.length ? [sc.root, sc.def.id].join('|') : null;   // (with its groups shown)
-  const first = ui.neckKey === undefined;
-  const sameNeck = neckKey === ui.neckKey;
-  if (ui.reveal || (sameNeck && chordKey && chordKey !== ui.chordKey)) ui.focus = 'chord';
-  if (ui.revealGroup || (sameNeck && scaleKey && scaleKey !== ui.scaleKey)) ui.focus = 'group';
+  const { neckKey, chordKey, scaleKey, first, sameNeck } = seen;
   // The piano, as it comes on screen (opened on it, or picked): its chord's
   // shape in view, or else middle C (a keyboard is long, and starts far down)
   const pianoNow = instrument().piano && ui.shownInst !== state.instrument;
@@ -3403,6 +3428,30 @@ function draw() {
   ui.revealGroup = false;
 }
 
+/* What was last acted on (ui.focus): the chord when its shape changes
+   (picked, stepped, a chip, an inversion...: ui.reveal, or its shape and
+   name, on the same neck), the scale group when one is picked
+   (ui.revealGroup) or the scale changes with its groups shown (Groups
+   switched on too); opening a panel on phones too (openTab). */
+function noteFocus(ch, sc) {
+  const neckKey = [state.instrument, instrument().strings, capo()].join('|');
+  const chordKey = ch && ch.shape ? [ch.symbol, tabOf(ch.shape)].join('|') : null;
+  const scaleKey = sc && ui.groups.length ? [sc.root, sc.def.id].join('|') : null;   // (with its groups shown)
+  const first = ui.neckKey === undefined;
+  const sameNeck = neckKey === ui.neckKey;
+  if (!naming) {
+    if (ui.reveal || (sameNeck && chordKey && chordKey !== ui.chordKey)) ui.focus = 'chord';
+    if (ui.revealGroup || (sameNeck && scaleKey && scaleKey !== ui.scaleKey)) ui.focus = 'group';
+  }
+  return { neckKey, chordKey, scaleKey, first, sameNeck };
+}
+/* What the arrow keys step and Space plays: what was last acted on (see
+   noteFocus), the chord's shapes or the scale's groups (Groups on); the one
+   there is when the other is not. As the phone's one stepper (renderDock). */
+function keysOnGroups(ch = currentChord()) {
+  if (!ui.groups.length) return false;
+  return !ch || ui.focus === 'group';
+}
 /* What the neck scrolls to: what was last acted on (ui.focus), the chord's
    shape or the scale group, and only that one; when it is not on the neck,
    the other; on a piano with neither, middle C. */
@@ -4102,6 +4151,7 @@ function fillStepper(bar, mode, ch, sc) {
   bar.info.setAttribute('aria-label', infoLabel);
   bar.play.setAttribute('aria-label', playLabel);
   bar.play.querySelector('.strum-label').textContent = playText;
+  if (mode !== 'group') bar.play.querySelector('.ico').outerHTML = PLAY_ICON;   // (the dock's, back from a group's Stop)
   if (group) {
     const [a, b] = groupFrets(group).map((f) => f - capo());   // counted from the capo
     bar.prev.disabled = bar.next.disabled = ui.groups.length < 2;
@@ -4124,9 +4174,10 @@ function fillStepper(bar, mode, ch, sc) {
     }
   }
   // Their keys, as the panels' buttons say them: the arrows and Space step and
-  // play the chord's shapes, or with no chord the scale's groups
-  const keys = mode === 'chord' || !ch;
+  // play what keysOnGroups says (the phone's one stepper: always its own)
+  const keys = (mode === 'group') === keysOnGroups(ch);
   for (const [btn, key] of [[bar.prev, '←'], [bar.next, '→'], [bar.play, 'Space']]) btn.title = btn.getAttribute('aria-label') + (keys ? ` (${key})` : '');
+  if (mode === 'group') showGroupPlay(bar);   // (Play, or Stop while it plays)
   bar.info.title = infoLabel;
   bar.symbol.title = ch && mode === 'chord' ? ch.symbol : '';
   fitInfo(bar.info);
@@ -4140,13 +4191,18 @@ function updateQuickBar() {
 function renderDock(ch, sc) {
   const group = sc ? ui.groups[ui.group] : null;
   if (isWide()) {
+    ui.dockMode = 'chord';
     els.dockShapeBar.hidden = !ch;
     fillStepper(dockStepper(), 'chord', ch, sc);
     els.quickGroupBar.hidden = !group;
     if (group) fillStepper(groupStepper(), 'group', ch, sc);
   } else {
-    const mode = !ch && group ? 'group' : 'chord';
-    els.dockShapeBar.hidden = !ch && !group;   // no chord and no group: just the tabs
+    // Phones: one stepper, for what was last acted on (see noteFocus): the
+    // chord's shapes, or the scale's groups (Groups on); the one there is when
+    // the other is not; none with neither (just the tabs)
+    const mode = group && (!ch || ui.focus === 'group') ? 'group' : 'chord';
+    ui.dockMode = mode;   // (its buttons step and play that)
+    els.dockShapeBar.hidden = !ch && !group;
     fillStepper(dockStepper(), mode, ch, sc);
     els.quickGroupBar.hidden = true;
   }
@@ -4284,6 +4340,10 @@ function showPanel(tab) {
 function openTab(tab) {
   const wasOpen = ui.tab !== null;
   ui.tab = ui.tab === tab ? null : tab;
+  // A panel opened: what it is about is what is acted on (the chord's, or the
+  // scale's groups: the stepper and the neck follow, see noteFocus)
+  if (ui.tab === 'chord') ui.focus = 'chord';
+  else if (ui.tab === 'scale') ui.focus = 'group';
   const ch = currentChord();
   renderDock(ch, currentScale());
   if (ui.tab) {
@@ -5125,7 +5185,8 @@ function renderChordPanel(ch, sc) {
   els.chordStrum.disabled = !ch || !ch.shape;
   const piano = Boolean(instrument().piano);
   els.chordStrum.querySelector('.tx').textContent = piano ? 'Play' : 'Strum';
-  els.chordStrum.title = piano ? 'Play the chord (Space)' : 'Strum the shape (Space)';
+  const space = keysOnGroups(ch) ? '' : ' (Space)';   // (Space playing the group instead)
+  els.chordStrum.title = piano ? `Play the chord${space}` : `Strum the shape${space}`;
 
   if (!ch) {
     els.chordSymbol.textContent = '';
@@ -5338,9 +5399,10 @@ function renderGroupLine(sc, ch) {
   const on = Boolean(sc && state.scaleGroups && sc.def.steps.length < 12 && !instrument().piano);   // (no groups on a piano)
   els.groupLine.hidden = !on;
   els.groupPrev.disabled = els.groupNext.disabled = ui.groups.length < 2;
-  // The arrow keys step the groups only with no chord (else its shapes)
-  els.groupPrev.title = `Previous group${ch ? '' : ' (←)'}`;
-  els.groupNext.title = `Next group${ch ? '' : ' (→)'}`;
+  // The arrow keys step the groups when keysOnGroups says (else the chord's shapes)
+  const keys = keysOnGroups(ch);
+  els.groupPrev.title = `Previous group${keys ? ' (←)' : ''}`;
+  els.groupNext.title = `Next group${keys ? ' (→)' : ''}`;
   // Its count by the panel's title, as the chord's shapes ("Group 2/9")
   els.groupCount.hidden = !on;
   els.groupCount.classList.toggle('warn', on && !ui.groups.length);
@@ -5568,11 +5630,11 @@ function init() {
   // Strum buttons sound on press, like a plucked string. A click from the
   // keyboard (Enter, or Space on a button reached with Tab) still strums.
   // With no chord, the dock's button plays the scale group shown.
-  const strumOrPlay = () => (currentChord() ? strum() : playGroup());
+  const strumOrPlay = () => (keysOnGroups() ? playGroup() : strum());
   // (on touch screens, as the neck's notes: a swipe to scroll that starts
   // on them plays nothing, onPress)
   for (const btn of [els.chordStrum, els.dockStrum, els.quickGroupPlay]) {
-    const act = btn === els.dockStrum ? strumOrPlay : btn === els.quickGroupPlay ? playGroup : strum;
+    const act = btn === els.dockStrum ? () => (ui.dockMode === 'group' ? playGroup() : strum()) : btn === els.quickGroupPlay ? playGroup : strum;
     onPress(btn, null, act);
   }
 
@@ -5621,9 +5683,11 @@ function init() {
 
   // Dock (phones): shape bar, tabs and the sheet they open
   // (no chord: the scale's groups)
-  els.dockPrev.addEventListener('click', () => (currentChord() ? stepShape(-1) : selectGroup(ui.group - 1)));
-  els.dockNext.addEventListener('click', () => (currentChord() ? stepShape(1) : selectGroup(ui.group + 1)));
-  els.dockShape.addEventListener('click', () => showPanel(currentChord() ? 'chord' : 'scale'));
+  // The dock's stepper: the chord's shapes or the scale's groups, as it shows (renderDock)
+  const dockGroups = () => ui.dockMode === 'group';
+  els.dockPrev.addEventListener('click', () => (dockGroups() ? selectGroup(ui.group - 1) : stepShape(-1)));
+  els.dockNext.addEventListener('click', () => (dockGroups() ? selectGroup(ui.group + 1) : stepShape(1)));
+  els.dockShape.addEventListener('click', () => showPanel(dockGroups() ? 'scale' : 'chord'));
   // The groups' stepper (wide screens, in the quick bar)
   els.quickGroupPrev.addEventListener('click', () => selectGroup(ui.group - 1));
   els.quickGroupNext.addEventListener('click', () => selectGroup(ui.group + 1));
@@ -5851,7 +5915,10 @@ function init() {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     const step = e.key === 'ArrowRight' ? 1 : -1;
     const ch = currentChord();
-    if (!ch && ui.groups.length > 1) { e.preventDefault(); selectGroup(ui.group + step); return; }
+    if (keysOnGroups(ch)) {
+      if (ui.groups.length > 1) { e.preventDefault(); selectGroup(ui.group + step); }
+      return;
+    }
     if (!ch || ch.shapes.length < 2) return;
     e.preventDefault();
     selectShape(ch.index + step);
