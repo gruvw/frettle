@@ -1421,14 +1421,23 @@ function startLink(search) {
   if (!LINK_KEYS.some((k) => p.has(k))) return;
   let saved = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch { /* storage unavailable */ }
-  if (!saved) { applyLink(search, null, true); return; }
+  if (!saved) { loadLink(search, null, true); return; }
   // A chord or scale left out of the link (or a list) keeps yours: no row.
   // "None" takes yours off, so it is asked about (no row when you have none).
   const asks = (k, on) => p.has(k) && (p.get(k) !== NONE || on);
   const has = { neck: p.has('instrument'), chord: asks('chord', state.chord.on), scale: asks('scale', state.scale.on), recent: p.has('list') };
   const preview = linkPreview(search, has);   // (may find has.recent false)
-  if (!preview.loses) { applyLink(search, has); return; }
+  if (!preview.loses) { loadLink(search, has); return; }
   pendingLink = { search, preview, has, parts: { ...has }, same: {} };   // all switched on
+}
+// A link loaded: the neck then goes to what it brought, its chord, or else
+// its scale's group (see revealFocus)
+function loadLink(search, parts = null, fresh = false) {
+  applyLink(search, parts, fresh);
+  const p = new URLSearchParams(search);
+  const took = (k) => (!parts || parts[k]) && p.has(k);
+  if (took('chord') && state.chord.on) ui.reveal = true;
+  else if (took('scale') && state.scale.on) ui.revealGroup = true;
 }
 
 /* A chord as the link popup shows it: its name and its shape ("A (x07650)":
@@ -1478,10 +1487,13 @@ function linkPreview(search, has, parts = null) {
     // Yours goes if you have one and the link's differs (a neck, you always have)
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const chords = (s) => s.list.map((r) => [r.root, r.type, r.bass]);
+    // (a list's chords that are in the other too, in its order)
+    const shared = (list, other) => list.filter((r) => other.some((x) => sameEntry(x, r))).map((r) => `${r.root}:${r.type}:${r.bass}`).join(' ');
     const loses = (has.neck && setupText() !== mySetup)
       || (has.chord && mine.chord.on && myChord !== chordLine(ch))   // (its shape too)
       || (has.scale && mine.scale.on && !same(mine.scale, state.scale))
       || (has.recent && chords(mine).some(([root, type, bass]) => !state.list.some((r) => sameEntry(r, { root, type, bass }))))   // a chord of yours it drops
+      || (has.recent && shared(mine.list, state.list) !== shared(state.list, mine.list))   // or puts in another order
       || Object.keys(listShapes).length > 0;   // or reshapes
     return {
       setup: has.neck ? setupText() : null,
@@ -1584,13 +1596,18 @@ function renderLinkPopup() {
     row.querySelector('.lk-icon').innerHTML = same ? CHECK_ICON : '';
     const tag = row.querySelector('.lk-tag');
     // A list that only gains chords Adds; one that only drops some Removes
-    const gains = key === 'recent' && !reshapes && !empty(now) && now.every((n) => link.includes(n));
-    const drops = key === 'recent' && !reshapes && !empty(link) && link.every((n) => now.includes(n));
-    const what = empty(now) || gains ? 'Adds' : empty(link) ? 'Clears' : drops ? 'Removes' : 'Replaces';
+    // (both keeping the order of the others); the same chords in another
+    // order Reorders; anything else Replaces
+    const inOrder = key === 'recent' && String(now.filter((n) => link.includes(n))) === String(link.filter((n) => now.includes(n)));
+    const gains = key === 'recent' && !reshapes && inOrder && !empty(now) && now.every((n) => link.includes(n));
+    const drops = key === 'recent' && !reshapes && inOrder && !empty(link) && link.every((n) => now.includes(n));
+    const reorders = key === 'recent' && !reshapes && !same && now.length === link.length && now.every((n) => link.includes(n));
+    const what = empty(now) || gains ? 'Adds' : empty(link) ? 'Clears' : drops ? 'Removes' : reorders ? 'Reorders' : 'Replaces';
     tag.textContent = same ? 'No change' : !on ? 'Not loaded' : what;
     tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
     const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)))
-      : key === 'recent' ? listDiff(now, link, on, reshaped)
+      : reorders ? show(link, on ? 'win' : 'lose')   // (just the new order)
+        : key === 'recent' ? listDiff(now, link, on, reshaped)
         : reshapedChord ? listDiff(now, link, on, reshapedChord) : '');
     if (on) loads = true;
     row.querySelector('.lk-change').innerHTML = (same ? show(link, 'win') : diff
@@ -1659,7 +1676,7 @@ function closeLink(load) {
     // setup: on the link's shapes there (see renderLinkPopup)
     const parts = { ...link.parts };
     for (const k of ['chord', 'scale', 'recent']) if (link.same[k] && !link.withSetup[k]) parts[k] = false;
-    applyLink(link.search, parts);
+    loadLink(link.search, parts);
     shownChord = undefined;   // loaded, not picked (its chip, if a chord came: see applyLink)
   }
   render();
@@ -3357,62 +3374,83 @@ function draw() {
   renderFolds(ch, sc);
   saveState();
   clearLink();
-  // When the shape changes, scroll the neck so it is in view (phones: the
-  // page up or down; wide screens: the neck sideways). Not while naming: the
+  // Scroll the neck to what was last acted on (phones: the page up or down;
+  // wide screens: the neck sideways), see revealFocus: the chord when its
+  // shape changes (picked, stepped, a chip, an inversion...), the scale
+  // group when one is picked or the scale changes. Not while naming: the
   // neck stays where the notes are being placed.
   if (naming) return;
-  const key = ch && ch.shape ? [state.instrument, instrument().strings, capo(), ch.symbol, tabOf(ch.shape)].join('|') : null;
+  const neckKey = [state.instrument, instrument().strings, capo()].join('|');
+  const chordKey = ch && ch.shape ? [ch.symbol, tabOf(ch.shape)].join('|') : null;
+  const scaleKey = sc && ui.groups.length ? [sc.root, sc.def.id].join('|') : null;   // (with its groups shown)
+  const first = ui.neckKey === undefined;
+  const sameNeck = neckKey === ui.neckKey;
+  if (ui.reveal || (sameNeck && chordKey && chordKey !== ui.chordKey)) ui.focus = 'chord';
+  if (ui.revealGroup || (sameNeck && scaleKey && scaleKey !== ui.scaleKey)) ui.focus = 'group';
   // The piano, as it comes on screen (opened on it, or picked): its chord's
   // shape in view, or else middle C (a keyboard is long, and starts far down)
   const pianoNow = instrument().piano && ui.shownInst !== state.instrument;
   ui.shownInst = state.instrument;
-  if (pianoNow) revealShape(key ? undefined : [els.neck.querySelector(`.key[data-key="${60 - PIANO_LOW}"]`)], ui.shapeKey === null ? 'auto' : 'smooth');
-  else if (key && ui.shapeKey !== null && (key !== ui.shapeKey || ui.reveal)) revealShape();
-  else if (ui.revealGroup) revealGroup();   // a group picked (with the chord's shape too, when both fit)
-  ui.shapeKey = key || '';
+  if (pianoNow) revealFocus(first ? 'auto' : 'smooth');
+  // (opening the page: only when what it shows is out of view, as a high
+  // shape from a link, so the page starts where it is otherwise)
+  else if (first) requestAnimationFrame(() => { if (!focusInView()) revealFocus('auto'); });
+  else if (ui.reveal || ui.revealGroup || !sameNeck || (chordKey && chordKey !== ui.chordKey) || (scaleKey && scaleKey !== ui.scaleKey)) revealFocus();
+  ui.neckKey = neckKey;
+  ui.chordKey = chordKey;
+  ui.scaleKey = scaleKey;
   ui.reveal = false;
   ui.revealGroup = false;
 }
 
-/* The phone turned (or the window resized past the layout's edge): the
-   page starts over in its new layout, so the chord's shape is brought back
-   into view, or else the scale group, middle C on a piano, or the neck. */
-function refocus() {
-  const panel = els.neck.closest('.neck-panel');
-  const toPanel = () => window.scrollTo({ top: panel.getBoundingClientRect().top + window.scrollY - parseFloat(getComputedStyle(panel).marginTop), behavior: 'auto' });
-  if (isWide()) toPanel();   // (the neck in view; then sideways, below)
-  const shape = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord, .key .note.chord')];
-  if (shape.length) revealShape(shape, 'auto');
-  else if (ui.groups[ui.group]) revealGroup('auto');
-  else if (instrument().piano) revealShape([els.neck.querySelector(`.key[data-key="${60 - PIANO_LOW}"]`)], 'auto');
-  else if (!isWide()) toPanel();
-  placeStrip();   // (the open strings where the neck now sits, at once)
-}
-
-/* The scale group in view: with the chord's shape too when both fit in
-   the part of the neck you can see, else the group alone (the one just
-   picked) */
-function revealGroup(behavior) {
+/* What the neck scrolls to: what was last acted on (ui.focus), the chord's
+   shape or the scale group, and only that one; when it is not on the neck,
+   the other; on a piano with neither, middle C. */
+function focusNotes() {
+  const chord = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord, .key .note.chord')];
   const g = ui.groups[ui.group];
-  if (!g) return;
-  const group = g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean);
-  const both = [...group, ...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord')];
-  revealShape(both.length > group.length && fitsInView(both) ? both : group, behavior);
+  const group = g ? groupNotes(g) : [];
+  if (ui.focus === 'group' && group.length) return group;
+  if (chord.length) return chord;
+  if (group.length) return group;
+  return instrument().piano ? [els.neck.querySelector(`.key[data-key="${60 - PIANO_LOW}"]`)].filter(Boolean) : [];
 }
-// Whether notes fit in the part of the neck you can see, with revealShape's
-// room around them (wide screens: across; phones: up and down)
-function fitsInView(notes) {
+function revealFocus(behavior = 'smooth') {
+  const notes = focusNotes();
+  if (notes.length) revealShape(notes, behavior);
+}
+// Whether it is all in the part of the neck you can see
+function focusInView() {
+  // (open strings: shown at the edge by the strip, wherever the neck is)
+  const notes = focusNotes().filter((n) => { const cell = n.closest('.cell'); return !cell || Number(cell.dataset.f) > capo(); });
   if (!notes.length) return true;
   const rects = notes.map((n) => n.getBoundingClientRect());
   const strip = els.neck.querySelector('.neck-strip');
   if (isWide()) {
-    const box = els.neck.closest('.neck-scroll');
-    const room = box.clientWidth - (strip ? strip.offsetWidth : 0) - 2 * 24;
-    return Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left)) <= room;
+    const box = els.neck.closest('.neck-scroll').getBoundingClientRect();
+    const lefty = state.leftHanded;
+    const held = strip ? strip.offsetWidth : 0;
+    return rects.every((r) => r.left >= box.left + (lefty ? 0 : held) - 1 && r.right <= box.right - (lefty ? held : 0) + 1);
   }
-  const cover = els.sheet.classList.contains('open') ? els.sheet : els.dockBar;
-  const room = cover.getBoundingClientRect().top - (strip ? strip.offsetHeight : 0) - 24;
-  return Math.max(...rects.map((r) => r.bottom)) - Math.min(...rects.map((r) => r.top)) <= room;
+  const cover = (els.sheet.classList.contains('open') ? els.sheet : els.dockBar).getBoundingClientRect().top;
+  return rects.every((r) => r.top >= (strip ? strip.offsetHeight : 0) - 1 && r.bottom <= cover + 1);
+}
+
+/* The phone turned (or the window resized past the layout's edge): the
+   page starts over in its new layout, so what was last acted on is brought
+   back into view (revealFocus), or else the neck. */
+function refocus() {
+  const panel = els.neck.closest('.neck-panel');
+  const toPanel = () => window.scrollTo({ top: panel.getBoundingClientRect().top + window.scrollY - parseFloat(getComputedStyle(panel).marginTop), behavior: 'auto' });
+  if (isWide()) toPanel();   // (the neck in view; then sideways, below)
+  if (focusNotes().length) revealFocus('auto');
+  else if (!isWide()) toPanel();
+  placeStrip();   // (the open strings where the neck now sits, at once)
+}
+
+// A scale group's notes on the neck: each string's first and last
+function groupNotes(g) {
+  return g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean);
 }
 
 /* The chord list's chips, then (after a thin line) the recent chords',
@@ -3518,7 +3556,7 @@ function chipInView(row, smooth) {   // scroll a row of chips sideways so the se
    the top of the dock (or of the open sheet), measured where they actually
    are. The page never scrolls past the top of the neck panel and the margin
    above it (with a capo, past the capo's fret), so the highest position
-   still shows that edge. The same for a scale group (revealGroup). */
+   still shows that edge. The same for a scale group (see revealFocus). */
 function revealShape(notes = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord, .key .note.chord')], behavior = 'smooth') {
   if (!notes.length) return;
   if (isWide()) { revealAcross(notes, behavior); return; }
@@ -3618,34 +3656,37 @@ function placeSettings() {
    screens: rows, the highest string on top), each a semitone up or down at
    a time, within two octaves of standard. A note tuned away from standard is
    in the accent colour, and its string number turns into a button that puts
-   that string back; tapping a note plays it. The neck follows as you
-   tune; landing on a preset (Drop D...) names it and picks it. Done keeps
-   the tuning; Cancel (Escape, a tap outside) puts back the one you had. It
-   starts from the custom tuning, or the one on the neck. */
-let tune = null;   // { before: { tuning, custom }, draft: open string pitches }
+   that string back; tapping a note plays it. Landing on a preset (Drop
+   D...) names it. Nothing changes on the neck (nor in what is saved) until
+   Done, which puts the tuning on the neck (a preset's notes: that preset);
+   Cancel (Escape, a tap outside) leaves the one you had. It starts from the
+   custom tuning, or the one on the neck. */
+let tune = null;   // { draft: open string pitches }
 function openTuneEdit() {
-  const id = state.instrument;
-  tune = { before: { tuning: state.tuning[id], custom: state.custom[id] }, draft: (state.custom[id] || instrument().strings).slice() };
+  tune = { draft: (state.custom[state.instrument] || instrument().strings).slice() };
   tuneSet(tune.draft);
   if (els.tuneEdit.showModal) els.tuneEdit.showModal(); else els.tuneEdit.setAttribute('open', '');
 }
 function tuneSet(strings) {
-  const id = state.instrument;
   tune.draft = strings;
+  keepFocus(renderTuneEdit);   // the + or − just used keeps the focus
+}
+// Done: the tuning on the neck
+function applyTune(strings) {
+  const id = state.instrument;
   const preset = matchTuning(id, strings);
   changeNeck(() => {
     if (preset) {   // a preset's notes (or a saved tuning's): that one
       state.tuning[id] = preset.id;
       // standard (Reset, or tuned back to it): the custom tuning goes back to
       // standard too, nothing kept; another one: it stays as it was
-      if (tune.before.custom && preset.id !== tuningsOf(id)[0].id) state.custom[id] = tune.before.custom; else delete state.custom[id];
+      if (preset.id === tuningsOf(id)[0].id) delete state.custom[id];
     } else {
       state.tuning[id] = 'custom';
       state.custom[id] = strings;
     }
   });
   render();
-  keepFocus(renderTuneEdit);   // the + or − just used keeps the focus
 }
 function tuneStep(s, step) {
   const base = tuningsOf(state.instrument)[0].strings;
@@ -3719,10 +3760,13 @@ function saveTune() {
   const id = state.instrument;
   const strings = tune.draft.slice();
   (state.saved[id] = state.saved[id] || []).push({ name, strings });
-  state.tuning[id] = savedId(strings);
-  // Kept by its name now: the custom tuning goes back to standard
-  delete state.custom[id];
-  closeTuneEdit(true);
+  // Kept by its name now (and on the neck): the custom tuning goes back to standard
+  changeNeck(() => {
+    state.tuning[id] = savedId(strings);
+    delete state.custom[id];
+  });
+  tune = null;
+  closeTuneEdit(false);
   render();
 }
 
@@ -3781,7 +3825,7 @@ function deleteTuning() {
   if (els.picker.open) openTuningMenu();   // the menu, without it
 }
 
-// Done keeps it; Cancel puts back what you had
+// Done puts it on the neck; Cancel leaves what you had
 function closeTuneEdit(keep) {
   const t = tune;
   tune = null;
@@ -3789,13 +3833,7 @@ function closeTuneEdit(keep) {
   if (els.tuneEdit.open) {
     if (els.tuneEdit.close) els.tuneEdit.close(); else els.tuneEdit.removeAttribute('open');
   }
-  if (!t || keep) return;
-  const id = state.instrument;
-  changeNeck(() => {
-    state.tuning[id] = t.before.tuning;
-    if (t.before.custom) state.custom[id] = t.before.custom; else delete state.custom[id];
-  });
-  render();
+  if (t && keep) applyTune(t.draft);
 }
 
 let pickerPick = null;
@@ -4210,9 +4248,9 @@ function openTab(tab) {
     // Once the sheet has slid up, make sure the shape is still visible above
     // it: wait for its own slide animation (or not at all, if it has none)
     const sliding = els.sheet.getAnimations ? els.sheet.getAnimations() : [];
-    Promise.all(sliding.map((a) => a.finished)).then(() => { if (ui.tab) revealShape(); }, () => {});
+    Promise.all(sliding.map((a) => a.finished)).then(() => { if (ui.tab) revealFocus(); }, () => {});
   } else if (wasOpen) {
-    revealShape();   // closed: centre the shape again in the now taller view
+    revealFocus();   // closed: centre it again in the now taller view (the chord, or the group just picked)
   }
 }
 
@@ -5409,7 +5447,9 @@ function init() {
   const chips = [...state.list, ...state.recent];
   // the chord on screen as its chip remembers it (inversion, shape): the chip
   // it was saved as (saved before: its only chip)
-  if (state.chord.on) recallChip(chips.find((r) => sameEntry(r, { root, type, bass: state.chordBass })) || chips.find((r) => r.root === root && r.type === type));
+  // (no bass saved with it: the root, as a link's; saved before chips had
+  // a bass: its only chip, whatever its bass)
+  if (state.chord.on) recallChip(chips.find((r) => sameEntry(r, { root, type, bass: state.chordBass ?? 0 })) || chips.find((r) => r.root === root && r.type === type));
   delete state.chordBass;
   startLink(location.search);   // opened from a shared link
 
@@ -5588,7 +5628,7 @@ function init() {
     scaleOff();
     ui.tab = null;
     render();
-    if (wasOpen) revealShape();
+    if (wasOpen) revealFocus();
   };
 
   // Root and type buttons open the picker popup
