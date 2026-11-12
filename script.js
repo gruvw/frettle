@@ -1004,13 +1004,17 @@ function loadState() {
     }
     const chord = readChord(work.chord);
     if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id } : { on: false, root: chord.root, type: null };
+    s.chordBass = chord && chord.def ? chord.bass : null;   // (which of its chips was on screen: see init)
     const scale = readScale(work.scale);
     if (scale) s.scale = scale.def ? { on: true, root: scale.root, type: scale.def.id } : { on: false, root: scale.root, type: null };
+    // (its bass: saved since chips are told apart by it; as saved before, worked out in init)
     const entry = (e) => {
       const r = e && readChord(e.chord);
-      return r && r.def ? { root: r.root, type: r.def.id, used: Number(e.used) || 0, voicings: readVoicings(e.voicings), shapes: readShapes(e.shapes) } : null;
+      if (!r || !r.def) return null;
+      const bass = Number.isInteger(e.bass) && e.bass >= 0 && e.bass < r.def.steps.length ? e.bass : undefined;
+      return { root: r.root, type: r.def.id, bass, used: Number(e.used) || 0, voicings: readVoicings(e.voicings), shapes: readShapes(e.shapes) };
     };
-    const known = (r) => [...s.list, ...s.recent].some((x) => x.root === r.root && x.type === r.type);
+    const known = (r) => [...s.list, ...s.recent].some((x) => sameEntry(x, r));
     // As saved before there were recent chords, every chord kept was in the
     // list (made as you went): they all stay in it, the lone chord before a
     // list (solo) is the recent one
@@ -1044,7 +1048,8 @@ function loadState() {
 function saveState() {
   const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = state;
   const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
-  const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), voicings: r.voicings, shapes: r.shapes });
+  const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), bass: r.bass, voicings: r.voicings, shapes: r.shapes });
+  const shown = state.chord.on ? currentChord() : null;
   const saved = {
     v: SAVE_VERSION,
     prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded },
@@ -1055,7 +1060,7 @@ function saveState() {
       saved: Object.fromEntries(Object.entries(state.saved).filter(([, list]) => list.length)
         .map(([id, list]) => [id, list.map((t) => ({ name: t.name, tuning: customText(t.strings) }))])),
       capo: state.capo,
-      chord: state.chord.on ? chordText(state.chord.root, findChord(state.chord.type)) : noteToken(plainNote(state.chord.root, state.flats)),
+      chord: shown ? chordBassText(shown.root, shown.def, shown.bassIndex) : noteToken(plainNote(state.chord.root, state.flats)),   // (with its bass: which of its chips it is)
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
       list: state.list.map(entry),
       recent: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
@@ -1088,14 +1093,20 @@ function readPair(text) {
   return root === null ? null : { root, id: m[2] || null };
 }
 const chordText = (root, def) => `${noteToken(chordSpelling(root, def).root)}-${def.id}`;
+// A chord with its bass note when not the root ("C-maj*E", C/E), as chips are told apart
+const chordBassText = (root, def, bass) => chordText(root, def) + (bass ? `*${noteToken(chordSpelling(root, def).notes[bass])}` : '');
 const scaleText = (root, def) => `${noteToken(scaleSpelling(root, def).root)}-${def.id}`;
-// → { root, def (null: none), frets ('' without a shape) }, or null when wrong
+// → { root, def (null: none), frets ('' without a shape), bass (its place
+// in the chord's notes; null: not said) }, or null when wrong
 function readChord(text) {
   const [name, frets = ''] = String(text || '').split('.');
-  const pair = readPair(name);
+  const [pairText, bassText] = name.split('*');
+  const pair = readPair(pairText);
   const def = pair && pair.id && findChord(pair.id);
   if (!pair || (pair.id && (!def || def.id !== pair.id)) || (frets && !FRETS_RE.test(frets))) return null;
-  return { root: pair.root, def: def || null, frets };
+  const pc = def && bassText ? readNote(bassText) : null;
+  const at = pc === null ? -1 : def.steps.findIndex((st) => mod12(pair.root + st) === pc);
+  return { root: pair.root, def: def || null, frets, bass: at >= 0 ? at : null };
 }
 function readScale(text) {   // → { root, def (null: none) }, or null when wrong
   const pair = readPair(text);
@@ -1168,18 +1179,23 @@ function readShapes(value) {
 const NONE = 'none';   // a link's chord or scale: none on the neck it was shared from
 const LINK_KEYS = ['instrument', 'tuning', 'capo', 'voicing', 'chord', 'scale', 'list'];
 const VOICINGS = ['0', '1', '2', '3', '4', '5', 'any'];
-/* A chord of the link, alone or in the list, with the shape on screen (or
-   its chip's), when not the first one and only with the neck */
-function chordToken(root, def, neck) {
-  const entry = chipEntry(root, def.id);
-  const shown = state.chord.on && root === state.chord.root && def.id === state.chord.type;
-  const shapes = !neck ? [] : shown ? currentChord().shapes : listShapes(root, def, chipVoicing(entry, def));
-  const voicing = shown ? currentChord().voicing : chipVoicing(entry, def);
+/* A chord of the link with its shape, when not the first one and only with
+   the neck (a custom shape always: it is not among the shapes found where
+   the link opens). The chord on screen: its shape (its voicing, a link
+   key, says its bass otherwise). A chip of the list: its name, bass and
+   all (D/F♯), and the shape it comes back with (see recallChip). */
+function shapeToken(root, def, { shapes, index, voicing }) {
   const home = homeShape(shapes, root, voicing);
-  const at = shown ? currentChord().index : rememberedShape(entry) ?? home;
-  const shape = shapes[Math.min(at, shapes.length - 1)];
-  // (a custom shape always: it is not among the shapes found where the link opens)
-  return shape && (shapes.indexOf(shape) !== home || shape.drawn) ? `${chordText(root, def)}.${fretsText(shape.frets)}` : chordText(root, def);
+  const shape = shapes[index];
+  return shape && (index !== home || shape.drawn) ? `.${fretsText(shape.frets)}` : '';
+}
+function chordToken(neck) {
+  const ch = currentChord();
+  return chordText(ch.root, ch.def) + (neck ? shapeToken(ch.root, ch.def, ch) : '');
+}
+function listToken(entry, neck) {
+  const def = findChord(entry.type);
+  return chordBassText(entry.root, def, entry.bass) + (neck ? shapeToken(entry.root, def, chipShape(entry)) : '');
 }
 
 /* What the link holds: the neck (instrument, tuning, capo), the chord, the
@@ -1200,9 +1216,9 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   // No chord on the neck: the link says so (loaded, it clears theirs); one
   // left out (its switch off): not in the link (theirs stays). The scale too.
   if (!state.chord.on) p.set('chord', NONE);
-  else if (chord) p.set('chord', chordToken(state.chord.root, findChord(state.chord.type), neck));
+  else if (chord) p.set('chord', chordToken(neck));
   if (recent && state.list.length) {
-    p.set('list', state.list.map((r) => chordToken(r.root, findChord(r.type), neck)).join('_'));
+    p.set('list', state.list.map((r) => listToken(r, neck)).join('_'));
   }
   if (!state.scale.on) p.set('scale', NONE);
   else if (scale) p.set('scale', scaleText(state.scale.root, findScale(state.scale.type)));
@@ -1226,7 +1242,7 @@ function applyLink(search, parts = null, fresh = false) {
   // the link's voicing), as a voicing for this neck; null: none to keep
   const linkInst = p.has('instrument') && readInstrument(p.get('instrument')) ? p.get('instrument') : null;
   const keepBass = (c) => {
-    let bass = /^\d+$/.test(p.get('voicing') || '') ? Number(p.get('voicing')) : null;
+    let bass = Number.isInteger(c.bass) ? c.bass : /^\d+$/.test(p.get('voicing') || '') ? Number(p.get('voicing')) : null;
     if (c.frets && linkInst) {
       const frets = readFrets(c.frets);
       const piano = Boolean(findInstrument(linkInst).piano);
@@ -1286,10 +1302,9 @@ function applyLink(search, parts = null, fresh = false) {
     for (const item of p.get('list').split('_')) {
       const c = readChord(item);
       if (!c || !c.def || list.length >= LIST_MAX) continue;
-      if (list.some((r) => r.root === c.root && r.type === c.def.id)) continue;
       // its shape, for the neck it was shared with (without it, the first),
       // in the voicing that lists it: the link's, the default, or another
-      const entry = { root: c.root, type: c.def.id, shapes: {}, voicings: {} };
+      const entry = newEntry(c.root, c.def.id, Number.isInteger(c.bass) ? c.bass : undefined);
       const tries = [p.get('voicing'), DEFAULT_VOICING[state.instrument], ...VOICINGS].filter((v) => VOICINGS.includes(v));
       const listed = (v) => listShapes(c.root, c.def, voicingFor(c.def, v)).some((shape) => fretsText(shape.frets) === c.frets);
       let voicing = c.frets && neck && tries.find(listed);
@@ -1301,15 +1316,21 @@ function applyLink(search, parts = null, fresh = false) {
       if (voicing) {
         entry.voicings[state.instrument] = voicingFor(c.def, voicing);
         entry.shapes[shapeContext(c.def, voicingFor(c.def, voicing))] = c.frets;
+        entry.bass = bassIndexOf(c.root, c.def, { frets: readFrets(c.frets) });   // (its frets say it)
       } else if (!neck) {   // (on your neck: its bass kept, as for the chord above)
         const bass = keepBass(c);
         if (bass !== null) entry.voicings[state.instrument] = bass;
+        if (bass !== null && entry.bass === undefined) entry.bass = Number(bass);
+      } else if (entry.bass) {   // (no shape: the voicing of its bass)
+        entry.voicings[state.instrument] = voicingFor(c.def, String(entry.bass));
       }
+      if (entry.bass === undefined) entry.bass = legacyBass(entry);   // (a link from before chips had a bass)
+      if (list.some((r) => sameEntry(r, entry))) continue;
       list.push(entry);
     }
     if (list.length) {
       state.list = list;
-      state.recent = state.recent.filter((r) => !list.some((x) => x.root === r.root && x.type === r.type));
+      state.recent = state.recent.filter((r) => !list.some((x) => sameEntry(x, r)));
     }
   }
   if (!linkChord) recallChip();   // your own chord, as its chip remembers it
@@ -1354,11 +1375,11 @@ function linkPreview(search, has) {
     if (has.recent && !state.list.length) has.recent = false;   // no list in the link after all
     // Yours goes if you have one and the link's differs (a neck, you always have)
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    const chords = (s) => s.list.map((r) => [r.root, r.type]);
+    const chords = (s) => s.list.map((r) => [r.root, r.type, r.bass]);
     const loses = (has.neck && setupText() !== mySetup)
       || (has.chord && mine.chord.on && !same(mine.chord, state.chord))
       || (has.scale && mine.scale.on && !same(mine.scale, state.scale))
-      || (has.recent && chords(mine).some(([root, type]) => !state.list.some((r) => r.root === root && r.type === type)));   // a chord of yours it drops
+      || (has.recent && chords(mine).some(([root, type, bass]) => !state.list.some((r) => sameEntry(r, { root, type, bass }))));   // a chord of yours it drops
     return {
       setup: has.neck ? setupText() : null,
       setupParts: has.neck ? setupParts() : null,
@@ -1747,6 +1768,10 @@ function updateChord(patch) {   // a chord picked from the menus (or a triad): i
    thing you do is pick a type, that edits it. Anything else (another root,
    strumming or tapping its notes, a shape, a chip, a triad, the +) makes it
    final. Picking only a type always makes a new one.
+   A chip is a chord and its bass note: D and D/F♯ are two chips. A shape
+   or voicing with another bass lights that one's chip if there is one;
+   else the recent chip on screen takes the new bass (renamed), while a
+   list chip stays as it is and the chord gets a new recent chip.
    Each chip remembers the shape you chose for it, per instrument, tuning,
    capo and voicing (`shapes`): tapping the chip, or coming back to this
    instrument, brings that shape back. Picking the chord from the menus starts
@@ -1805,21 +1830,19 @@ function chordName(root, def, bassIndex = 0) {
   const spell = chordSpelling(root, def);
   return noteText(spell.root) + def.symbol + (bassIndex ? `/${noteText(spell.notes[bassIndex])}` : '');
 }
-/* A chord of the list (or a recent one), named as it shows on this neck:
-   the chord on screen as it is; any other as it comes back when picked
-   (the voicing and shape it was last used with here, or the default) */
-function entrySymbol(r) {
+// A chord of the list (or a recent one), named with its bass note: C, C/E
+const entrySymbol = (r) => chordName(r.root, findChord(r.type), r.bass);
+/* The bass of a chip saved before chips had one: as it showed then, on
+   this neck (the voicing and shape it was last used with here, or the
+   default) */
+function legacyBass(r) {
   const def = findChord(r.type);
-  if (state.chord.on && r.root === state.chord.root && r.type === state.chord.type) {
-    const ch = currentChord();
-    if (ch) return ch.symbol;
-  }
   const voicing = voicingFor(def, (r.voicings && r.voicings[state.instrument]) || DEFAULT_VOICING[state.instrument]);
   const shapes = listShapes(r.root, def, voicing);
   const frets = r.shapes && r.shapes[shapeContext(def, voicing)];
   const at = frets ? shapes.findIndex((x) => fretsText(x.frets) === frets) : -1;
   const shape = shapes[at >= 0 ? at : homeShape(shapes, r.root, voicing)];
-  return chordName(r.root, def, bassIndexOf(r.root, def, shape));
+  return shape ? bassIndexOf(r.root, def, shape) : /^\d+$/.test(voicing) ? Number(voicing) : 0;
 }
 
 /* A shape in words. Strings: its tab ("x 3 2 0 1 0", "x32010") and its
@@ -1862,9 +1885,14 @@ function listShapes(root, def, voicing = voicingFor(def)) {
   const at = shapes.length ? (after < 0 ? shapes.length : after) : 0;
   return [...shapes.slice(0, at), shape, ...shapes.slice(at)];
 }
-// A chord's chip, in the list or the recent chords
-const chipEntry = (root, type) => [...state.list, ...state.recent].find((r) => r.root === root && r.type === type) || null;
-const recentEntry = () => (state.chord.on ? chipEntry(state.chord.root, state.chord.type) : null);   // the chord on screen's
+/* A chord's chip, in the list or the recent chords: a chord and its bass
+   note (D and D/F♯ are two chips, each named so), its shapes and voicings
+   remembered for each neck */
+const newEntry = (root, type, bass) => ({ root, type, bass, shapes: {}, voicings: {} });
+const sameEntry = (a, b) => a.root === b.root && a.type === b.type && a.bass === b.bass;
+const chipEntry = (root, type, bass) => [...state.list, ...state.recent].find((r) => sameEntry(r, { root, type, bass })) || null;
+const shownBass = () => (state.chord.on ? currentChord().bassIndex : null);   // the chord on screen's bass (its shape's, or its voicing's)
+const recentEntry = () => (state.chord.on ? chipEntry(state.chord.root, state.chord.type, shownBass()) : null);   // the chord on screen's
 
 // A chord into the recent ones, first; past RECENT_KEEP the one unused longest goes
 function addRecent(entry) {
@@ -1889,10 +1917,10 @@ function shownRecent() {
 /* The shape a chip remembers for the chord on screen, here and now (or the
    first): kept as its frets, so it stays the same shape even if the shape
    list changes */
-function rememberedShape(entry = recentEntry()) {
+function rememberedShape(entry = recentEntry(), voicing = null) {
   if (!entry) return null;
   const def = findChord(entry.type);
-  const voicing = chipVoicing(entry, def);
+  voicing = voicing || chipVoicing(entry, def);
   const frets = entry.shapes && entry.shapes[shapeContext(def, voicing)];
   const at = frets ? listShapes(entry.root, def, voicing).findIndex((shape) => fretsText(shape.frets) === frets) : -1;
   return at < 0 ? null : at;   // (none: the home shape)
@@ -1903,12 +1931,33 @@ function chipVoicing(entry, def) {
   return voicingFor(def, v || state.voicing[state.instrument]);
 }
 // A chip's chord back on screen: its voicing (or, with fallback, the
-// default), then its shape
-function recallChip(entry = recentEntry(), fallback = false) {
+// default), then its shape; its bass whatever those give (its name says
+// it: D/F♯ comes back as D/F♯, in that voicing if need be, shape or none;
+// with onlyPlayable, only where this neck has a shape for it)
+function recallChip(entry = recentEntry(), fallback = false, onlyPlayable = false) {
   if (!entry) return;
   const v = entry.voicings && entry.voicings[state.instrument];
   if (v || fallback) state.voicing[state.instrument] = v || DEFAULT_VOICING[state.instrument];
   state.shape = rememberedShape(entry);
+  const ch = state.chord.on ? currentChord() : null;
+  if (!ch || entry.bass === undefined || ch.bassIndex === entry.bass) return;
+  const want = String(entry.bass);
+  if (onlyPlayable && !listShapes(ch.root, ch.def, voicingFor(ch.def, want)).length) return;
+  state.voicing[state.instrument] = want;
+  state.shape = rememberedShape(entry, voicingFor(ch.def, want));
+}
+// Where a chip's chord comes back, worked out as recallChip does without
+// putting it on screen: { voicing, shapes, index } (-1: no shape)
+function chipShape(entry) {
+  const def = findChord(entry.type);
+  const at = (voicing) => {
+    const shapes = listShapes(entry.root, def, voicing);
+    return { voicing, shapes, index: shapes.length ? rememberedShape(entry, voicing) ?? homeShape(shapes, entry.root, voicing) : -1 };
+  };
+  const got = at(chipVoicing(entry, def));
+  const shape = got.shapes[got.index];
+  const bass = shape ? bassIndexOf(entry.root, def, shape) : /^\d+$/.test(got.voicing) ? Number(got.voicing) : 0;
+  return entry.bass === undefined || bass === entry.bass ? got : at(voicingFor(def, String(entry.bass)));
 }
 /* The neck changes (another instrument, tuning or capo): the chord on
    screen keeps its name, bass note and all (Bdim/F stays Bdim/F on the
@@ -1917,9 +1966,10 @@ function recallChip(entry = recentEntry(), fallback = false) {
 function changeNeck(change) {
   const before = currentChord();
   const bass = before && before.shape ? before.bassIndex : null;
+  const entry = recentEntry();   // (its chip: the same chip after, where the new neck can play its bass)
   change();
   state.shape = null;
-  recallChip();
+  recallChip(entry || recentEntry(), false, true);
   if (bass === null) return;
   const now = currentChord();
   if (!now || (now.shape && now.bassIndex === bass)) return;
@@ -1946,35 +1996,41 @@ function rememberShape(entry = recentEntry()) {
    must go through updateChord (menus), playChip (chips) or set those flags,
    or it will count as a plain new chord. */
 function trackChord() {
-  const key = state.chord.on ? `${state.chord.root}:${state.chord.type}` : '';
+  const bass = shownBass();
+  const key = state.chord.on ? `${state.chord.root}:${state.chord.type}:${bass}` : '';
   const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
   const setup = [state.instrument, instrument().strings, capo()].join('|');
   if (!shownChord || shownChord.setup !== setup) openEntry = null;   // a new instrument, tuning or capo: final
   const how = menuPick;
   const changed = sameInst && (shownChord.key !== key || how !== '');
   const fromChip = chipPick;
-  const first = shownChord === undefined;
+  const prev = shownChord && shownChord.entry;
   menuPick = '';
   chipPick = false;
-  shownChord = { inst: state.instrument, key, setup };
-  // The chord the page opens on (saved, or a link's) has its chip too
-  if (first && state.chord.on && !recentEntry()) addRecent({ root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} });
-  if (!changed || !state.chord.on) return;
+  shownChord = { inst: state.instrument, key, setup, entry: recentEntry() };
+  if (!state.chord.on) return;
+  if (!changed) {
+    // The chord on screen always has its chip: the one the page opens on
+    // (saved, or a link's), or one whose bass another neck can't play
+    if (!shownChord.entry) addRecent(shownChord.entry = newEntry(state.chord.root, state.chord.type, bass));
+    return;
+  }
   const open = how === 'type' && openEntry && state.recent.includes(openEntry) ? openEntry : null;
   openEntry = null;
-  let entry = recentEntry();
+  let entry = shownChord.entry;
   if (!entry && open) {                // root, then type: the same chip, edited
-    open.root = state.chord.root;
-    open.type = state.chord.type;
-    open.shapes = {};
-    open.voicings = {};
+    Object.assign(open, newEntry(state.chord.root, state.chord.type, bass));
     entry = open;
-  } else if (!entry) {                 // a new chord: a new recent chip
-    entry = { root: state.chord.root, type: state.chord.type, shapes: {}, voicings: {} };
+  } else if (!entry && prev && state.recent.includes(prev) && prev.root === state.chord.root && prev.type === state.chord.type) {
+    prev.bass = bass;                  // the same chord, another bass (a shape, a voicing): its recent chip, renamed
+    entry = prev;
+  } else if (!entry) {                 // a new chord (or a list chip's, with another bass): a new recent chip
+    entry = newEntry(state.chord.root, state.chord.type, bass);
     if (how === 'root') openEntry = entry;   // the next type pick may still edit it
   } else if (open && open !== entry) { // root, then type, landing on a chord already there
     state.recent.splice(state.recent.indexOf(open), 1);
   }
+  shownChord.entry = entry;
   // Not in the list: one of the recent chords, first when new (a recent
   // chip tapped stays where it is)
   if (!state.list.includes(entry)) addRecent(entry);
@@ -3170,14 +3226,15 @@ function renderRecent() {
   updateQuickBar();
   if (!show) { els.dockRecentList.innerHTML = els.recentList.innerHTML = ''; ui.chipKey = ''; return; }
   const full = state.list.length >= LIST_MAX;
+  const shown = recentEntry();
   const chip = (r, i, pinned) => {
     const def = findChord(r.type);
     const spell = chordSpelling(r.root, def);
-    const on = state.chord.on && r.root === state.chord.root && r.type === state.chord.type;
+    const on = r === shown;
     const name = entrySymbol(r);
     const cls = `${pinned ? 'pinned' : 'trail'}${on ? ' on' : ''}${!pinned && full ? ' bare' : ''}`;
     const tap = `<button type="button" class="chip recent${on ? ' selected' : ''}" ${pinned ? 'data-i' : 'data-r'}="${i}" aria-pressed="${on}" ` +
-      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${pinned ? '' : ', recent'}`)}"><span class="tx">${esc(name)}</span></button>`;
+      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${r.bass ? `, ${INVERSION_NAMES[r.bass].toLowerCase()}` : ''}${pinned ? '' : ', recent'}`)}"><span class="tx">${esc(name)}</span></button>`;
     // A recent chip: its dashed edge (drawn, for dashes longer than a
     // browser's dashed line) and its + (none while the list is full)
     const side = pinned
@@ -3899,29 +3956,49 @@ function setupSheetDrag() {
 
 /* Phones: a swipe on the dock does not scroll the page under it; only
    something in the dock that can scroll that way does (a row of chips
-   sideways, an open panel up and down). The first move of the touch is
-   cancelled, so the browser never starts a scroll (touch-action: none, on
-   the other hand, still starts an unseen glide, and the next tap is lost
-   stopping it). */
+   sideways, an open panel up and down), and only while it has room left
+   that way. The first move of the touch is cancelled, so the browser never
+   starts a scroll (touch-action: none, on the other hand, still starts an
+   unseen glide, and the next tap is lost stopping it).
+   What scrolls is what is under the finger's point, which near an edge is
+   not always the touch's target (a finger is wider than a point: touching
+   the bar right under an open panel can target the panel), so both must
+   be in the same scroller, else the page under the dock would scroll. */
 function setupDockTouch() {
   const dock = document.getElementById('dock');
   let x0 = 0;
   let y0 = 0;
-  const scrolls = (el, sideways) => {
+  let under = null;   // what is under the finger's point
+  const scroller = (el, sideways) => {
     for (; el && el !== dock.parentElement; el = el.parentElement) {
       const style = getComputedStyle(el);
       const overflow = sideways ? style.overflowX : style.overflowY;
       const room = sideways ? el.scrollWidth > el.clientWidth : el.scrollHeight > el.clientHeight;
-      if (room && (overflow === 'auto' || overflow === 'scroll')) return true;
+      if (room && (overflow === 'auto' || overflow === 'scroll')) return el;
     }
-    return false;
+    return null;
   };
-  dock.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  // Room left in the way the finger goes (a finger going up scrolls down)
+  const hasRoom = (el, sideways, d) => {
+    const at = sideways ? el.scrollLeft : el.scrollTop;
+    const end = sideways ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+    const pos = Math.abs(at);   // (right to left: scrollLeft goes negative)
+    return d < 0 ? pos < end - 1 : pos > 1;
+  };
+  dock.addEventListener('touchstart', (e) => {
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+    under = document.elementFromPoint(x0, y0);
+  }, { passive: true });
   dock.addEventListener('touchmove', (e) => {
     if (!e.cancelable || isWide()) return;   // (a scroll already under way: its own; wide screens: the dock is part of the page)
     const t = e.touches[0];
-    const sideways = Math.abs(t.clientX - x0) > Math.abs(t.clientY - y0);
-    if (e.touches.length > 1 || !scrolls(e.target, sideways)) e.preventDefault();
+    const dx = t.clientX - x0;
+    const dy = t.clientY - y0;
+    const sideways = Math.abs(dx) > Math.abs(dy);
+    const el = scroller(e.target, sideways);
+    const ok = el && dock.contains(under) && scroller(under, sideways) === el && hasRoom(el, sideways, sideways ? dx : dy);
+    if (e.touches.length > 1 || !ok) e.preventDefault();
   }, { passive: false });
 }
 
@@ -5129,7 +5206,13 @@ function init() {
   els.sheetPanels = [...els.sheet.querySelectorAll('.panel[data-tab]')];
   state = loadState();
   ui.chordRoot = state.chord.root;   // (as saved: a scale root picked while no scale shows stays, see draw)
-  recallChip();                 // the chord on screen as its chip remembers it (voicing, shape)
+  for (const r of [...state.list, ...state.recent]) if (r.bass === undefined) r.bass = legacyBass(r);   // (saved before chips had a bass)
+  const { root, type } = state.chord;
+  const chips = [...state.list, ...state.recent];
+  // the chord on screen as its chip remembers it (voicing, shape): the chip
+  // it was saved as (saved before: its only chip)
+  if (state.chord.on) recallChip(chips.find((r) => sameEntry(r, { root, type, bass: state.chordBass })) || chips.find((r) => r.root === root && r.type === type));
+  delete state.chordBass;
   startLink(location.search);   // opened from a shared link
 
   // Instrument and tuning: popups, each tile showing the open strings
