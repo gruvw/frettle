@@ -155,7 +155,7 @@
 
         <section class="panel" id="panelChord" data-tab="chord" aria-label="Chord">
           <div class="panel-head">
-            <h2 class="theory-title"><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span></h2>
+            <h2 class="theory-title"><button type="button" class="panel-fold wide-only" aria-expanded="true" aria-controls="panelChord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span><span class="fold-value" hidden></span></h2>
             <span id="shapeCount" class="status chord-count" hidden></span>
             <!-- The panel's switches: at the end of its title row on wide
                  screens, under the menus on phones (script.js moves them).
@@ -222,7 +222,7 @@
 
         <section class="panel" id="panelScale" data-tab="scale" aria-label="Scale">
           <div class="panel-head">
-            <h2 class="theory-title"><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span></h2>
+            <h2 class="theory-title"><button type="button" class="panel-fold wide-only" aria-expanded="true" aria-controls="panelScale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span><span class="fold-value" hidden></span></h2>
             <div class="switch-row">
               <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
                       title="Hide the notes that are not in the scale">
@@ -333,7 +333,7 @@
           <span id="tabScaleValue" class="tab-value"></span>
         </button>
         <button type="button" class="tab" data-tab="neck" aria-pressed="false">
-          <span class="tab-label">Neck</span>
+          <span class="tab-label"><span class="tx">Neck</span></span>
           <span id="tabNeckValue" class="tab-value"></span>
         </button>
       </nav>

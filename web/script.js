@@ -943,7 +943,8 @@ function defaultState() {
     voicing: { ...DEFAULT_VOICING },  // per instrument, this visit only
     shape: null,                      // index in the shape list, this visit only (null: the chord's home shape, homeShape)
     scale: { on: true, root: 0, type: 'major' },   // off: type null (see scaleOff)
-    share: { neck: true, chord: true, scale: true, list: true },   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
+    share: { neck: true, chord: true, scale: true, list: true },
+    folded: { chord: false, scale: false },   // wide screens: a panel folded to its title row   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
   };
 }
 
@@ -964,6 +965,9 @@ function loadState() {
     }
     for (const k of Object.keys(s.share)) {
       if (prefs.share && typeof prefs.share[k] === 'boolean') s.share[k] = prefs.share[k];
+    }
+    for (const k of Object.keys(s.folded)) {
+      if (prefs.folded && typeof prefs.folded[k] === 'boolean') s.folded[k] = prefs.folded[k];
     }
     if (readInstrument(work.instrument)) s.instrument = work.instrument;
     for (const { id } of INSTRUMENTS) {
@@ -1027,12 +1031,12 @@ function loadState() {
 }
 
 function saveState() {
-  const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share } = state;
+  const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = state;
   const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
   const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), voicings: r.voicings, shapes: r.shapes });
   const saved = {
     v: SAVE_VERSION,
-    prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share },
+    prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded },
     work: {
       instrument: state.instrument,
       tuning: state.tuning,
@@ -1199,13 +1203,36 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
    (parts: { neck, chord, scale, recent }): what is not taken stays as it
    was. A chord or scale left out of the link stays as it was too; "none"
    takes it off. Without the neck (instrument, tuning, capo), the chords come on your
-   neck, on their first shapes (the link's shapes are for its neck).
-   Returns false for an address without a link. */
+   neck, on their first shapes (the link's shapes are for its neck), with
+   the same bass note (C/E stays C/E, on a piano too) where your neck has a
+   shape for it. Returns false for an address without a link. */
 function applyLink(search, parts = null, fresh = false) {
   const p = new URLSearchParams(search);
   if (!LINK_KEYS.some((k) => p.has(k))) return false;
   const take = (k) => !parts || parts[k];
   const neck = take('neck') && p.has('instrument');   // (a link can leave the neck out)
+  // A chord's bass on the link's own neck (its shape's lowest note; else
+  // the link's voicing), as a voicing for this neck; null: none to keep
+  const linkInst = p.has('instrument') && readInstrument(p.get('instrument')) ? p.get('instrument') : null;
+  const keepBass = (c) => {
+    let bass = /^\d+$/.test(p.get('voicing') || '') ? Number(p.get('voicing')) : null;
+    if (c.frets && linkInst) {
+      const frets = readFrets(c.frets);
+      const piano = Boolean(findInstrument(linkInst).piano);
+      const tuned = tuningsOf(linkInst).find((t) => t.id === readTuning(linkInst, p.get('tuning')));
+      const strings = piano ? [] : readCustom(linkInst, p.get('tuning')) || (tuned || tuningsOf(linkInst)[0]).strings;
+      const lift = piano ? PIANO_LOW : readCapo(p.get('capo') || 0, linkInst) || 0;
+      const notes = piano ? frets.map((k) => lift + k) : frets.map((f, i) => (f < 0 || strings[i] === undefined ? null : strings[i] + lift + f)).filter((m) => m !== null);
+      if (notes.length) {
+        const low = mod12(Math.min(...notes));
+        const i = c.def.steps.findIndex((st) => mod12(c.root + st) === low);
+        if (i >= 0) bass = i;
+      }
+    }
+    if (bass === null) return null;
+    const want = String(bass);
+    return voicingFor(c.def, want) === want && listShapes(c.root, c.def, want).length ? want : null;
+  };
   // A link without an instrument (written by hand) shows on yours, as you tuned it
   if (neck && readInstrument(p.get('instrument'))) {
     state.instrument = p.get('instrument');
@@ -1223,6 +1250,9 @@ function applyLink(search, parts = null, fresh = false) {
   else if (take('chord') && (fresh || p.get('chord') === NONE)) chordOff();
   if (neck && linkChord) {
     state.voicing[state.instrument] = VOICINGS.includes(p.get('voicing')) ? p.get('voicing') : DEFAULT_VOICING[state.instrument];
+  } else if (linkChord) {
+    const bass = keepBass(chord);
+    if (bass !== null) state.voicing[state.instrument] = bass;
   }
   const scale = readScale(p.get('scale'));
   if (take('scale') && scale && scale.def) state.scale = { on: true, root: scale.root, type: scale.def.id };
@@ -1260,6 +1290,9 @@ function applyLink(search, parts = null, fresh = false) {
       if (voicing) {
         entry.voicings[state.instrument] = voicingFor(c.def, voicing);
         entry.shapes[shapeContext(c.def, voicingFor(c.def, voicing))] = c.frets;
+      } else if (!neck) {   // (on your neck: its bass kept, as for the chord above)
+        const bass = keepBass(c);
+        if (bass !== null) entry.voicings[state.instrument] = bass;
       }
       list.push(entry);
     }
@@ -1465,10 +1498,7 @@ function linkSummary({ neck = true, chord = true, scale = true, recent = false }
   const on = neck ? ` on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}` : '';
   return `${[what, list].filter(Boolean).join(', ') || 'The neck'}${(what || list) && on ? ',' : ''}${on}`;
 }
-const listNames = () => state.list.map((r) => {
-  const def = findChord(r.type);
-  return noteText(chordSpelling(r.root, def).root) + def.symbol;
-});
+const listNames = () => state.list.map(entrySymbol);
 
 /* Share: a popup shows what is on the neck, one row per part that is set
    (the neck, the chord, the chord list, the scale), each switched in or out of the
@@ -1646,13 +1676,15 @@ function currentChord() {
   }
   const { shapes, home } = shapeCache;
   const index = shapes.length ? Math.min(state.shape ?? home, shapes.length - 1) : -1;   // (none picked: its home shape)
+  const shape = shapes[index] || null;
+  // Its bass: the shape's lowest note (no shape: the voicing's)
+  const bassIndex = shape ? bassIndexOf(root, def, shape) : /^\d+$/.test(voicing) ? Number(voicing) : 0;
   return {
-    def, root, voicing, tones, shapes, index, home,
-    shape: shapes[index] || null,
+    def, root, voicing, tones, shapes, index, home, shape, bassIndex,
     degOfPc: new Map(tones.map((t) => [t.pc, t.deg])),
     spell,
     rootName: noteText(spell.root),
-    symbol: noteText(spell.root) + def.symbol,
+    symbol: chordName(root, def, bassIndex),   // ("C/E": see chordName)
   };
 }
 
@@ -1746,6 +1778,39 @@ const shapeMidis = (frets) => {
   if (inst.piano) return frets.map((k) => PIANO_LOW + k);
   return frets.map((f, s) => (f < 0 ? null : inst.strings[s] + f)).filter((m) => m !== null);
 };
+/* A chord's name, the way it is written everywhere (chips, panels, links,
+   Name a chord): its symbol, and after a slash its bass note when that is
+   not the root ("C/E": C major, 1st inversion). The bass is the shape's
+   lowest note, as the chord tone it is (bassIndex: 0 the root, 1 the 2nd
+   note of the chord's formula...). */
+function bassIndexOf(root, def, shape) {
+  const notes = shape ? shapeMidis(shape.frets) : [];
+  if (!notes.length) return 0;
+  const low = mod12(Math.min(...notes));
+  const i = def.steps.findIndex((st) => mod12(root + st) === low);
+  return Math.max(0, i);
+}
+function chordName(root, def, bassIndex = 0) {
+  const spell = chordSpelling(root, def);
+  return noteText(spell.root) + def.symbol + (bassIndex ? `/${noteText(spell.notes[bassIndex])}` : '');
+}
+/* A chord of the list (or a recent one), named as it shows on this neck:
+   the chord on screen as it is; any other as it comes back when picked
+   (the voicing and shape it was last used with here, or the default) */
+function entrySymbol(r) {
+  const def = findChord(r.type);
+  if (state.chord.on && r.root === state.chord.root && r.type === state.chord.type) {
+    const ch = currentChord();
+    if (ch) return ch.symbol;
+  }
+  const voicing = voicingFor(def, (r.voicings && r.voicings[state.instrument]) || DEFAULT_VOICING[state.instrument]);
+  const shapes = listShapes(r.root, def, voicing);
+  const frets = r.shapes && r.shapes[shapeContext(def, voicing)];
+  const at = frets ? shapes.findIndex((x) => fretsText(x.frets) === frets) : -1;
+  const shape = shapes[at >= 0 ? at : homeShape(shapes, r.root, voicing)];
+  return chordName(r.root, def, bassIndexOf(r.root, def, shape));
+}
+
 /* A shape in words. Strings: its tab ("x 3 2 0 1 0", "x32010") and its
    place ("fret 3"). The piano: its notes, low to high, as the chord on
    screen spells them ("C4 E4 G4"), and its lowest one ("C4"). */
@@ -1833,6 +1898,24 @@ function recallChip(entry = recentEntry(), fallback = false) {
   const v = entry.voicings && entry.voicings[state.instrument];
   if (v || fallback) state.voicing[state.instrument] = v || DEFAULT_VOICING[state.instrument];
   state.shape = rememberedShape(entry);
+}
+/* The neck changes (another instrument, tuning or capo): the chord on
+   screen keeps its name, bass note and all (Bdim/F stays Bdim/F on the
+   guitar). Its chip's shape there if that has the same bass, else the
+   first shape with it; if the new neck has none, as its chip remembers. */
+function changeNeck(change) {
+  const before = currentChord();
+  const bass = before && before.shape ? before.bassIndex : null;
+  change();
+  state.shape = null;
+  recallChip();
+  if (bass === null) return;
+  const now = currentChord();
+  if (!now || (now.shape && now.bassIndex === bass)) return;
+  const want = String(bass);
+  if (voicingFor(now.def, want) !== want || !listShapes(now.root, now.def, want).length) return;
+  state.voicing[state.instrument] = want;
+  state.shape = null;
 }
 function rememberShape(entry = recentEntry()) {
   const ch = currentChord();
@@ -2124,10 +2207,7 @@ function setupChipDrag(row) {
    goes with them. A list of more than two chords is asked about first. */
 function askClearRecent() {
   if (state.list.length <= 2) { clearRecent(); return; }
-  const names = state.list.map((r) => {
-    const def = findChord(r.type);
-    return noteText(chordSpelling(r.root, def).root) + def.symbol;
-  });
+  const names = state.list.map(entrySymbol);
   els.listClearCount.textContent = `${names.length} chords`;
   els.listClearNames.innerHTML = lkValue(names, 'win');   // chips, as in the share popup
   els.listClearRecent.hidden = !shownRecent().length;
@@ -2454,7 +2534,10 @@ function pianoSamples(midi, sr) {
   const early = Math.floor(sr * 0.3);
   let power = 0;
   for (let i = 0; i < early; i++) power += data[i] * data[i];
-  const gain = (0.115 * (1 - 0.3 * x)) / (Math.sqrt(power / early) || 1);   // (as loud as a plucked note)
+  // (as loud to the ear as a plucked note at the same pitch, measured
+  // through the app's sound path: the low notes need the most help)
+  const level = 10 ** (Math.min(5.2, Math.max(0.4, 5.2 - 0.13 * (midi - 40))) / 20);
+  const gain = (0.115 * (1 - 0.3 * x) * level) / (Math.sqrt(power / early) || 1);
   const rise = sr * 0.002;
   const fade = sr * 0.4;
   for (let i = 0; i < len; i++) data[i] *= gain * Math.min(1, i / rise, (len - i) / fade);
@@ -2695,7 +2778,7 @@ function strumFrets(frets) {
   const inst = instrument();
   if (inst.piano) {   // the keys together, rolled a little, low to high
     frets.forEach((k, i) => {
-      playNote(PIANO_LOW + k, i * ROLL_GAP, 0.4);
+      playNote(PIANO_LOW + k, i * ROLL_GAP, 0.6);   // (louder than a strum's notes: a piano chord has fewer, as loud in all)
       flashKey(k, i * ROLL_GAP);
     });
     return;
@@ -2735,10 +2818,7 @@ function namerReadings() {
   return nameChord(shapeMidis(naming.frets), sc && sc.def.steps.length < 12 ? sc.set : null);
 }
 const ORDINALS = { 5: '5th', 9: '9th' };
-function readingSymbol(r) {
-  const spell = chordSpelling(r.root, r.def);
-  return noteText(spell.root) + r.def.symbol + (r.bassIndex ? `/${noteText(spell.notes[r.bassIndex])}` : '');
-}
+const readingSymbol = (r) => chordName(r.root, r.def, r.bassIndex);
 // The notes placed, drawn on the neck like a chord's shape: with the
 // intervals of the name picked (none: no name yet)
 function namerChord() {
@@ -2833,23 +2913,28 @@ function renderNamer() {
   els.namerPlay.disabled = els.namerClear.disabled = !notes.length;
   els.namerPrev.disabled = els.namerNext.disabled = readings.length < 2;
   els.namerMute.setAttribute('aria-pressed', String(Boolean(state.muteTaps)));
-  /* Beside the name: its number and the note in the bass; what the name
-     means on its own line above (phones), or under them (wide screens). No
-     tab: the neck shows the shape. */
+  /* What the name (its symbol, the bass after a slash: "C/E") means in
+     words ("C major, 1st inversion", as the chord panel says it; some run
+     long): on phones on its own line above, the whole width; on wide
+     screens under its number, beside the name. Phones, beside the name:
+     its number ("Name 1/3", with more than one) over the notes placed,
+     bass to top (wide screens have the neck right there), fitted as the
+     steppers' (fitInfo). No tab: the neck shows the shape. */
   const wide = isWide();
   let caption = '';
   if (r) {
     const spell = chordSpelling(r.root, r.def);
     const missing = r.missing.length ? `, no ${r.missing.map((d) => ORDINALS[d]).join(' or ')}` : '';
-    const meaning = `${noteText(spell.root)} ${r.def.name.toLowerCase()}${missing}`;
-    const bass = `${noteText(spell.notes[r.bassIndex])} in bass`;
+    const inversion = r.bassIndex ? `, ${INVERSION_NAMES[r.bassIndex].toLowerCase()}` : '';
+    const meaning = `${noteText(spell.root)} ${r.def.name.toLowerCase()}${inversion}${missing}`;
     const count = readings.length > 1 ? `Name ${naming.pick + 1}/${readings.length}` : '';
-    const top = wide ? [count, bass].filter(Boolean).join(', ') : count;
-    const main = wide ? meaning : bass;
     els.namerSymbol.innerHTML = tx(readingSymbol(r));
     els.namerSymbol.title = readingSymbol(r);
-    els.namerText.innerHTML = (top ? `<span class="dock-count">${esc(top)}</span>` : '')
-      + `<span class="namer-main" title="${esc(main)}">${esc(main)}</span>`;
+    const names = [...notes].sort((a, b) => a - b).map((m) => noteText(spell.names.get(mod12(m)) || plainNote(m, state.flats))).join(' ');
+    const main = wide ? meaning : names;
+    const counts = readings.length > 1 ? fitsAttr([count, `${naming.pick + 1}/${readings.length}`]) : '';
+    els.namerText.innerHTML = (count ? `<span class="dock-count" ${counts}>${esc(count)}</span>` : '')
+      + `<span class="dock-main namer-main${wide ? '' : ' namer-notes'}" title="${esc(wide ? meaning : `Notes, bass to top: ${names}`)}">${esc(main)}</span>`;
     caption = wide ? '' : meaning;
   } else {
     els.namerSymbol.innerHTML = '';
@@ -2859,10 +2944,8 @@ function renderNamer() {
   }
   els.namerCaption.textContent = caption;
   els.namerCaption.title = caption;
-  const main = els.namerText.querySelector('.namer-main');
-  if (wide && main) fitText(main, 12);
   if (!wide) fitText(els.namerCaption, 11);
-  fitText(els.namerSymbol, 11);
+  fitInfo(els.namerSymbol.parentElement);
 }
 
 /* Play the group shown, low to high, lighting each note on the neck.
@@ -3019,6 +3102,7 @@ function draw() {
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
   renderDock(ch, sc);
+  renderFolds(ch, sc);
   saveState();
   clearLink();
   // When the shape changes, scroll the neck so it is in view (phones: the
@@ -3050,6 +3134,7 @@ function refocus() {
   else if (ui.groups[ui.group]) revealGroup('auto');
   else if (instrument().piano) revealShape([els.neck.querySelector(`.key[data-key="${60 - PIANO_LOW}"]`)], 'auto');
   else if (!isWide()) toPanel();
+  placeStrip();   // (the open strings where the neck now sits, at once)
 }
 
 function revealGroup(behavior) {
@@ -3076,7 +3161,7 @@ function renderRecent() {
     const def = findChord(r.type);
     const spell = chordSpelling(r.root, def);
     const on = state.chord.on && r.root === state.chord.root && r.type === state.chord.type;
-    const name = noteText(spell.root) + def.symbol;
+    const name = entrySymbol(r);
     const cls = `${pinned ? 'pinned' : 'trail'}${on ? ' on' : ''}${!pinned && full ? ' bare' : ''}`;
     const tap = `<button type="button" class="chip recent${on ? ' selected' : ''}" ${pinned ? 'data-i' : 'data-r'}="${i}" aria-pressed="${on}" ` +
       `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${pinned ? '' : ', recent'}`)}"><span class="tx">${esc(name)}</span></button>`;
@@ -3273,17 +3358,17 @@ function tuneSet(strings) {
   const id = state.instrument;
   tune.draft = strings;
   const preset = matchTuning(id, strings);
-  if (preset) {   // a preset's notes (or a saved tuning's): that one
-    state.tuning[id] = preset.id;
-    // standard (Reset, or tuned back to it): the custom tuning goes back to
-    // standard too, nothing kept; another one: it stays as it was
-    if (tune.before.custom && preset.id !== tuningsOf(id)[0].id) state.custom[id] = tune.before.custom; else delete state.custom[id];
-  } else {
-    state.tuning[id] = 'custom';
-    state.custom[id] = strings;
-  }
-  state.shape = null;
-  recallChip();
+  changeNeck(() => {
+    if (preset) {   // a preset's notes (or a saved tuning's): that one
+      state.tuning[id] = preset.id;
+      // standard (Reset, or tuned back to it): the custom tuning goes back to
+      // standard too, nothing kept; another one: it stays as it was
+      if (tune.before.custom && preset.id !== tuningsOf(id)[0].id) state.custom[id] = tune.before.custom; else delete state.custom[id];
+    } else {
+      state.tuning[id] = 'custom';
+      state.custom[id] = strings;
+    }
+  });
   render();
   keepFocus(renderTuneEdit);   // the + or − just used keeps the focus
 }
@@ -3384,7 +3469,8 @@ function openTuningMenu() {
     ],
     onPick: (v) => {
       if (v === 'custom') { openTuneEdit(); return; }
-      state.tuning[state.instrument] = v; state.shape = null; recallChip(); render();
+      changeNeck(() => { state.tuning[state.instrument] = v; });
+      render();
     },
     onRemove: askDeleteTuning,
   });
@@ -3415,11 +3501,7 @@ function deleteTuning() {
   if (!gone || !state.saved[id]) return;
   state.saved[id] = state.saved[id].filter((t) => savedId(t.strings) !== gone);
   if (!state.saved[id].length) delete state.saved[id];
-  if (state.tuning[id] === gone) {
-    state.tuning[id] = 'standard';
-    state.shape = null;
-    recallChip();
-  }
+  if (state.tuning[id] === gone) changeNeck(() => { state.tuning[id] = 'standard'; });
   render();
   if (els.picker.open) openTuningMenu();   // the menu, without it
 }
@@ -3434,10 +3516,10 @@ function closeTuneEdit(keep) {
   }
   if (!t || keep) return;
   const id = state.instrument;
-  state.tuning[id] = t.before.tuning;
-  if (t.before.custom) state.custom[id] = t.before.custom; else delete state.custom[id];
-  state.shape = null;
-  recallChip();
+  changeNeck(() => {
+    state.tuning[id] = t.before.tuning;
+    if (t.before.custom) state.custom[id] = t.before.custom; else delete state.custom[id];
+  });
   render();
 }
 
@@ -3535,6 +3617,38 @@ const inScale = (pc, sc) => Boolean(sc && sc.def.steps.length < 12 && sc.set.has
    symbols like C♯m(maj7)). Measured on a canvas, so it also works while the
    box is hidden (a closed sheet on phones). */
 let measureCtx = null;
+/* Words that may not fit their place: the first of their forms that does
+   (the whole, then shorter ones: "Diminished 5th", "Dim. 5th"); none does:
+   the shortest (in a smaller font first, given a min), cut with "…". The forms stay on it (data-fits), to fit
+   them again when the room changes (a sheet opening, the window). */
+const textWidth = (el) => {   // (its text's own width, not its box's: to the fraction of a pixel)
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  return range.getBoundingClientRect().width;
+};
+const textRoom = (el) => {   // (the width its text has, to the fraction of a pixel, as text-overflow sees it)
+  const cs = getComputedStyle(el);
+  return el.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) -
+    parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+};
+function fitWords(el, forms = null, min = 0) {   // (min: past the shortest, a smaller font, no smaller than this, as fitText)
+  if (forms) el.dataset.fits = JSON.stringify(forms);
+  if (min) el.dataset.fitMin = min;
+  const all = forms || JSON.parse(el.dataset.fits || '[]');
+  el.style.fontSize = '';
+  for (const f of all) {
+    el.textContent = f;
+    if (textWidth(el) <= textRoom(el) + 0.01) return;   // (not scrollWidth: whole pixels, a fraction too long would pass, and be cut)
+  }
+  if (el.dataset.fitMin) fitText(el, Number(el.dataset.fitMin));
+}
+const refitWords = (root = document) => root.querySelectorAll('[data-fits]').forEach((el) => fitWords(el));
+const fitsAttr = (forms) => `data-fits="${esc(JSON.stringify([...new Set(forms)]))}"`;
+// Shorter words for the long ones of chord and interval names
+const SHORT_WORDS = [[/Half-diminished/g, 'Half-dim.'], [/Minor-major/g, 'Min-maj'], [/Diminished/g, 'Dim.'], [/Augmented/g, 'Aug.'],
+  [/Dominant/g, 'Dom.'], [/Suspended/g, 'Sus.'], [/Perfect/g, 'Perf.'], [/Major/g, 'Maj.'], [/Minor/g, 'Min.'], [/ flat /g, ' ♭'], [/ sharp /g, ' ♯']];
+const shortWords = (text) => SHORT_WORDS.reduce((t, [re, to]) => t.replace(re, to), text);
+
 function fitText(el, min = 0) {   // (min: no smaller than this, the rest cut with "…" by styles.css)
   el.style.fontSize = '';
   const cs = getComputedStyle(el);
@@ -3545,6 +3659,58 @@ function fitText(el, min = 0) {   // (min: no smaller than this, the rest cut wi
   measureCtx.font = `${cs.fontWeight} ${size}px ${cs.fontFamily}`;
   const width = measureCtx.measureText(el.textContent).width;
   if (width > room) el.style.fontSize = `${Math.max(min, Math.floor((size * room) / width))}px`;
+}
+
+/* The middle of a stepper, or of Name a chord: the name (a pill) beside
+   two lines, its number ("Shape 1/4, fret 11", "Name 1/3") over what it
+   is (its frets, the notes, its meaning). The name whole, beside room for
+   its number at the least ("1/4"): a smaller font first (no smaller than
+   11px), cut short only past that; hidden on the smallest phones
+   (styles.css: the Chord tab says it), its room then theirs. Its number,
+   in what the name leaves, in its own size: the longest of its forms
+   that fits ("Shape 1/4, fret 11", "Shape 1/4", "1/4"). The line under
+   it, whole where it fits, a little smaller where not (no smaller than
+   12px), then cut short. Fitted again when its room changes (a phone
+   turned, the window resized: setupInfoFit). */
+function fitInfo(info) {
+  const pill = info.querySelector('.dock-symbol');
+  const tab = info.querySelector('.dock-tab');
+  if (!pill || !tab) return;
+  const count = tab.querySelector('.dock-count[data-fits]');
+  const main = tab.querySelector('.dock-main');
+  pill.style.fontSize = '';
+  tab.style.minWidth = '';
+  if (main) main.style.fontSize = '';
+  const forms = count ? JSON.parse(count.dataset.fits) : [];
+  if (count) count.textContent = count.title = forms[0];
+  if (!info.clientWidth) return;   // (hidden: fitted once shown)
+  if (count) count.textContent = forms[forms.length - 1];
+  const name = pill.querySelector('.tx');
+  if (name && getComputedStyle(pill).display !== 'none') {
+    const box = getComputedStyle(info);
+    const ps = getComputedStyle(pill);
+    const least = count ? Math.ceil(textWidth(count)) : 0;
+    const room = info.clientWidth - parseFloat(box.paddingLeft) - parseFloat(box.paddingRight) - parseFloat(box.columnGap) -
+      parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight) - least - 1;   // (the 1: rounding)
+    const size = parseFloat(ps.fontSize);
+    const width = textWidth(name);
+    if (width > room) pill.style.fontSize = `${Math.max(11, Math.floor((size * room) / width))}px`;
+    tab.style.minWidth = `${least}px`;   // (none without a number: the name first)
+  }
+  if (count) fitWords(count);
+  if (main) fitText(main, 12);
+}
+const infoWidths = new WeakMap();
+function setupInfoFit() {
+  if (!window.ResizeObserver) return;
+  const watch = new ResizeObserver((entries) => {
+    for (const { target } of entries) {
+      if (infoWidths.get(target) === target.clientWidth) continue;   // (a height change: nothing to fit)
+      infoWidths.set(target, target.clientWidth);
+      fitInfo(target);
+    }
+  });
+  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement]) watch.observe(info);
 }
 
 /* The steppers: a chord's shapes or a scale's groups, one at a time, with
@@ -3572,8 +3738,9 @@ function fillStepper(bar, mode, ch, sc) {
     bar.prev.disabled = bar.next.disabled = ui.groups.length < 2;
     bar.play.disabled = false;
     bar.symbol.innerHTML = tx(sc.rootName);
-    bar.tab.innerHTML = `<span class="dock-count">Group ${ui.group + 1}/${ui.groups.length}, ${groupPlace(group, capo())}</span>` +
-      `<span class="dock-words">Frets ${a} to ${b}</span>`;
+    const n = `${ui.group + 1}/${ui.groups.length}`;
+    bar.tab.innerHTML = `<span class="dock-count" ${fitsAttr([`Group ${n}, ${groupPlace(group, capo())}`, `Group ${n}`, n])}></span>` +
+      `<span class="dock-main dock-words">Frets ${a} to ${b}</span>`;
   } else {
     const many = Boolean(ch && ch.shapes.length > 1);
     bar.prev.disabled = bar.next.disabled = !many;
@@ -3582,14 +3749,15 @@ function fillStepper(bar, mode, ch, sc) {
     if (!ch) bar.tab.innerHTML = '<span class="dock-msg">No chord selected</span>';
     else if (!ch.shape) bar.tab.innerHTML = '<span class="dock-msg">No playable shape</span>';   // words, not tab: the normal font
     else {
-      bar.tab.innerHTML = `<span class="dock-count">Shape ${ch.index + 1}/${ch.shapes.length}, ${shapeWhere(ch.shape)}${ch.shape.drawn ? ', custom' : ''}</span>` +
-        `<span${ch.shape.piano ? ' class="dock-words"' : ''}>${esc(shapeShort(ch.shape))}</span>`;   // (a piano's: notes, in words)
+      const n = `${ch.index + 1}/${ch.shapes.length}`;
+      bar.tab.innerHTML = `<span class="dock-count" ${fitsAttr([`Shape ${n}, ${shapeWhere(ch.shape)}${ch.shape.drawn ? ', custom' : ''}`, `Shape ${n}, ${shapeWhere(ch.shape)}`, `Shape ${n}`, n])}></span>` +
+        `<span class="dock-main${ch.shape.piano ? ' dock-words' : ''}">${esc(shapeShort(ch.shape))}</span>`;   // (a piano's: notes, in words)
     }
   }
   for (const btn of [bar.prev, bar.next, bar.play]) btn.title = btn.getAttribute('aria-label');
   bar.info.title = openLabel;
   bar.symbol.title = ch && mode === 'chord' ? ch.symbol : '';
-  fitText(bar.symbol, 12);   // a long name (C♯m(maj11)(♭13)): smaller, on one line
+  fitInfo(bar.info);
 }
 const dockStepper = () => ({ root: els.dockShapeBar, prev: els.dockPrev, next: els.dockNext, info: els.dockShape, play: els.dockStrum, symbol: els.dockSymbol, tab: els.dockTab });
 const groupStepper = () => ({ root: els.quickGroupBar, prev: els.quickGroupPrev, next: els.quickGroupNext, info: els.quickGroupInfo, play: els.quickGroupPlay, symbol: els.quickGroupSymbol, tab: els.quickGroupTab });
@@ -3729,6 +3897,7 @@ function openTab(tab) {
   renderDock(ch, currentScale());
   if (ui.tab) {
     els.sheetBody.scrollTop = 0;
+    refitWords(els.sheet);   // (its words fitted to the room they now have)
     if (ui.tab === 'scale') requestAnimationFrame(() => keepChipVisible(els.groupList));
     // Once the sheet has slid up, make sure the shape is still visible above
     // it: wait for its own slide animation (or not at all, if it has none)
@@ -3736,6 +3905,40 @@ function openTab(tab) {
     Promise.all(sliding.map((a) => a.finished)).then(() => { if (ui.tab) revealShape(); }, () => {});
   } else if (wasOpen) {
     revealShape();   // closed: centre the shape again in the now taller view
+  }
+}
+
+/* Wide screens: the chord and scale panels, folded or not (state.folded;
+   on phones each is a sheet of its own: never folded). Folded, its title
+   says what it shows ("Chord C/E", "Scale C Major"). */
+function renderFolds(ch, sc) {
+  const wide = isWide();
+  for (const [key, panel, value] of [['chord', els.panelChord, ch ? ch.symbol : 'None'],
+    ['scale', els.panelScale, sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : 'None']]) {
+    const folded = wide && state.folded[key];
+    panel.classList.toggle('folded', folded);
+    const btn = panel.querySelector('.panel-fold');
+    btn.setAttribute('aria-expanded', String(!folded));
+    btn.setAttribute('aria-label', `${folded ? 'Unfold' : 'Fold'} the ${key} panel`);
+    btn.title = folded ? `Show the ${key} panel` : `Fold the ${key} panel to its title`;
+    const v = panel.querySelector('.fold-value');
+    v.hidden = !folded;
+    v.innerHTML = folded ? tx(value) : '';
+  }
+}
+/* The arrow or the title folds a panel, or unfolds it; folded, a click
+   anywhere on it unfolds it too (but on its switches and buttons: those do
+   their own thing) */
+function setupFolds() {
+  for (const [key, panel] of [['chord', els.panelChord], ['scale', els.panelScale]]) {
+    panel.addEventListener('click', (e) => {
+      if (!isWide()) return;
+      const title = e.target.closest('.theory-title');
+      if (state.folded[key] ? title || !e.target.closest('button, a, input, select, label') : title) {
+        state.folded[key] = !state.folded[key];
+        render();
+      }
+    });
   }
 }
 
@@ -3827,29 +4030,28 @@ const rankSemis = (sc, r) => {
 /* How far the hand reaches, in frets from the first note to the last: on
    one string (run), and across a group (group). Long frets (guitar, bass,
    ukulele, banjo): 4 frets on a string, one finger per fret, and 5 for a
-   group, 6 with a stretch. Short frets (mandolin, mandola, tuned in
-   fifths): 7 frets on a string and for a group, 8 with a stretch. */
+   group, 6 with a stretch, never more. Short frets (mandolin, mandola,
+   tuned in fifths): 7 frets on a string and for a group, 8 with a
+   stretch. */
 const REACH = { long: { run: 3, group: 4 }, short: { run: 6, group: 6 } };
-/* What a note left out of every group costs: little in the last frets of
-   the neck (0.25), more by the nut (1), most in between (4), where it would
-   leave a hole between two groups */
-const missCost = (f, capo, frets) => (f >= frets - 4 ? 0.25 : f <= capo + 2 ? 1 : 4);
+/* What a note left out of every group costs (below the first group, above
+   the last, or where no group can be played). More than a stretch: a group
+   that can be played there is shown. */
+const MISS_COST = 4;
 const fewer = (x, y) => {   // compare two costs, most important first
   for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i];
   return false;
 };
 /* First every group the hand can play: from each note of the lowest string,
    every way to split the run up the strings (2 notes or more on a string,
-   each string's notes within reach, each string's frets touching the next
-   one's, the whole within a stretch). Then the groups to show, by
+   each string's notes within reach, each string sharing a fret with the
+   next, the whole within a stretch). Then the groups to show, by
    dynamic programming from the nut up, each one starting inside the one
-   before on every string (on its last note, at best), costs compared most
-   important first:
-   - together: notes left out of every group (missCost: a hole between two
-     groups costs more than a stretch, a note in the neck's last frets less,
-     so the last group stays a good shape rather than reach for it); groups
-     wider than the reach, twice a cube of the frets too many (2 for one,
-     16 for two); and notes a group passes over (a scale note inside its
+   before on every string (on its last note, at best) or on the note right
+   after it: a note is left out between two groups only where no group can
+   play it. Costs compared most important first:
+   - together: notes left out of every group (MISS_COST); groups wider than the reach, 2 (twice a cube of the frets
+     too many); and notes a group passes over (a scale note inside its
      frets, on a string, that it leaves out though it would go on with it),
      2 each; a group wider than the tightest one starting on the same note,
      0.75 a fret; and neighbours that share no note on a string, 0.3 a
@@ -3892,8 +4094,8 @@ function handGroups(inst, sc, capo, order, reach) {
     }
     return passed;
   };
-  // What a group itself costs: 2 for one fret too wide, 16 for two (see the
-  // costs above), 2 for each note passed over
+  // What a group itself costs: 2 for one fret too wide (see the costs
+  // above), 2 for each note passed over
   const groupCost = (span, passed) => 2 * Math.max(0, span - reach.group) ** 3 + 2 * passed;
 
   // The groups, with at least minLen notes a string and no wider than
@@ -3948,6 +4150,7 @@ function handGroups(inst, sc, capo, order, reach) {
       ok = ranks.length >= minLen && ranks.length > 0;
       if (!ok) break;
       if (q && ranks[0] > box.E[q - 1] + 1) ok = false;   // a note skipped
+      if (q && (frets[frets.length - 1] < box.A[q - 1] || frets[0] > box.B[q - 1])) ok = false;   // no fret shared with the string before
       box.S.push(ranks[0]);
       box.E.push(ranks[ranks.length - 1]);
       box.A.push(frets[0]);
@@ -3972,21 +4175,27 @@ function handGroups(inst, sc, capo, order, reach) {
     // What the notes left out between the ends of the group before and g cost
     const left = (g, ends) => {
       let k = 0;
-      for (let q = 0; q < n; q++) for (let r = ends[q] + 1; r < g.S[q]; r++) k += missCost(fret(q, r), capo, N);
+      for (let q = 0; q < n; q++) for (let r = ends[q] + 1; r < g.S[q]; r++) k += MISS_COST;
       return k;
     };
     const best = cands.map((g) => ({ cost: [left(g, lo.map((a) => a - 1)) + g.cost, 0, 1, g.span], prev: -1 }));
     const back = 2 * (reach.run + 2);   // how far back (in ranks of the lowest string) the group before can start
+    // Notes some group can play: a note left out between two groups only
+    // where none can (a stretch of the neck where the scale doesn't fit
+    // under the hand)
+    const playable = new Set();
+    for (const g of cands) for (let q = 0; q < n; q++) for (let r = g.S[q]; r <= g.E[q]; r++) playable.add(q * 10000 + r);
     let from = 0;
     for (let j = 0; j < cands.length; j++) {
       const g = cands[j];
       while (cands[from].S[0] < g.S[0] - back) from++;
       for (let i = from; i < j; i++) {
         const p = cands[i];
-        let up = true;   // g is higher on every string
-        let apart = 0;
+        let up = true;   // g is higher on every string, and leaves out no note after p that a group can play
+        let apart = 0;   // strings where they share no note
         for (let q = 0; q < n && up; q++) {
           up = g.S[q] > p.S[q] && g.E[q] > p.E[q];
+          for (let r = p.E[q] + 1; r < g.S[q] && up; r++) up = !playable.has(q * 10000 + r);
           if (g.S[q] > p.E[q]) apart++;
         }
         if (!up) continue;
@@ -4015,8 +4224,9 @@ function handGroups(inst, sc, capo, order, reach) {
   let minLen = 2;
   for (let i = 0; i < L; i++) if (rankSemis(sc, i + 1) - rankSemis(sc, i) > reach.run) minLen = 1;
   // Some scales and tunings leave no straight run within a stretch over most
-  // of the neck (the whole-tone scale on guitar, open C): then longer
-  // stretches, then single notes on a string, until groups cover most of it
+  // of the neck (the whole-tone scale on guitar, open C): then single notes
+  // on a string too, if groups then cover more of it. Some leave none at all
+  // (hirajoshi on guitar, but in the open position): no groups.
   const all = lo.reduce((k, a, q) => k + hi[q] - a + 1, 0);
   const covered = (groups) => {
     const notes = new Set();
@@ -4025,7 +4235,7 @@ function handGroups(inst, sc, capo, order, reach) {
   };
   let groups = [];
   let most = -1;
-  for (const [len, stretch] of [[minLen, reach.group + 1], [minLen, reach.group + 4], [1, reach.group + 4]]) {
+  for (const [len, stretch] of [[minLen, reach.group + 1], [1, reach.group + 1]]) {
     const found = solve(len, stretch);
     const k = covered(found);
     if (k > most) { groups = found; most = k; }
@@ -4465,7 +4675,7 @@ function roundedPath(pts, r) {
 
 function renderChordPanel(ch, sc) {
   els.chordRoot.textContent = ch ? ch.rootName : noteText(plainRoot(state.chord.root, sc));
-  els.chordType.textContent = ch ? ch.def.name : 'None';
+  fitWords(els.chordType, ch ? [...new Set([ch.def.name, shortWords(ch.def.name)])] : ['None'], 12);   // ("Half-dim. 7th" when the whole name does not fit)
 
   // No chord: the bass the next one gets, without a note to name yet
   const voicing = ch ? ch.voicing : state.voicing[state.instrument];
@@ -4503,21 +4713,22 @@ function renderChordPanel(ch, sc) {
   els.chordSymbol.classList.add('on');
   fitText(els.chordSymbol);
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
-  const voicingLabel = ch.voicing === 'any' ? 'Any bass note' : INVERSION_NAMES[Number(ch.voicing)];
   const formula = ch.def.degrees.map((d) => fmtDeg(d === 'R' ? '1' : d)).join(' ');
-  els.chordMeta.textContent = `${voicingLabel}, formula ${formula}`;
+  els.chordMeta.textContent = `${INVERSION_NAMES[ch.bassIndex]}, formula ${formula}`;   // (the shape's: with "Any bass note" too)
   // Phones: the shape in full (the dock's line can be cut short by a long name)
   els.chordShapeNote.textContent = ch.shape
     ? `Shape ${ch.index + 1}/${ch.shapes.length}, ${shapeWhere(ch.shape)}${ch.shape.drawn ? ', custom' : ''}: ${shapeTab(ch.shape)}`
     : 'No playable shape';
-  const aliases = (CHORD_ALIASES[ch.def.id] || []).map((a) => rootName + a);
+  const slash = ch.bassIndex ? `/${noteText(ch.spell.notes[ch.bassIndex])}` : '';
+  const aliases = (CHORD_ALIASES[ch.def.id] || []).map((a) => rootName + a + slash);
   els.chordAlt.textContent = aliases.length ? `= ${aliases.join(', ')}` : '';
   // With a capo, name the shape to play: the chord moved down by the capo
   const c = capo();
   els.chordCapo.hidden = !c;
-  const shapeName = c ? noteText(spellChord(ch.root - c, ch.def, state.flats).root) : '';
-  els.chordCapo.textContent = c ? `With capo ${c}, play the ${shapeName}${ch.def.symbol} shape` : '';
-  els.tonesLabel.textContent = c ? 'Shape notes, bass to top, frets from the capo' : 'Shape notes, bass to top';
+  const moved = c ? spellChord(ch.root - c, ch.def, state.flats) : null;
+  const shapeName = c ? noteText(moved.root) + ch.def.symbol + (ch.bassIndex ? `/${noteText(moved.notes[ch.bassIndex])}` : '') : '';
+  els.chordCapo.textContent = c ? `With capo ${c}, play the ${shapeName} shape` : '';
+  els.tonesLabel.textContent = 'Shape notes, bass to top';
 
   // With a scale shown: does the chord fit it, and if not, which notes do not
   const outside = outsideScale(ch.root, ch.def, sc);
@@ -4525,9 +4736,10 @@ function renderChordPanel(ch, sc) {
   if (outside) {
     const key = `${sc.rootName} ${sc.def.short}`;
     els.chordKey.classList.toggle('out', outside.length > 0);
-    els.chordKey.textContent = outside.length
-      ? `Outside ${key}: ${outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', ')}`
-      : `Every note is in ${key}`;
+    // (the notes kept together: on two lines, the break comes after the colon)
+    els.chordKey.innerHTML = outside.length
+      ? `<span>Outside ${esc(key)}: <span class="np-key-notes">${esc(outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', '))}</span></span>`
+      : `<span>Every note is in ${esc(key)}</span>`;
   }
 
   els.shapeCount.hidden = false;
@@ -4563,14 +4775,15 @@ function renderChordPanel(ch, sc) {
       `title="Click to hear ${esc(name)}${off ? `, not in ${sc.rootName} ${sc.def.short}` : ''}">` +
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
-      `<span class="np-role">${esc(DEGREE_NAMES[deg])}</span>` +
+      `<span class="np-role" ${fitsAttr([DEGREE_NAMES[deg], shortWords(DEGREE_NAMES[deg])])}>${esc(DEGREE_NAMES[deg])}</span>` +
       `<span class="np-loc"><kbd>${tx(loc)}</kbd></span></li>`;
   }).join('');
+  refitWords(els.chordTones);   // (each interval's name: shorter where it does not fit)
 
   els.shapeList.innerHTML = ch.shapes.map((shape, i) => {
     const where = shapeWhere(shape);
     const sel = i === ch.index;
-    const what = `${shape.drawn ? 'Custom shape, ' : ''}${shape.piano ? 'notes' : 'strings'} low to high${c ? ', frets from the capo' : ''}`;
+    const what = `${shape.drawn ? 'Custom shape, ' : ''}${shape.piano ? 'notes' : 'strings'} low to high`;
     return `<li><button type="button" class="chip${sel ? ' selected' : ''}${shape.drawn ? ' custom' : ''}" data-shape="${i}" aria-pressed="${sel}" ` +
       `title="${esc(what[0].toUpperCase() + what.slice(1))}: ${esc(shapeTab(shape))}">` +
       `${shape.drawn ? BOOKMARK_ICON : ''}<span class="chip-num tx">${esc(where)}</span>` +
@@ -4595,7 +4808,8 @@ function renderScalePanel(sc, ch) {
   // scale writes it when that differs: C♯ (D♭) for C♯ major
   const listed = noteText(plainNote(state.scale.root, state.flats));
   els.scaleRoot.textContent = sc && sc.rootName !== listed ? `${listed} (${sc.rootName})` : listed;
-  els.scaleType.textContent = sc ? sc.def.name : 'None';
+  // (shorter when the whole name does not fit: "Major (Ionian)", "Major")
+  fitWords(els.scaleType, sc ? [...new Set([sc.def.name, sc.def.name.replace(/ \(.*\)$/, ''), sc.def.short])] : ['None'], 12);
   els.scaleClear.disabled = !sc;
   // The chromatic scale has every note: nothing to hide or to group
   els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
@@ -4782,7 +4996,7 @@ function init() {
     els[id] = document.getElementById(id);
   }
   els.dockBar = document.querySelector('.dock-bar');
-  els.tabNeckLabel = document.querySelector('.tab[data-tab="neck"] .tab-label');
+  els.tabNeckLabel = document.querySelector('.tab[data-tab="neck"] .tab-label .tx');   // (as the others: their text in a .tx, the rows line up)
   els.neckTitle = document.querySelector('#panelNeck h2');
   els.neckPanel = document.querySelector('.neck-panel');
   els.dockTabs = document.querySelector('.dock-bar .tabs');
@@ -4817,9 +5031,7 @@ function init() {
     })),
     onPick: (v) => {
       if (v === state.instrument) return;
-      state.instrument = v;
-      state.shape = null;
-      recallChip();   // the voicing and shape last chosen for this chord on that instrument
+      changeNeck(() => { state.instrument = v; });   // (the chord keeps its bass; else as last used on that instrument)
       render();
     },
   }));
@@ -4936,6 +5148,8 @@ function init() {
   els.quickGroupInfo.addEventListener('click', () => showPanel('scale'));
   for (const tab of els.tabs) tab.addEventListener('click', () => openTab(tab.dataset.tab));
   setupSheetDrag();
+  setupFolds();
+  setupInfoFit();
   setupDockTouch();
 
   // Switching between phone and wide layouts (rotating, resizing)
@@ -4966,7 +5180,7 @@ function init() {
         { length: maxCapo(state.instrument) },
         (_, i) => ({ value: i + 1, label: String(i + 1) })) },
     ],
-    onPick: (v) => { setCapo(Number(v)); state.shape = null; render(); },
+    onPick: (v) => { changeNeck(() => setCapo(Number(v))); render(); },
   }));
 
   // Clearing the chord or the scale also closes its panel on phones
