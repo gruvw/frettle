@@ -484,9 +484,9 @@ kbd {
 .field.grow .select-btn, .field.scale-type .select-btn { width: 100%; min-width: 0; }
 .field.scale-type { flex: 1 1 120px; }
 /* Phones: Root, Chord and ✕ on the first row (like the scale's; Chord
-   gives way), Voicing on a row of its own */
+   gives way), Inversion on a row of its own */
 .chord-bar .field.grow { flex-basis: 0; }
-.chord-bar .field.grow.voicing { order: 2; flex-basis: 100%; }
+.chord-bar .field.grow.inversion { order: 2; flex-basis: 100%; }
 .bar .push-right { margin-left: 0; }
 /* Scale switches. Phones: Root, Type and ✕ on the first row, the two
    switches as equal buttons on a row of their own. Wide screens: everything
@@ -702,9 +702,12 @@ button, a { scroll-margin: 6px; }
   cursor: pointer;
 }
 .chip-num { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
+/* A piano shape's chip: its lowest note (where it sits) in the label's
+   colour, the same size as the other notes, all one line of text */
+.chip-lead { color: var(--muted); }
 .chip .mono { font-weight: 600; }
 .chip.selected { background: var(--chord); color: var(--chord-text); }
-.chip.selected .chip-num { color: var(--chord-text); opacity: 0.8; }
+.chip.selected .chip-num, .chip.selected .chip-lead { color: var(--chord-text); opacity: 0.8; }
 .group-chip.selected { background: var(--scale); color: var(--scale-text); }   /* scale groups: the scale's colour */
 
 /* ==========================================================================
@@ -2198,7 +2201,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     .np-body { grid-template-columns: minmax(0, 1fr); }
   }
   .chord-bar .field.grow { flex-basis: 150px; }
-  .chord-bar .field.grow.voicing { order: 0; flex-basis: 170px; }
+  .chord-bar .field.grow.inversion { order: 0; flex-basis: 170px; }
   .shapes-line { display: flex; }
   .recent-line:not([hidden]) { display: flex; }
   .chord-count:not([hidden]), .group-count:not([hidden]) { display: inline-flex; }
@@ -2213,9 +2216,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   /* When a bar is too narrow for one row (landscape phones, small windows):
      Root, Type, then Strum (Play) and Deselect, Type taking what the
      buttons leave (shorter names where the whole one does not fit,
-     fitWords), no empty space before them; the chord's Voicing on a row of
+     fitWords), no empty space before them; the chord's Inversion on a row of
      its own under them, the whole width (Deselect away from it: it clears
-     the chord, not the voicing). 770px is the chord bar's one-row width with today's labels
+     the chord, not the inversion). 770px is the chord bar's one-row width with today's labels
      (CSS cannot take it from variables): renaming a button, or adding one,
      means measuring it again. */
   .chord-bar, .scale-bar { container-type: inline-size; }
@@ -2223,11 +2226,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
     .chord-bar {
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto auto;
-      grid-template-areas: "root type strum clear" "voicing voicing voicing voicing";
+      grid-template-areas: "root type strum clear" "inversion inversion inversion inversion";
     }
     .chord-bar .field.root { grid-area: root; }
     .chord-bar .field.grow { grid-area: type; }
-    .chord-bar .field.grow.voicing { grid-area: voicing; }
+    .chord-bar .field.grow.inversion { grid-area: inversion; }
     .chord-bar #chordStrum { grid-area: strum; }
     .chord-bar #chordClear { grid-area: clear; }
     .scale-bar { flex-wrap: nowrap; }
