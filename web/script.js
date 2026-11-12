@@ -1180,20 +1180,23 @@ function readShapes(value) {
 
 /* Shareable links, made by the Share popup (the address bar stays clean:
    what is on the neck is saved on the device, not in the address):
-     ?instrument=guitar&tuning=drop-d&capo=2&inversion=1
+     ?instrument=guitar&tuning=drop-d&capo=2
      &chord=A-m7*C.x-3-2-0-1-0&scale=A-minor-pentatonic
      &list=C-maj_Fs-m.2-4-4-2-2-2_F-maj
-   Each part is left out when not shared, and the tuning, capo and
-   inversion (the chord's: a bass note, or any) when they are the defaults.
+   Each part is left out when not shared, and the tuning and capo when they
+   are the defaults.
    How you like to see the neck (left-handed, flats, octaves, the switches)
    stays yours: it is not in the link.
    A chord is written the same way alone (chord) and in the chord list
    (list, chords split by _): its root (sharps as s, flats as b, as spelled
    on screen), a hyphen, its type, after a * its bass note when not the
    root (D-maj*Fs: D/F♯), then after a dot the shape as its frets (x for a
-   muted string), left out when it is the first shape or the link has no
-   neck. Frets, so a link keeps showing the same shape even if the shape
-   list changes. Links from before: "voicing" for "inversion". */
+   muted string), left out when the link opens on it anyway (see
+   shapeToken) or has no neck. Frets, so a link keeps showing the same
+   shape even if the shape list changes. The inversion shown (a bass note,
+   or any) is not in the link: the chord opens in the one for its bass (see
+   plainInversion). Links from before may hold it: "inversion", or before
+   that "voicing". */
 const NONE = 'none';   // a link's chord or scale: none on the neck it was shared from
 const LINK_KEYS = ['instrument', 'tuning', 'capo', 'inversion', 'voicing', 'chord', 'scale', 'list'];
 const INVERSIONS = [...INVERSION_NAMES.keys()].map(String).concat('any');   // a bass note (any of a chord's, up to seven: see INVERSION_NAMES), or any
@@ -1202,18 +1205,32 @@ const INVERSIONS = [...INVERSION_NAMES.keys()].map(String).concat('any');   // a
    the link opens). The chord on screen and a chip of the list: the name,
    bass and all (D/F♯: kept without the neck too, see keepBass), and the
    shape (the chip's: the one it comes back with, see recallChip). */
-function shapeToken(root, def, { shapes, index, inversion }) {
-  const home = homeShape(shapes, root, inversion);
+function shapeToken(root, def, { shapes, index, inversion }, bass) {
   const shape = shapes[index];
-  return shape && (index !== home || shape.drawn) ? `.${fretsText(shape.frets)}` : '';
+  if (!shape) return '';
+  // (left out only when the link opens on it anyway: its first shape, in
+  // the inversion the link opens in for its bass, see plainInversion)
+  const plain = index === homeShape(shapes, root, inversion) && !shape.drawn && plainInversion(root, def, bass) === inversion;
+  return plain ? '' : `.${fretsText(shape.frets)}`;
+}
+// The inversion a link's chord opens in for its bass note: the default one
+// when its first shape has that bass already (A, as picked from the menus),
+// else that bass's; null: no shape with that bass on this neck
+function plainInversion(root, def, bass) {
+  const want = String(bass);
+  if (inversionFor(def, want) !== want || !listShapes(root, def, want).length) return null;
+  const usual = inversionFor(def, DEFAULT_INVERSION[state.instrument]);
+  const shapes = listShapes(root, def, usual);
+  const first = shapes[homeShape(shapes, root, usual)];
+  return first && bassIndexOf(root, def, first) === bass ? usual : want;
 }
 function chordToken(neck) {
   const ch = currentChord();
-  return chordBassText(ch.root, ch.def, ch.bassIndex) + (neck ? shapeToken(ch.root, ch.def, ch) : '');
+  return chordBassText(ch.root, ch.def, ch.bassIndex) + (neck ? shapeToken(ch.root, ch.def, ch, ch.bassIndex) : '');
 }
 function listToken(entry, neck) {
   const def = findChord(entry.type);
-  return chordBassText(entry.root, def, entry.bass) + (neck ? shapeToken(entry.root, def, chipShape(entry)) : '');
+  return chordBassText(entry.root, def, entry.bass) + (neck ? shapeToken(entry.root, def, chipShape(entry), entry.bass) : '');
 }
 
 /* What the link holds: the neck (instrument, tuning, capo), the chord, the
@@ -1227,10 +1244,6 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
     else if (inst.tuning.id !== 'standard') p.set('tuning', inst.tuning.id);
     if (capo()) p.set('capo', String(capo()));
   }
-  // The inversion goes with the chord and the neck (a list's chords: their
-  // frets say it, see applyLink)
-  const inversion = state.inversion[state.instrument];
-  if (neck && chord && state.chord.on && inversion !== DEFAULT_INVERSION[state.instrument]) p.set('inversion', inversion);
   // No chord on the neck: the link says so (loaded, it clears theirs); one
   // left out (its switch off): not in the link (theirs stays). The scale too.
   if (!state.chord.on) p.set('chord', NONE);
@@ -1277,14 +1290,8 @@ function applyLink(search, parts = null, fresh = false) {
         if (i >= 0) bass = i;
       }
     }
-    const want = String(bass);
-    if (inversionFor(c.def, want) !== want || !listShapes(c.root, c.def, want).length) return null;   // ({ bass, inversion }, or null: none to keep)
-    // the default inversion when its first shape has that bass already (A, as
-    // picked from the menus), else that bass's
-    const usual = inversionFor(c.def, DEFAULT_INVERSION[state.instrument]);
-    const shapes = listShapes(c.root, c.def, usual);
-    const first = shapes[homeShape(shapes, c.root, usual)];
-    return { bass, inversion: first && bassIndexOf(c.root, c.def, first) === bass ? usual : want };
+    const inversion = plainInversion(c.root, c.def, bass);
+    return inversion === null ? null : { bass, inversion };
   };
   // A link without an instrument (written by hand) shows on yours, as you tuned it
   if (neck && readInstrument(p.get('instrument'))) {
@@ -1302,7 +1309,17 @@ function applyLink(search, parts = null, fresh = false) {
   if (linkChord) state.chord = { on: true, root: chord.root, type: chord.def.id };
   else if (take('chord') && (fresh || p.get('chord') === NONE)) chordOff();
   if (neck && linkChord) {
-    state.inversion[state.instrument] = INVERSIONS.includes(linkInversion) ? linkInversion : DEFAULT_INVERSION[state.instrument];
+    // Its bass note (D-maj*Fs, its shape's, or the root), as without the neck
+    // (see keepBass; a link from before: its inversion), then its shape in
+    // the inversion that lists it (an "Any bass note" one may list it alone)
+    const kept = keepBass(chord);
+    let inversion = INVERSIONS.includes(linkInversion) ? linkInversion : kept ? kept.inversion : DEFAULT_INVERSION[state.instrument];
+    if (chord.frets) {
+      const listed = (v) => listShapes(chord.root, chord.def, inversionFor(chord.def, v)).some((shape) => fretsText(shape.frets) === chord.frets);
+      const found = [inversion, DEFAULT_INVERSION[state.instrument], ...INVERSIONS].find(listed);
+      if (found) inversion = inversionFor(chord.def, found);
+    }
+    state.inversion[state.instrument] = inversion;
   } else if (linkChord) {   // (its bass where your neck plays it, else the default inversion, as a chord picked)
     const kept = keepBass(chord);
     state.inversion[state.instrument] = kept ? kept.inversion : DEFAULT_INVERSION[state.instrument];
@@ -1347,7 +1364,10 @@ function applyLink(search, parts = null, fresh = false) {
         const kept = keepBass(c);
         entry.inversions[state.instrument] = kept ? kept.inversion : DEFAULT_INVERSION[state.instrument];
         if (kept && entry.bass === undefined) entry.bass = kept.bass;
-      } else if (entry.bass) {   // (no shape: the inversion of its bass)
+      } else if (linkInversion === null) {   // (no shape: the first one, in the inversion for its bass, as it was shared; no bass named: the root)
+        if (entry.bass === undefined) entry.bass = 0;
+        entry.inversions[state.instrument] = plainInversion(c.root, c.def, entry.bass) ?? DEFAULT_INVERSION[state.instrument];
+      } else if (entry.bass) {   // (a link from before, with its inversion: that of its bass)
         entry.inversions[state.instrument] = inversionFor(c.def, String(entry.bass));
       }
       if (entry.bass === undefined) entry.bass = legacyBass(entry);   // (a link from before chips had a bass)
@@ -1414,6 +1434,8 @@ function startLink(search) {
 /* A chord as the link popup shows it: its name and its shape ("A (x07650)":
    a link can change only the shape), or '' (none) */
 const chordLine = (ch) => (!ch ? '' : ch.shape ? `${ch.symbol} (${shapeShort(ch.shape)})` : ch.symbol);
+// ...its name and shape apart: { name, shape }, or null
+const chordParts = (ch) => (!ch ? null : { name: ch.symbol, shape: ch.shape ? shapeShort(ch.shape) : '' });
 /* What a link would show, worked out on a copy of the state: the setup, the
    chord, the scale and the chord list, and whether it is all yours already.
    parts: what is loaded (all of it by default) */
@@ -1428,16 +1450,31 @@ function linkPreview(search, has, parts = null) {
     const ch = currentChord();
     const sc = currentScale();
     if (has.recent && !state.list.length) has.recent = false;   // no list in the link after all
-    // Your saved chips whose shape the link's list changes (on its neck; without
-    // it, yours stay): { name: [yours, the link's] }, as "xx7650"
+    // Shapes the link changes on its neck (without it, yours stay), as
+    // "xx7650". On your own setup, the shape your chip comes back with; on a
+    // new one, only a shape your chip remembers there (else nothing to set
+    // the link's against: the frets of another neck say nothing)
+    const withNeck = has.neck && (!parts || parts.neck);
+    const moves = withNeck && setupText() !== mySetup;
+    const piano = Boolean(instrument().piano);
+    const remembered = (own, def, inversion) => {   // (its shape kept for this neck and inversion, or null)
+      const text = own && own.shapes && own.shapes[shapeContext(def, inversion)];
+      return text ? shapeShort({ frets: readFrets(text), piano }) : null;
+    };
+    const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index]) : ''; };
+    // Your saved chips whose shape the link's list changes: { name: [yours, the link's] }
     const listShapes = {};
-    if (has.recent && has.neck && (!parts || parts.neck)) {
-      const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index]) : ''; };
+    if (has.recent && withNeck) {
       for (const r of state.list) {
         const own = mine.list.find((x) => sameEntry(x, r));
-        if (own && shapeOf(own) !== shapeOf(r)) listShapes[entrySymbol(r)] = [shapeOf(own), shapeOf(r)];
+        if (!own) continue;
+        const yours = moves ? remembered(own, findChord(r.type), chipShape(r).inversion) : shapeOf(own);
+        if (yours !== null && yours !== shapeOf(r)) listShapes[entrySymbol(r)] = [yours, shapeOf(r)];
       }
     }
+    // The chord on a new setup: the shape its chip remembers there, or null
+    const chordOwn = moves && ch && [...mine.list, ...mine.recent].find((x) => sameEntry(x, { root: ch.root, type: ch.def.id, bass: ch.bassIndex }));
+    const chordMemory = chordOwn ? remembered(chordOwn, ch.def, ch.inversion) : null;
     // Yours goes if you have one and the link's differs (a neck, you always have)
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const chords = (s) => s.list.map((r) => [r.root, r.type, r.bass]);
@@ -1453,6 +1490,8 @@ function linkPreview(search, has, parts = null) {
       custom: has.neck && state.tuning[state.instrument] === 'custom' ? { inst: state.instrument, strings: state.custom[state.instrument] } : null,
       // null: not in the link (no row), '': none
       chord: has.chord ? chordLine(ch) : null,
+      chordParts: has.chord ? chordParts(ch) : null,
+      chordMemory,
       scale: has.scale ? (sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '') : null,
       list: has.recent ? listNames() : null,
       listShapes,
@@ -1475,8 +1514,12 @@ function openLinkPopup() {
    chips, so a long list wraps chip by chip; the link's part goes under the
    current one when both do not fit on a line. */
 const lkEmpty = (v) => (Array.isArray(v) ? !v.length : !v);
+// A chord name in a popup's chip, which breaks (when it must: a long name on
+// a narrow screen) before its brackets and bass, and after its commas:
+// "C♯m7♭5 / (add11,♭9, / ♭13) / /A"
+const chipText = (name) => esc(name).replace(/\(|\//g, '<wbr>$&').replace(/,/g, ',<wbr>');
 const lkValue = (v, cls) => (lkEmpty(v) ? `<span class="lk-val none ${cls}">None</span>`
-  : Array.isArray(v) ? `<span class="lk-val chips ${cls}">${v.map((n) => `<span class="lk-chip">${esc(n)}</span>`).join('')}</span>`
+  : Array.isArray(v) ? `<span class="lk-val chips ${cls}">${v.map((n) => `<span class="lk-chip">${chipText(n)}</span>`).join('')}</span>`
     : `<span class="lk-val ${cls}">${esc(v)}</span>`);
 const CHECK_ICON = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 function renderLinkPopup() {
@@ -1486,24 +1529,51 @@ function renderLinkPopup() {
   // The link's chord on the neck it lands on: the link's, or with Setup
   // switched off, yours (another shape, see applyLink)
   let linkChord = preview.chord;
+  let linkParts = preview.chordParts;
   if (linkChord !== null && has.neck && !parts.neck) {
-    if (pendingLink.ownNeck === undefined) pendingLink.ownNeck = linkPreview(pendingLink.search, { ...has }, { chord: true }).chord;
-    linkChord = pendingLink.ownNeck;
+    if (pendingLink.ownNeck === undefined) {
+      const own = linkPreview(pendingLink.search, { ...has }, { chord: true });
+      pendingLink.ownNeck = [own.chord, own.chordParts];
+    }
+    [linkChord, linkParts] = pendingLink.ownNeck;
   }
-  // The list's chips whose shape changes: only with the link's neck (see applyLink)
+  const nowParts = chordParts(ch);
+  // The link's setup replacing yours: its chord and list shown by name,
+  // their shapes only against a shape your chip remembers on that setup (the
+  // frets of another instrument, tuning or capo say nothing next to yours);
+  // the same names, No change, yet their shapes come with the setup
+  const newSetup = has.neck && parts.neck && setupText() !== preview.setup;
+  pendingLink.withSetup = {};
+  // The list's chips whose shape changes: only with the link's neck (see
+  // applyLink; on a new setup, see linkPreview)
   const reshaped = has.neck && !parts.neck ? {} : preview.listShapes || {};
   const reshapes = Object.keys(reshaped).length > 0;
   const rows = [   // [row, part, now, the link's]: text, or a list of chord names
     [els.linkNeck, 'neck', setupText(), preview.setup],
+    // (compared with its shape; shown by name, the shapes only when the name stays: see below)
     [els.linkChord, 'chord', ch ? [chordLine(ch)] : [], linkChord === null ? null : [linkChord].filter(Boolean)],
     [els.linkList, 'recent', listNames(), preview.list],
     [els.linkScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '', preview.scale],
   ];
   let loads = false;   // Load: only with something switched on
-  for (const [row, key, now, link] of rows) {
+  for (let [row, key, now, link] of rows) {
     row.hidden = link === null;
     if (link === null) continue;
-    const same = String(now) === String(link) && !(key === 'recent' && reshapes);
+    let same = String(now) === String(link) && !(key === 'recent' && reshapes);
+    const memory = newSetup ? preview.chordMemory : null;   // (the chord's shape your chip has on the new setup)
+    if (key === 'chord' && newSetup) {
+      same = (nowParts ? nowParts.name : '') === (linkParts ? linkParts.name : '')
+        && !(memory && linkParts && memory !== linkParts.shape);
+    }
+    if (newSetup && (key === 'chord' || key === 'recent')) pendingLink.withSetup[key] = same && !lkEmpty(link);
+    // The chord: by its name ("C → D"); the same name, another shape: the name
+    // once, its shapes after it, as a list's chip ("A (xx7650 x 12 11 x 10 12)")
+    let reshapedChord = null;
+    if (key === 'chord') {
+      if (nowParts && linkParts && nowParts.name === linkParts.name && !same) reshapedChord = { [nowParts.name]: [newSetup ? memory : nowParts.shape, linkParts.shape] };
+      now = nowParts ? [nowParts.name] : [];
+      link = linkParts ? [linkParts.name] : [];
+    }
     pendingLink.same[key] = same;
     const empty = lkEmpty;
     const show = lkValue;
@@ -1520,7 +1590,8 @@ function renderLinkPopup() {
     tag.textContent = same ? 'No change' : !on ? 'Not loaded' : what;
     tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
     const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)))
-      : key === 'recent' ? listDiff(now, link, on, reshaped) : '');
+      : key === 'recent' ? listDiff(now, link, on, reshaped)
+        : reshapedChord ? listDiff(now, link, on, reshapedChord) : '');
     if (on) loads = true;
     row.querySelector('.lk-change').innerHTML = (same ? show(link, 'win') : diff
       || `${show(now, on ? 'lose' : 'win')}<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${show(link, on ? 'win' : 'lose')}</span>`)
@@ -1567,7 +1638,7 @@ function listDiff(now, link, on, reshaped = {}) {
   const [kept, other] = on ? [link, now] : [now, link];
   // a chip in both whose shape changes: its shapes after its name, as the
   // neck's tuning and capo: "A (xx7650 x 12 11 x 10 12)"
-  const label = (n) => (!reshaped[n] ? esc(n) : `${esc(n)} (<span class="${on ? 'lk-old' : 'lk-new'}">${esc(reshaped[n][0])}</span> `
+  const label = (n) => (!reshaped[n] ? chipText(n) : `${chipText(n)} (<span class="${on ? 'lk-old' : 'lk-new'}">${esc(reshaped[n][0])}</span> `
     + `<span class="${on ? 'lk-new' : 'lk-old'}">${esc(reshaped[n][1])}</span>)`);
   const chip = (n, cls = '') => `<span class="lk-chip${cls}">${label(n)}</span>`;
   return `<span class="lk-val chips diff">${other.filter((n) => !kept.includes(n)).map((n) => chip(n, ' gone')).join('')}`
@@ -1584,9 +1655,10 @@ function closeLink(load) {
   if (load) {
     // A part marked No change is left as it is (a chord's shapes, a list's
     // remembered shapes stay yours); the neck, as it is the same, still
-    // places the link's chord on its shape
+    // places the link's chord on its shape. The same chord or list with a new
+    // setup: on the link's shapes there (see renderLinkPopup)
     const parts = { ...link.parts };
-    for (const k of ['chord', 'scale', 'recent']) if (link.same[k]) parts[k] = false;
+    for (const k of ['chord', 'scale', 'recent']) if (link.same[k] && !link.withSetup[k]) parts[k] = false;
     applyLink(link.search, parts);
     shownChord = undefined;   // loaded, not picked (its chip, if a chord came: see applyLink)
   }
@@ -2376,7 +2448,7 @@ function askClearRecent() {
   els.listClearNames.innerHTML = lkValue(saved, 'win');   // chips, as in the share popup
   // the recent ones under them, quieter: dashed chips, as in the chord list
   els.listClearRecentCount.textContent = chordCount(recent.length, 'recent');
-  els.listClearRecentNames.innerHTML = `<span class="lk-val chips recent">${recent.map((n) => `<span class="lk-chip trail">${TRAIL_CHIP_EDGE}${esc(n)}</span>`).join('')}</span>`;
+  els.listClearRecentNames.innerHTML = `<span class="lk-val chips recent">${recent.map((n) => `<span class="lk-chip trail">${TRAIL_CHIP_EDGE}${chipText(n)}</span>`).join('')}</span>`;
   for (const el of [els.listClearRecentCount, els.listClearRecentNames, els.listClearRecentGo]) el.hidden = !recent.length;
   if (els.listClear.showModal) els.listClear.showModal(); else els.listClear.setAttribute('open', '');
   fitDashes(els.listClearRecentNames, '.lk-chip.trail');
