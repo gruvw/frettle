@@ -391,7 +391,9 @@ kbd {
 .lk-val:not(.chips) { line-height: 22px; }
 .lk-val { min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .lk-val.chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.lk-chip { padding: 0 8px; line-height: 22px; border-radius: var(--r-pill); background: var(--kbd-bg); white-space: nowrap; }
+/* (a long name wraps inside its chip rather than run out of the popup,
+   at its break points, see chipText: its corners as a one-line chip's) */
+.lk-chip { max-width: 100%; padding: 0 8px; line-height: 22px; border-radius: 11px; background: var(--kbd-bg); overflow-wrap: anywhere; }
 .lk-val.win { color: var(--text); }
 .lk-val.lose { color: var(--muted); font-weight: 500; }
 .lk-val.lose:not(.chips), .lk-val.lose .lk-chip { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); }
