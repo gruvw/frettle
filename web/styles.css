@@ -1164,11 +1164,6 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
    D Dorian) never split */
 .np-tail { display: inline-block; }
 .np-item { white-space: nowrap; }
-/* A line in two parts (splitLine), the second wrapped: on a line of its
-   own, no comma before it, a capital to start it */
-.np-split.wrapped .np-sep { display: none; }
-.np-split.wrapped .np-tail { display: block; }
-.np-split.wrapped .np-tail::first-letter { text-transform: uppercase; }
 /* Scale panel: the same description block, in the scale's teal */
 .scale-body .np-symbol.on { background: var(--scale); color: var(--scale-text); }
 

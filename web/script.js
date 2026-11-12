@@ -3975,22 +3975,6 @@ function fitInfo(info) {
   if (count) fitWords(count);
   if (main) fitText(main, 12);
 }
-/* A line in two parts, "Root position, formula 1 3 5": on one line, a comma
-   between them; too long for one, the second on a line of its own, as a
-   line starts ("Root position" / "Formula 1 3 5"), never cut in two.
-   Again when the line's width changes (setupInfoFit). */
-function splitLine(el, lead, rest) {
-  el.classList.add('np-split');
-  el.innerHTML = `${esc(lead)}<span class="np-sep">,</span> <span class="np-tail">${esc(rest)}</span>`;
-  fitSplit(el);
-}
-function fitSplit(el) {
-  const tail = el.querySelector('.np-tail');
-  el.classList.remove('wrapped');
-  if (!tail || !el.clientWidth) return;
-  el.classList.toggle('wrapped', tail.getBoundingClientRect().top - el.getBoundingClientRect().top > tail.offsetHeight / 2);   // (the second part under the first)
-}
-
 /* The shape's note cards: room for a scrollbar under them only when they
    scroll (else the line under them, "Not in this shape", would sit far
    below). Again when the row's width changes (setupInfoFit). */
@@ -4007,11 +3991,10 @@ function setupInfoFit() {
       if (infoWidths.get(target) === target.clientWidth) continue;   // (a height change: nothing to fit)
       infoWidths.set(target, target.clientWidth);
       if (target === els.chordTones) fitNotesRow();
-      else if (target.classList.contains('np-split')) fitSplit(target);
       else fitInfo(target);
     }
   });
-  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement, els.chordTones, els.chordMeta]) watch.observe(info);
+  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement, els.chordTones]) watch.observe(info);
 }
 
 /* The steppers: a chord's shapes or a scale's groups, one at a time, with
@@ -5066,8 +5049,8 @@ function renderChordPanel(ch, sc) {
     els.chordSymbol.classList.remove('on');
     els.chordName.textContent = 'No chord selected';
     els.chordMeta.textContent = 'Pick a chord type, or tap a triad in the Scale panel.';
-    els.chordMeta.classList.remove('wrapped');
     els.chordShapeNote.textContent = '';
+    els.chordPosition.textContent = '';
     els.chordAlt.textContent = '';
     els.chordCapo.hidden = true;
     els.chordKey.hidden = true;
@@ -5089,8 +5072,14 @@ function renderChordPanel(ch, sc) {
     const deg = fmtDeg(d === 'R' ? '1' : d);
     return optional.has(i) ? `(${deg})` : deg;
   }).join(' ');
-  // (the shape's: with "Any bass note" too; on two lines, the break comes after the comma)
-  splitLine(els.chordMeta, INVERSION_NAMES[ch.bassIndex], `formula ${formula}`);
+  // Its formula, then its notes: each once, from the root up, as spelled for
+  // the chord, the ones a shape may leave out in brackets, as the formula and
+  // the Chord type menu (the shape's notes, bass to top, with any doubled,
+  // are below). On two lines, the break comes after the comma.
+  const spelled = ch.spell.notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
+  els.chordMeta.innerHTML = `<span class="np-tail">Formula ${esc(formula)},</span> <span class="np-tail">${esc(spelled)}</span>`;   // (each part whole on its line while it fits one)
+  // Its inversion, on its own line (the shape's: with "Any bass note" too)
+  els.chordPosition.textContent = INVERSION_NAMES[ch.bassIndex];
   // Phones: where the shape is and its frets, as the dock writes them ("Open:
   // x32010": the dock's line can be cut short by a long name; its number is
   // there and on the panel's arrows); a piano's, its keys. A custom shape:
@@ -5381,7 +5370,7 @@ function relativeScales(sc) {
    ========================================================================== */
 function init() {
   for (const id of ['instrumentPicker', 'tuningSelect', 'neck', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
-    'chordRoot', 'chordType', 'chordInversion', 'chordClear', 'chordSymbol', 'chordName', 'chordMeta', 'chordShapeNote',
+    'chordRoot', 'chordType', 'chordInversion', 'chordClear', 'chordSymbol', 'chordName', 'chordMeta', 'chordPosition', 'chordShapeNote',
     'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'chordMissing', 'shapeCount', 'groupCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
