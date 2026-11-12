@@ -2917,9 +2917,9 @@ function renderNamer() {
      words ("C major, 1st inversion", as the chord panel says it; some run
      long): on phones on its own line above, the whole width; on wide
      screens under its number, beside the name. Phones, beside the name:
-     its number ("Name 1/3", with more than one) over the notes placed,
-     bass to top (wide screens have the neck right there), fitted as the
-     steppers' (fitInfo). No tab: the neck shows the shape. */
+     its number ("Name 1/3", with more than one) over the shape's frets
+     ("x32010", the keys on a piano), as the shape stepper's (wide screens
+     have the neck right there), fitted as the steppers' (fitInfo). */
   const wide = isWide();
   let caption = '';
   if (r) {
@@ -2930,11 +2930,11 @@ function renderNamer() {
     const count = readings.length > 1 ? `Name ${naming.pick + 1}/${readings.length}` : '';
     els.namerSymbol.innerHTML = tx(readingSymbol(r));
     els.namerSymbol.title = readingSymbol(r);
-    const names = [...notes].sort((a, b) => a - b).map((m) => noteText(spell.names.get(mod12(m)) || plainNote(m, state.flats))).join(' ');
-    const main = wide ? meaning : names;
+    const frets = shapeShort({ piano: Boolean(instrument().piano), frets: naming.frets });
+    const main = wide ? meaning : frets;
     const counts = readings.length > 1 ? fitsAttr([count, `${naming.pick + 1}/${readings.length}`]) : '';
     els.namerText.innerHTML = (count ? `<span class="dock-count" ${counts}>${esc(count)}</span>` : '')
-      + `<span class="dock-main namer-main${wide ? '' : ' namer-notes'}" title="${esc(wide ? meaning : `Notes, bass to top: ${names}`)}">${esc(main)}</span>`;
+      + `<span class="dock-main namer-main${wide || instrument().piano ? '' : ' mono'}" title="${esc(wide ? meaning : `Shape: ${frets}`)}">${esc(main)}</span>`;
     caption = wide ? '' : meaning;
   } else {
     els.namerSymbol.innerHTML = '';
@@ -5423,10 +5423,13 @@ function setupInstallTip() {
   const text = document.getElementById('installText');
   const later = document.getElementById('installLater');
   const now = document.getElementById('installNow');
+  // To try it: the address with ?install-tip shows it at once, whatever was
+  // answered before, and keeps no answer
+  const trying = new URLSearchParams(location.search).has('install-tip');
   const read = () => { try { return JSON.parse(localStorage.getItem(INSTALL_KEY)) || {}; } catch { return {}; } };
-  const write = (v) => { try { localStorage.setItem(INSTALL_KEY, JSON.stringify(v)); } catch { /* not kept: asked again next visit */ } };
+  const write = (v) => { if (trying) return; try { localStorage.setItem(INSTALL_KEY, JSON.stringify(v)); } catch { /* not kept: asked again next visit */ } };
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  if (standalone) { write({ ...read(), installed: true }); return; }
+  if (standalone && !trying) { write({ ...read(), installed: true }); return; }
   let offer = null;   // the browser's own install (Chrome, Edge, Samsung Internet...)
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); offer = e; });   // (its own banner: not shown, this one is, later)
   window.addEventListener('appinstalled', () => { write({ ...read(), installed: true }); tip.hidden = true; });
@@ -5446,14 +5449,15 @@ function setupInstallTip() {
     : ios ? `Tap ${SHARE_ICON} Share, then “More” (if shown), then “Add to Home Screen”.`
       : macSafari ? 'In the menu bar: File, then “Add to Dock”.'
         : /Android/.test(ua) && /Firefox/.test(ua) ? 'Open the menu (⋮), then “Install”.'
-          : null;
+          : trying ? 'Open the browser’s menu, then “Install” or “Add to Home Screen”.'   // (trying it where the browser offers its own, or none)
+            : null;
 
   const due = () => {
     const v = read();
     if (v.installed || (v.declined || 0) >= 2) return false;
     return !v.declined || Date.now() - (v.at || 0) >= INSTALL_AGAIN;
   };
-  if (!due()) return;
+  if (!due() && !trying) return;
   // Installed already? Chrome and Edge can tell (manifest.json:
   // related_applications); elsewhere it can't be known from the browser
   let installed = false;
@@ -5483,6 +5487,7 @@ function setupInstallTip() {
     now.classList.remove('primary');
     now.onclick = answer;   // (replaces this handler's work: the steps are read)
   }, { once: true });
+  if (trying) { tip.hidden = false; return; }
 
   // On screen and in use a while (time only counts while the page shows)
   let seconds = 0;
