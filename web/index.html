@@ -181,9 +181,9 @@
               <span>Type</span>
               <button type="button" id="chordType" class="select-btn" aria-haspopup="dialog" aria-label="Chord type"></button>
             </div>
-            <div class="field grow voicing">
-              <span>Voicing</span>
-              <button type="button" id="chordVoicing" class="select-btn" aria-haspopup="dialog" aria-label="Chord voicing"></button>
+            <div class="field grow inversion">
+              <span>Inversion</span>
+              <button type="button" id="chordInversion" class="select-btn" aria-haspopup="dialog" aria-label="Chord inversion"></button>
             </div>
             <button type="button" id="chordStrum" class="btn primary wide-only" title="Strum the shape (Space)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="tx">Strum</span></button>
             <button type="button" id="chordClear" class="btn deselect" title="Deselect the chord" aria-label="Deselect the chord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span class="btn-label">Deselect</span></button>
@@ -342,7 +342,7 @@
     </div>
   </div>
 
-  <!-- Picker popup for every menu: roots, chord and scale types, voicing, capo -->
+  <!-- Picker popup for every menu: roots, chord and scale types, inversion, capo -->
   <!-- About: one line on the app and the link to its code -->
   <dialog id="about" class="picker about" aria-labelledby="aboutTitle">
     <div class="picker-head">
