@@ -984,11 +984,21 @@ function defaultState() {
    what is on the neck (work: the neck, chord, scale and chord list, the
    parts a link can hold, written the same way as in a link). Each value is
    checked as it is read; a wrong or missing one keeps its default. */
-function loadState() {
+// What is saved, as written (saveState), or null
+function readSaved() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    return saved && saved.v === SAVE_VERSION ? saved : null;
+  } catch { return null; }
+}
+// A state from what is saved (by default, what is in storage now)
+function loadState(saved) {
   const s = defaultState();
   try {
-    for (const key of OLD_STORAGE_KEYS) localStorage.removeItem(key);
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (saved === undefined) {
+      for (const key of OLD_STORAGE_KEYS) localStorage.removeItem(key);
+      saved = readSaved();
+    }
     if (!saved || saved.v !== SAVE_VERSION) return s;
     const prefs = saved.prefs || {};
     const work = saved.work || {};
@@ -1066,7 +1076,8 @@ function loadState() {
   return s;
 }
 
-function saveState() {
+// The state as saved: { v, prefs, work }
+function savedForm() {
   const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = state;
   const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
   const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), bass: r.bass, inversions: r.inversions, shapes: r.shapes });
@@ -1088,7 +1099,110 @@ function saveState() {
       drawn: state.drawn.map((d) => ({ chord: chordText(d.root, findChord(d.type)), neck: d.neck, frets: d.frets })),
     },
   };
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* ignore */ }
+  return saved;
+}
+
+/* Several tabs: each shows its own view (instrument, tuning and capo, the
+   custom tuning, chord, scale, inversion, recent chords: the one last
+   saved is what a reload or a new tab opens on), while the settings (prefs)
+   and the library (saved tunings, the chord list, custom shapes) are the
+   same in all of them. A tab saving writes its view, and of the shared
+   parts only what it changed since it last saw them (sharedBase), merged
+   into what is stored now (mergeShared): an older tab never erases what a
+   newer one saved. Another tab's save (the storage event), or this tab
+   coming back into view, brings the shared parts in (syncShared). */
+let sharedBase = null;     // the shared parts as this tab last read or wrote them
+let viewWritten = null;    // its view as it last wrote it (nothing new: nothing written)
+const SHARED_WORK = ['saved', 'list', 'drawn'];
+const sharedOf = (saved) => ({ prefs: saved.prefs, ...Object.fromEntries(SHARED_WORK.map((k) => [k, saved.work[k]])) });
+const viewOf = (saved) => Object.fromEntries(Object.entries(saved.work).filter(([k]) => !SHARED_WORK.includes(k)));
+// The same content (objects whatever the order of their keys)
+const sortedJSON = (x) => JSON.stringify(x, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
+const sameJSON = (a, b) => sortedJSON(a) === sortedJSON(b);
+/* mine, changed from base (this tab's changes), into theirs (what is stored):
+   - prefs: each one, mine where I changed it, else theirs
+   - saved tunings, per instrument, each one known by its notes (no two the
+     same; names may repeat): theirs, with the ones I added and without the
+     ones I removed, mine renamed
+   - the chord list, each chip known by its chord and bass: its order mine if
+     I changed it (less the chips they removed, plus the ones they added),
+     else theirs; a chip mine if I changed it (a shape, an inversion), else
+     theirs
+   - custom shapes, each one known by all it holds: theirs, with mine added,
+     without mine removed */
+function mergeShared(base, mine, theirs) {
+  if (!base || !theirs) return mine;
+  const prefs = { ...theirs.prefs };
+  for (const k of Object.keys(mine.prefs)) if (!sameJSON(mine.prefs[k], base.prefs && base.prefs[k])) prefs[k] = mine.prefs[k];
+  const keyed = (list, key) => new Map((list || []).map((x) => [key(x), x]));
+  const mergeSet = (b, m, t, key, changed = () => false) => {
+    const [B, M, T] = [keyed(b, key), keyed(m, key), keyed(t, key)];
+    const out = [...T.keys()].filter((k) => !(B.has(k) && !M.has(k)));   // (less mine removed)
+    for (const k of M.keys()) if (!B.has(k) && !T.has(k)) out.push(k);   // (plus mine added)
+    return out.map((k) => (M.has(k) && (changed(M.get(k), B.get(k)) || !T.has(k)) ? M.get(k) : T.get(k)));
+  };
+  const saved = {};
+  for (const id of new Set([...Object.keys(theirs.saved || {}), ...Object.keys(mine.saved || {})])) {
+    const list = mergeSet((base.saved || {})[id], (mine.saved || {})[id], (theirs.saved || {})[id], (t) => t.tuning, (m, b) => b && m.name !== b.name);
+    if (list.length) saved[id] = list;
+  }
+  const chipKey = (e) => `${e.chord}*${e.bass}`;
+  const chipChanged = (m, b) => !b || !sameJSON(m, b);
+  let list;
+  if (sameJSON((mine.list || []).map(chipKey), (base.list || []).map(chipKey))) {
+    list = mergeSet(base.list, mine.list, theirs.list, chipKey, chipChanged);
+  } else {   // my order, with their removals and additions
+    const [B, T] = [keyed(base.list, chipKey), keyed(theirs.list, chipKey)];
+    const M = keyed(mine.list, chipKey);
+    const keys = [...M.keys()].filter((k) => !(B.has(k) && !T.has(k)));
+    for (const k of T.keys()) if (!B.has(k) && !keys.includes(k)) keys.push(k);
+    list = keys.map((k) => (M.has(k) && (chipChanged(M.get(k), B.get(k)) || !T.has(k)) ? M.get(k) : T.get(k)));
+  }
+  const drawn = mergeSet(base.drawn, mine.drawn, theirs.drawn, (d) => JSON.stringify(d)).slice(-DRAWN_MAX);
+  return { prefs, saved, list: list.slice(0, LIST_MAX), drawn };
+}
+function saveState() {
+  const own = savedForm();
+  const mine = sharedOf(own);
+  const view = viewOf(own);
+  if (sharedBase && sameJSON(mine, sharedBase) && sameJSON(view, viewWritten)) return;   // (nothing new from this tab)
+  const stored = readSaved();
+  const merged = mergeShared(sharedBase, mine, stored ? sharedOf(stored) : null);
+  const out = { v: SAVE_VERSION, prefs: merged.prefs, work: { ...view, ...Object.fromEntries(SHARED_WORK.map((k) => [k, merged[k]])) } };
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); } catch { /* ignore */ }
+  sharedBase = merged;
+  viewWritten = view;
+  if (!sameJSON(merged, mine)) { adoptShared(out); requestAnimationFrame(render); }   // (another tab's changes too)
+}
+// The shared parts of what is saved, into this tab's state (its view kept)
+function adoptShared(saved) {
+  const s = loadState(saved);
+  for (const k of ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded', 'muteTaps']) state[k] = s[k];
+  state.share = s.share;
+  state.folded = s.folded;
+  // A saved tuning on screen that another tab removed: kept as a custom one
+  for (const [id, t] of Object.entries(state.tuning)) {
+    if (!String(t).startsWith('saved:') || savedTunings(id, s.saved).some((x) => x.id === t)) continue;
+    const strings = readCustom(id, String(t).slice(6));
+    if (strings) { state.custom[id] = strings; state.tuning[id] = 'custom'; } else state.tuning[id] = tuningsOf(id)[0].id;
+  }
+  state.saved = s.saved;
+  for (const r of s.list) if (r.bass === undefined) r.bass = legacyBass(r);
+  state.list = s.list;
+  state.recent = state.recent.filter((r) => !state.list.some((x) => sameEntry(x, r)));   // (a chord now in the list: its chip there)
+  state.drawn = s.drawn;
+}
+// Another tab saved (or this one comes back): the shared parts as stored now
+function syncShared() {
+  const stored = readSaved();
+  if (!stored || !sharedBase) return;
+  const theirs = sharedOf(stored);
+  if (sameJSON(theirs, sharedBase)) return;
+  const mine = sharedOf(savedForm());
+  const merged = mergeShared(sharedBase, mine, theirs);
+  adoptShared({ v: SAVE_VERSION, prefs: merged.prefs, work: { ...viewOf(savedForm()), ...Object.fromEntries(SHARED_WORK.map((k) => [k, merged[k]])) } });
+  sharedBase = theirs;   // (what is stored: mine, if I had changed anything since, is written next)
+  render();
 }
 
 /* Text forms shared by links and saved settings: each part is written one
@@ -5549,6 +5663,9 @@ function init() {
   state = loadState();
   ui.chordRoot = state.chord.root;   // (as saved: a scale root picked while no scale shows stays, see draw)
   for (const r of [...state.list, ...state.recent]) if (r.bass === undefined) r.bass = legacyBass(r);   // (saved before chips had a bass)
+  // What this tab saw saved: what it changes from here on is what it writes
+  // of the shared parts (see saveState)
+  { const stored = readSaved(); sharedBase = stored ? sharedOf(stored) : null; }
   const { root, type } = state.chord;
   const chips = [...state.list, ...state.recent];
   // the chord on screen as its chip remembers it (inversion, shape): the chip
@@ -5948,6 +6065,9 @@ async function keepScreenOn() {
 }
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', keepScreenOn);
+  // Other tabs: their settings and library, as they save them (see saveState)
+  window.addEventListener('storage', (e) => { if (e.key === STORAGE_KEY) syncShared(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncShared(); });
   document.addEventListener('pointerdown', keepScreenOn);
 }
 
