@@ -181,7 +181,7 @@ const SCALES = [
     { id: 'major-pentatonic', name: 'Major pentatonic', short: 'Maj. pent', steps: [0, 2, 4, 7, 9] },
     { id: 'minor-pentatonic', name: 'Minor pentatonic', short: 'Min. pent', steps: [0, 3, 5, 7, 10] },
     { id: 'major-blues', name: 'Major blues', short: 'Maj. blues', steps: [0, 2, 3, 4, 7, 9] },
-    { id: 'blues', name: 'Blues', short: 'Blues', steps: [0, 3, 5, 6, 7, 10] },
+    { id: 'blues', name: 'Minor blues', short: 'Min. blues', steps: [0, 3, 5, 6, 7, 10] },   // (id: as links have it)
     { id: 'hirajoshi', name: 'Hirajoshi', short: 'Hirajoshi', steps: [0, 2, 3, 7, 8] },
   ] },
   { group: 'Double harmonic', items: [
@@ -970,8 +970,8 @@ function nameChord(midis, scalePcs = null) {
 
 /* ==========================================================================
    3. State (instrument, switches, chord and scale are saved to
-   localStorage, the tuning and the capo for each instrument; the inversion
-   and the shape shown are not)
+   localStorage, the tuning, capo and inversion for each instrument; the
+   shape shown comes back as its chip remembers it)
    ========================================================================== */
 function defaultState() {
   return {
@@ -991,7 +991,7 @@ function defaultState() {
     list: [],                         // the chord list, as built [{ root, type, inversions, shapes }], shared by all instruments
     recent: [],                       // the last chords used that are not in it (RECENT_KEEP kept, RECENT_MAX shown), newest first
     drawn: [],                        // custom shapes (Name a chord): [{ root, type, neck, frets }], newest last (see listShapes)
-    inversion: { ...DEFAULT_INVERSION },  // per instrument, this visit only
+    inversion: { ...DEFAULT_INVERSION },  // per instrument
     shape: null,                      // index in the shape list, this visit only (null: the chord's home shape, homeShape)
     scale: { on: true, root: 0, type: 'major' },   // off: type null (see scaleOff)
     share: { neck: true, chord: true, scale: true, list: true },
@@ -1052,6 +1052,10 @@ function loadState(saved) {
       const c = readCapo(typeof work.capo === 'number' ? (id === s.instrument ? work.capo : 0) : work.capo && work.capo[id], id);
       if (c) s.capo[id] = c;
     }
+    for (const { id } of INSTRUMENTS) {
+      const v = work.inversion && work.inversion[id];
+      if (INVERSIONS.includes(v)) s.inversion[id] = v;
+    }
     const chord = readChord(work.chord);
     if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id } : { on: false, root: chord.root, type: null };
     s.chordBass = chord && chord.def ? chord.bass : null;   // (which of its chips was on screen: see init)
@@ -1095,31 +1099,43 @@ function loadState(saved) {
   return s;
 }
 
+/* A chord as saved: one way whatever the scale on screen spells it (D♯m
+   in B major, E♭m in E♭ major, both "Ds-min"; else two tabs with different
+   scales would see one chip as two, and save it back and forth) */
+const savedChord = (root, type) => `${noteToken(plainNote(root, false))}-${type}`;
+const savedEntry = (r) => ({ chord: savedChord(r.root, r.type), bass: r.bass, inversions: r.inversions, shapes: r.shapes });
+// A state's shared parts as saved (see saveState): settings, saved tunings,
+// the chord list and custom shapes
+function sharedForm(s) {
+  const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = s;
+  return copyJSON({
+    prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded },
+    saved: Object.fromEntries(Object.entries(s.saved).filter(([, list]) => list.length)
+      .map(([id, list]) => [id, list.map((t) => ({ name: t.name, tuning: customText(t.strings) }))])),
+    list: s.list.map(savedEntry),
+    drawn: s.drawn.map((d) => ({ chord: savedChord(d.root, d.type), neck: d.neck, frets: d.frets })),
+  });
+}
 // The state as saved: { v, prefs, work }
 function savedForm() {
-  const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = state;
+  const shared = sharedForm(state);
   const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
-  // (a chord saved one way whatever the scale on screen spells it: D♯m in
-  // B major, E♭m in E♭ major, both "Ds-min"; else two tabs with different
-  // scales would see one chip as two, and save it back and forth)
-  const savedChord = (root, type) => `${noteToken(plainNote(root, false))}-${type}`;
-  const entry = (r) => ({ chord: savedChord(r.root, r.type), bass: r.bass, inversions: r.inversions, shapes: r.shapes });
   const shown = state.chord.on ? currentChord() : null;
   const saved = {
     v: SAVE_VERSION,
-    prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded },
+    prefs: shared.prefs,
     work: {
       instrument: state.instrument,
       tuning: state.tuning,
       custom: Object.fromEntries(Object.entries(state.custom).map(([id, strings]) => [id, customText(strings)])),
-      saved: Object.fromEntries(Object.entries(state.saved).filter(([, list]) => list.length)
-        .map(([id, list]) => [id, list.map((t) => ({ name: t.name, tuning: customText(t.strings) }))])),
+      saved: shared.saved,
       capo: state.capo,
+      inversion: state.inversion,   // (each instrument's, as its menu shows it: a reload shows it again, not as worked out anew)
       chord: shown ? chordBassText(shown.root, shown.def, shown.bassIndex) : noteToken(plainNote(state.chord.root, state.flats)),   // (with its bass: which of its chips it is)
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
-      list: state.list.map(entry),
-      recent: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
-      drawn: state.drawn.map((d) => ({ chord: savedChord(d.root, d.type), neck: d.neck, frets: d.frets })),
+      list: shared.list,
+      recent: state.recent.map((r) => ({ ...savedEntry(r), used: order.indexOf(r) })),
+      drawn: shared.drawn,
     },
   };
   return copyJSON(saved);   // (sharing nothing with the state: see saveState)
@@ -1143,6 +1159,11 @@ let viewWritten = null;    // its view as it last wrote it (nothing new: nothing
 const copyJSON = (x) => JSON.parse(JSON.stringify(x));
 const SHARED_WORK = ['saved', 'list', 'drawn'];
 const sharedOf = (saved) => ({ prefs: saved.prefs, ...Object.fromEntries(SHARED_WORK.map((k) => [k, saved.work[k]])) });
+/* What is stored now, its shared parts as this tab writes them: read as a
+   reload reads it (anything damaged or unknown left out), so they compare
+   with this tab's, and the merge never meets what it cannot read. null:
+   nothing stored */
+const storedShared = () => { const stored = readSaved(); return stored ? sharedForm(loadState(stored)) : null; };
 const viewOf = (saved) => Object.fromEntries(Object.entries(saved.work).filter(([k]) => !SHARED_WORK.includes(k)));
 // The same content (objects whatever the order of their keys)
 const sortedJSON = (x) => JSON.stringify(x, (k, v) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
@@ -1203,8 +1224,7 @@ function saveState() {
   const mine = sharedOf(own);
   const view = viewOf(own);
   if (sharedBase && sameJSON(mine, sharedBase) && sameJSON(view, viewWritten)) return;   // (nothing new from this tab)
-  const stored = readSaved();
-  const merged = mergeShared(sharedBase, mine, stored ? sharedOf(stored) : null);
+  const merged = mergeShared(sharedBase, mine, storedShared());
   const out = { v: SAVE_VERSION, prefs: merged.prefs, work: { ...view, ...Object.fromEntries(SHARED_WORK.map((k) => [k, merged[k]])) } };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); } catch { /* ignore */ }
   sharedBase = copyJSON(merged);
@@ -1231,9 +1251,8 @@ function adoptShared(saved) {
 }
 // Another tab saved (or this one comes back): the shared parts as stored now
 function syncShared() {
-  const stored = readSaved();
-  if (!stored || !sharedBase) return;
-  const theirs = sharedOf(stored);
+  const theirs = storedShared();
+  if (!theirs || !sharedBase) return;
   if (sameJSON(theirs, sharedBase)) return;
   const mine = sharedOf(savedForm());
   const merged = mergeShared(sharedBase, mine, theirs);
@@ -2088,8 +2107,14 @@ function plainRoot(pc, sc = currentScale()) {
    inversion is chosen for a chord, not kept for the next one. A new root
    keeps it (the same chord, moved). A chip brings back its own. */
 const resetInversion = () => { state.inversion = { ...DEFAULT_INVERSION }; };
-function updateChord(patch) {   // a chord picked from the menus (or a triad): its first shape
-  if ('type' in patch && (patch.type !== state.chord.type || !state.chord.on)) resetInversion();
+/* A chord picked from the menus (or a triad): its first shape. A new chord
+   (another root or type) starts from each instrument's default inversion
+   (root position, or "Any bass note" where few chords have one): an
+   inversion picked for one chord does not follow to the next (its chip
+   keeps it) */
+function updateChord(patch) {
+  const fresh = !state.chord.on || ('type' in patch && patch.type !== state.chord.type) || ('root' in patch && patch.root !== state.chord.root);
+  if (fresh) resetInversion();
   Object.assign(state.chord, patch, { on: true });
   state.shape = null;
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
@@ -5557,7 +5582,8 @@ function renderScalePanel(sc, ch) {
   els.scaleName.textContent = `${sc.rootName} ${scaleTitle(sc.def)}`;
   els.scaleMeta.textContent = `Formula ${degrees.join(' ')}`;
   const relatives = relativeScales(sc);
-  els.scaleAlt.innerHTML = relatives.length ? `Same notes as <span class="np-tail">${relatives.map((r) => `<span class="np-item">${esc(r)}</span>`).join(', ')}</span>` : '';
+  // ("♪ = A natural minor": the same notes, as the chord's "= CM, Cmaj"; ♪ and = kept together, never alone at a line's end)
+  els.scaleAlt.innerHTML = relatives.length ? `♪\u00a0=\u00a0<span class="np-tail">${relatives.map((r) => `<span class="np-item">${esc(r)}</span>`).join(', ')}</span>` : '';
 
   // Notes with their interval on top, and the step to the next note below
   const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${tx(deg === '1' ? 'R' : deg)}</span>`;
@@ -5687,7 +5713,7 @@ function listNumeral(sc, root, def) {
 /* The scale's name in a sentence: "A natural minor", "A Dorian" (mode
    names keep their capital), "A blues scale" */
 const SCALE_TITLES = {
-  major: 'major', minor: 'natural minor', blues: 'blues scale', 'whole-tone': 'whole tone scale',
+  major: 'major', minor: 'natural minor', blues: 'minor blues scale', 'whole-tone': 'whole tone scale',
   'dim-wh': 'diminished whole-half', 'dim-hw': 'diminished half-whole', chromatic: 'chromatic scale',
   'phrygian-dominant': 'Phrygian dominant', 'lydian-dominant': 'Lydian dominant', altered: 'altered scale',
   'major-blues': 'major blues scale', hirajoshi: 'Hirajoshi scale',
@@ -5715,22 +5741,40 @@ function scaleDegrees(def) {
   });
 }
 
-/* Common scales with exactly the same notes: A minor and C major, D Dorian
-   and C major... Only the major, natural minor and pentatonic scales are
-   named, the ones people know these notes by. */
-const RELATIVE_IDS = ['major', 'minor', 'major-pentatonic', 'minor-pentatonic'];
+/* Scales with exactly the same notes, as people relate them: the major
+   scale's modes by the major and minor scales they are known by (D Dorian:
+   C major, A minor), the pentatonic and blues pairs, harmonic minor and its
+   5th mode, melodic minor with its jazz modes, the two double harmonic
+   scales (the major scale's other modes would make too long a list: C
+   major names only A minor). The symmetric scales repeat their notes from
+   other roots of their own: C whole tone is D E F♯ G♯ B♭ whole tone; a
+   diminished scale also names the other kind from one root, the best known
+   (C whole-half: D half-whole). Roots as the scale on screen spells them,
+   but a white key's (E♯, F♭, B♯, C♭) and a double sharp or flat's, plainly
+   (F♯ melodic minor: B Lydian dominant, F altered, not E♯ altered). */
+const MODE_RELATIVES = ['major', 'minor'];
+const RELATIVES = {
+  major: ['minor'], minor: ['major'],
+  dorian: MODE_RELATIVES, phrygian: MODE_RELATIVES, lydian: MODE_RELATIVES, mixolydian: MODE_RELATIVES, locrian: MODE_RELATIVES,
+  'major-pentatonic': ['minor-pentatonic'], 'minor-pentatonic': ['major-pentatonic'],
+  'major-blues': ['blues'], blues: ['major-blues'],
+  'harmonic-minor': ['phrygian-dominant'], 'phrygian-dominant': ['harmonic-minor'],
+  'melodic-minor': ['lydian-dominant', 'altered'], 'lydian-dominant': ['melodic-minor', 'altered'], altered: ['melodic-minor', 'lydian-dominant'],
+  'double-harmonic-major': ['double-harmonic-minor'], 'double-harmonic-minor': ['double-harmonic-major'],
+  'whole-tone': ['whole-tone'], 'dim-wh': ['dim-wh', 'dim-hw'], 'dim-hw': ['dim-hw', 'dim-wh'],
+};
+const RELATIVE_FROM = { 'dim-wh': { 'dim-hw': 2 }, 'dim-hw': { 'dim-wh': 10 } };   // (the other kind: only from this root, in semitones up)
+const RELATIVE_NAMES = { minor: 'minor', 'major-blues': 'major blues', blues: 'minor blues', altered: 'altered', 'whole-tone': 'whole tone', 'dim-wh': 'whole-half', 'dim-hw': 'half-whole' };
+// → ["C major", "A minor"], ["E♭ G♭ A whole-half", "D half-whole"]: one item per kind, its roots apart by spaces
 function relativeScales(sc) {
-  if (sc.def.steps.length >= 12) return [];
-  const found = [];
-  for (const id of RELATIVE_IDS) {
-    if (id === sc.def.id) continue;
+  return (RELATIVES[sc.def.id] || []).map((id) => {
     const def = findScale(id);
-    if (def.steps.length !== sc.set.size) continue;
-    for (const n of sc.spell.notes) {
-      if (def.steps.every((st) => sc.set.has(mod12(n.pc + st)))) found.push(`${noteText(n)} ${id === 'minor' ? 'minor' : scaleTitle(def)}`);
-    }
-  }
-  return found;
+    const from = RELATIVE_FROM[sc.def.id] && RELATIVE_FROM[sc.def.id][id];
+    const roots = def.steps.length !== sc.set.size ? [] : sc.spell.notes.filter((n) => (id !== sc.def.id || n.pc !== mod12(sc.root))
+      && (from === undefined || n.pc === mod12(sc.root + from)) && def.steps.every((st) => sc.set.has(mod12(n.pc + st))));
+    const plain = (n) => ((n.acc && LETTER_PC.includes(n.pc)) || Math.abs(n.acc) > 1 ? plainNote(n.pc, n.acc < 0) : n);
+    return roots.length ? `${roots.map((n) => noteText(plain(n))).join(' ')} ${RELATIVE_NAMES[id] || scaleTitle(def)}` : null;
+  }).filter(Boolean);
 }
 
 /* ==========================================================================
@@ -5775,7 +5819,7 @@ function init() {
   for (const r of [...state.list, ...state.recent]) if (r.bass === undefined) r.bass = legacyBass(r);   // (saved before chips had a bass)
   // What this tab saw saved: what it changes from here on is what it writes
   // of the shared parts (see saveState)
-  { const stored = readSaved(); sharedBase = stored ? sharedOf(stored) : null; }
+  sharedBase = storedShared();
   const { root, type } = state.chord;
   const chips = [...state.list, ...state.recent];
   // the chord on screen as its chip remembers it (inversion, shape): the chip
@@ -6303,5 +6347,5 @@ if (typeof module !== 'undefined') {
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
     ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote,
     nameChord, describeChord, customChord, chordOf, degreesOver,
-    scaleGroups, groupsFor: scaleGroups, REACH, mergeShared };
+    scaleGroups, groupsFor: scaleGroups, REACH, mergeShared, loadState, sharedForm, SAVE_VERSION };
 }
