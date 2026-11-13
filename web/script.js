@@ -152,8 +152,11 @@ const startFret = (inst, s) => (inst.starts ? inst.starts[s] : 0);
 const fretPitch = (inst, s, f) => inst.strings[s] + f - startFret(inst, s);
 /* Neck fret of a shape's fret (shapes count from the capo; 0 = the string
    rings open, which for the drone is where it starts, past its spike).
-   Shapes never fret the drone. */
+   The shape finder never frets the drone; a shape placed in Name a chord
+   may (a fret past its start). */
 const shapeNeckFret = (inst, s, f, capo) => (f === 0 ? startFret(inst, s) : f) + capo;
+// Pitch of a shape's fret on string s (inst: with the capo on, see cappedInstrument)
+const shapePitch = (inst, s, f) => inst.strings[s] + (f > 0 ? f - startFret(inst, s) : 0);
 
 /* Scales: semitone steps from the root; `short` is the name shown in the
    phone's tab bar, where space is tight. */
@@ -511,6 +514,7 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     if (inner > maxInner || trail > maxTrail) return null;
 
     const pcs = new Set(sound.map((x) => mod12(x.midi)));
+    if (def.span && !spans(def, sound.map((x) => x.midi))) return null;
     const complete = required.every((pc) => pcs.has(pc) || extraPcs.includes(pc));
     if (!complete && !(forced && frets.join(',') === forced.join(','))) return null;
 
@@ -579,7 +583,13 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
   return found;
 }
 
+// An octave type's notes: its span from the lowest to the highest (not a unison)
+const spans = (def, midis) => Math.max(...midis) - Math.min(...midis) === def.span;
 function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
+  if (inst.starts && def.span) {   // (a ringing drone counts)
+    return droneShapes(inst, rootPc, def, inversion, weights)
+      .filter((sh) => spans(def, sh.frets.flatMap((f, s) => (f < 0 ? [] : [shapePitch(inst, s, f)]))));
+  }
   if (inst.starts) return droneShapes(inst, rootPc, def, inversion, weights);
   return pickShapes(shapeCandidates(inst, rootPc, def, inversion), weights, chartShape(inst, rootPc, def));
 }
@@ -747,7 +757,7 @@ const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape
    is played as two, the octave apart.
    Returns [{ frets: keys from A0 (0) up, pos: the lowest, piano: true }]. */
 function pianoShapes(rootPc, def, inversion) {
-  const steps = def.steps.length > 1 ? def.steps : [0, 12];
+  const steps = def.steps.length > 1 ? def.steps : [0, def.span];
   const basses = inversion === 'any' ? def.steps.map((_, i) => i) : [Number(inversion) || 0].filter((i) => i < def.steps.length);
   const shapes = [];
   for (const b of basses) {
@@ -792,7 +802,7 @@ const INTERVALS = { b2: ['m2', 'Minor 2nd'], 2: ['M2', 'Major 2nd'], b3: ['m3', 
   4: ['P4', 'Perfect 4th'], b5: ['TT', 'Tritone'], 5: ['P5', 'Perfect 5th'], b6: ['m6', 'Minor 6th'],
   6: ['M6', 'Major 6th'], b7: ['m7', 'Minor 7th'], 7: ['M7', 'Major 7th'] };
 const DYAD_DEGREES = [null, 'b2', '2', 'b3', '3', '4', 'b5', '5', 'b6', '6', 'b7', '7'];
-const ORDINAL = { 7: '7th', 9: '9th', 11: '11th', 13: '13th' };
+const ORDINAL = { 6: '6th', 7: '7th', 9: '9th', 11: '11th', 13: '13th' };
 /* The symbol and name of a chord written as its degrees */
 function describeChord(degrees) {
   const d = new Set(degrees.filter((x) => x !== 'R'));
@@ -810,7 +820,7 @@ function describeChord(degrees) {
   if (minor && d.has('b5') && sev === 'bb7') { core = 'dim7'; words = 'Diminished 7th'; used.add('b5'); }
   else if (minor && d.has('b5') && sev === 'b7') { core = 'm7♭5'; words = 'Half-diminished 7th'; used.add('b5'); }
   else if (minor && d.has('b5') && !sev && !d.has('6')) { core = 'dim'; words = 'Diminished'; used.add('b5'); }
-  else if (third === '3' && d.has('#5') && sev !== '7') { core = sev ? 'aug7' : 'aug'; words = sev ? 'Augmented 7th' : 'Augmented'; used.add('#5'); }
+  else if (third === '3' && d.has('#5') && sev !== '7' && !d.has('6')) { core = sev ? 'aug7' : 'aug'; words = sev ? 'Augmented 7th' : 'Augmented'; used.add('#5'); }
   else if (sev === 'b7' || sev === '7') {
     // The highest natural extension above a 7th names it (C13: its 9th and 11th go without saying)
     const top = ['13', '11', '9'].find((x) => d.has(x));
@@ -820,16 +830,18 @@ function describeChord(degrees) {
     else { core = minor ? `m(maj${n})` : `maj${n}`; words = `${minor ? 'Minor-major' : 'Major'} ${ORDINAL[n]}`; }
   } else if (d.has('6')) {
     const nine = d.has('9');
+    used.add('6');
     if (nine) used.add('9');
     core = (minor ? 'm' : '') + (nine ? '6/9' : '6');
     words = `${minor ? 'Minor' : 'Major'} ${nine ? 'six-nine' : '6th'}`;
   } else if (third) { core = minor ? 'm' : ''; words = minor ? 'Minor' : 'Major'; }
   else if (!sus && d.has('5')) { core = '5'; words = 'Power chord'; }
   else { core = ''; words = sus ? '' : 'Chord'; }
-  for (const x of ['3', 'b3', 'b7', '7', 'bb7', '6', '5', sus]) used.add(x);
+  for (const x of ['3', 'b3', 'b7', '7', 'bb7', '5', sus]) used.add(x);
   if (sus) words = `${words}${words ? ', s' : 'S'}uspended ${sus === '4' ? '4th' : '2nd'}`;
-  // Added notes (no 7th), then altered ones, then a missing 3rd
-  const adds = ['9', '11', '13'].filter((x) => d.has(x) && !used.has(x));
+  // Added notes (no 7th), then altered ones, then a missing 3rd (every
+  // note said: C E G♯ A is C6(♯5), not Caug)
+  const adds = ['6', '9', '11', '13'].filter((x) => d.has(x) && !used.has(x));
   const alts = ['b5', '#5', 'b9', '#9', '#11', 'b13'].filter((x) => d.has(x) && !used.has(x));
   const no3 = !third && !sus && core !== '5';
   let symbol = core + (sus ? `sus${sus}` : '');
@@ -844,12 +856,24 @@ function describeChord(degrees) {
   return { symbol, name: name.charAt(0).toUpperCase() + name.slice(1) };
 }
 const customDefs = new Map();
-/* One note in octaves (C3 and C4): an interval too, its own type, the one
-   with a single note to its name */
-const OCTAVE_ID = 'i-8';
-const OCTAVE = { id: OCTAVE_ID, steps: [0], degrees: ['R'], custom: true, symbol: '(P8)', name: 'Perfect octave interval' };
+/* One note in octaves: an interval too, a type of its own for each span
+   (C3 and C4: C(P8), an octave; C3 and C5: C(P15), two octaves), its id
+   the interval's number ("i-8", "i-15"); its shapes span just that */
+const OCTAVE_MAX = 7;   // (a piano's keys)
+const OCTAVE_WORDS = [null, 'Perfect octave', 'Double octave', 'Triple octave'];
+const octaveDefs = new Map();
+function octaveType(k) {
+  if (!Number.isInteger(k) || k < 1 || k > OCTAVE_MAX) return undefined;
+  if (!octaveDefs.has(k)) {
+    const n = 7 * k + 1;
+    octaveDefs.set(k, { id: `i-${n}`, steps: [0], degrees: ['R'], custom: true, span: 12 * k,
+      symbol: `(P${n})`, name: `${OCTAVE_WORDS[k] || `${k}-octave`} interval` });
+  }
+  return octaveDefs.get(k);
+}
 function customChord(id) {
-  if (id === OCTAVE_ID) return OCTAVE;
+  const octave = /^i-(\d+)$/.exec(String(id));
+  if (octave && (octave[1] - 1) % 7 === 0) return octaveType((octave[1] - 1) / 7);
   if (typeof id !== 'string' || !/^i(-[a-z0-9]+)+$/.test(id)) return undefined;
   if (customDefs.has(id)) return customDefs.get(id);
   const degrees = ['R', ...id.slice(2).split('-').map((x) => x.replace(/s/g, '#'))];
@@ -874,10 +898,11 @@ function degreesOver(root, pcs) {
   if (has(10) && has(11)) return null;
   const third = has(4) ? '3' : has(3) ? 'b3' : null;
   const sev = has(10) || has(11);
+  // (a diminished 7th only over a ♭5: with the 5th, the tritone is a ♯11 and this a 6th)
   const role = (x) => ({
     1: 'b9', 2: third || has(5) ? '9' : '2', 3: has(4) ? '#9' : 'b3', 4: '3', 5: third ? '11' : '4',
     6: has(7) ? '#11' : 'b5', 7: '5', 8: has(7) || has(6) || third === 'b3' ? 'b13' : '#5',
-    9: sev ? '13' : third === 'b3' && has(6) ? 'bb7' : '6', 10: 'b7', 11: '7' })[x];
+    9: sev ? '13' : third === 'b3' && has(6) && !has(7) ? 'bb7' : '6', 10: 'b7', 11: '7' })[x];
   return ['R', ...[...i].map(role)].sort(byDegree);
 }
 
@@ -895,7 +920,10 @@ function degreesOver(root, pcs) {
    ========================================================================== */
 function nameChord(midis, scalePcs = null) {
   const pcs = [...new Set(midis.map(mod12))];
-  if (pcs.length === 1 && new Set(midis).size > 1) return [{ root: pcs[0], def: OCTAVE, bassIndex: 0, missing: [], score: 0 }];
+  if (pcs.length === 1 && new Set(midis).size > 1) {   // (by the octaves from the lowest to the highest)
+    const def = octaveType((Math.max(...midis) - Math.min(...midis)) / 12);
+    return def ? [{ root: pcs[0], def, bassIndex: 0, missing: [], score: 0 }] : [];
+  }
   if (pcs.length < 2) return [];
   const bass = mod12(Math.min(...midis));
   const best = new Map();   // root → its best reading
@@ -938,15 +966,6 @@ function nameChord(midis, scalePcs = null) {
   // The likeliest first; even ones, the simplest name first (not the order
   // of the strings)
   return [...best.values()].sort((a, b) => b.score - a.score || a.def.symbol.length - b.def.symbol.length);
-}
-
-/* Node (tests) gets the pure part; the browser runs the app below. */
-if (typeof module !== 'undefined') {
-  module.exports = {
-    barresFor, fingersFor, INSTRUMENTS, TUNINGS, tunedInstrument, ALL_CHORDS, findShapes, findChord, findInstrument, tabOf,
-    shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS, pianoShapes,
-    ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote, nameChord, describeChord, customChord };
-  module.exports.groupsFor = (...args) => scaleGroups(...args);
 }
 
 /* ==========================================================================
@@ -1080,7 +1099,11 @@ function loadState(saved) {
 function savedForm() {
   const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = state;
   const order = [...state.recent].sort((a, b) => a.used - b.used);   // used: 0 for the recent chord unused longest
-  const entry = (r) => ({ chord: chordText(r.root, findChord(r.type)), bass: r.bass, inversions: r.inversions, shapes: r.shapes });
+  // (a chord saved one way whatever the scale on screen spells it: D♯m in
+  // B major, E♭m in E♭ major, both "Ds-min"; else two tabs with different
+  // scales would see one chip as two, and save it back and forth)
+  const savedChord = (root, type) => `${noteToken(plainNote(root, false))}-${type}`;
+  const entry = (r) => ({ chord: savedChord(r.root, r.type), bass: r.bass, inversions: r.inversions, shapes: r.shapes });
   const shown = state.chord.on ? currentChord() : null;
   const saved = {
     v: SAVE_VERSION,
@@ -1096,10 +1119,10 @@ function savedForm() {
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
       list: state.list.map(entry),
       recent: state.recent.map((r) => ({ ...entry(r), used: order.indexOf(r) })),
-      drawn: state.drawn.map((d) => ({ chord: chordText(d.root, findChord(d.type)), neck: d.neck, frets: d.frets })),
+      drawn: state.drawn.map((d) => ({ chord: savedChord(d.root, d.type), neck: d.neck, frets: d.frets })),
     },
   };
-  return saved;
+  return copyJSON(saved);   // (sharing nothing with the state: see saveState)
 }
 
 /* Several tabs: each shows its own view (instrument, tuning and capo, the
@@ -1113,6 +1136,11 @@ function savedForm() {
    coming back into view, brings the shared parts in (syncShared). */
 let sharedBase = null;     // the shared parts as this tab last read or wrote them
 let viewWritten = null;    // its view as it last wrote it (nothing new: nothing written)
+/* Those two are copies, sharing no object with the state: else a change on
+   screen changes them too, and looks like nothing new (never saved; and
+   what was saved before then comes back as another tab's: a panel unfolded
+   folding again at the next save) */
+const copyJSON = (x) => JSON.parse(JSON.stringify(x));
 const SHARED_WORK = ['saved', 'list', 'drawn'];
 const sharedOf = (saved) => ({ prefs: saved.prefs, ...Object.fromEntries(SHARED_WORK.map((k) => [k, saved.work[k]])) });
 const viewOf = (saved) => Object.fromEntries(Object.entries(saved.work).filter(([k]) => !SHARED_WORK.includes(k)));
@@ -1125,20 +1153,27 @@ const sameJSON = (a, b) => sortedJSON(a) === sortedJSON(b);
      same; names may repeat): theirs, with the ones I added and without the
      ones I removed, mine renamed
    - the chord list, each chip known by its chord and bass: its order mine if
-     I changed it (less the chips they removed, plus the ones they added),
-     else theirs; a chip mine if I changed it (a shape, an inversion), else
-     theirs
+     I reordered it (less the chips they removed, plus the ones they added,
+     last), else theirs (less the chips I removed, plus the ones I added,
+     each where I put it: before the chip it is before here, else last); a
+     chip mine if I changed it (a shape, an inversion), else theirs
    - custom shapes, each one known by all it holds: theirs, with mine added,
      without mine removed */
 function mergeShared(base, mine, theirs) {
-  if (!base || !theirs) return mine;
+  if (!theirs) return mine;
+  base = base || { prefs: {}, saved: {}, list: [], drawn: [] };   // (never seen: all of mine is new, theirs kept)
   const prefs = { ...theirs.prefs };
   for (const k of Object.keys(mine.prefs)) if (!sameJSON(mine.prefs[k], base.prefs && base.prefs[k])) prefs[k] = mine.prefs[k];
   const keyed = (list, key) => new Map((list || []).map((x) => [key(x), x]));
-  const mergeSet = (b, m, t, key, changed = () => false) => {
+  const mergeSet = (b, m, t, key, changed = () => false, placed = false) => {
     const [B, M, T] = [keyed(b, key), keyed(m, key), keyed(t, key)];
     const out = [...T.keys()].filter((k) => !(B.has(k) && !M.has(k)));   // (less mine removed)
-    for (const k of M.keys()) if (!B.has(k) && !T.has(k)) out.push(k);   // (plus mine added)
+    const mk = [...M.keys()];
+    for (let i = mk.length - 1; i >= 0; i--) {   // (plus mine added: last, or placed)
+      if (B.has(mk[i]) || T.has(mk[i])) continue;
+      const next = placed ? mk.slice(i + 1).find((k) => out.includes(k)) : undefined;
+      out.splice(next === undefined ? out.length : out.indexOf(next), 0, mk[i]);
+    }
     return out.map((k) => (M.has(k) && (changed(M.get(k), B.get(k)) || !T.has(k)) ? M.get(k) : T.get(k)));
   };
   const saved = {};
@@ -1148,9 +1183,11 @@ function mergeShared(base, mine, theirs) {
   }
   const chipKey = (e) => `${e.chord}*${e.bass}`;
   const chipChanged = (m, b) => !b || !sameJSON(m, b);
+  // (reordered: the chips that were and still are, in another order; adding or removing one is not)
+  const [was, is] = [(base.list || []).map(chipKey), (mine.list || []).map(chipKey)];
   let list;
-  if (sameJSON((mine.list || []).map(chipKey), (base.list || []).map(chipKey))) {
-    list = mergeSet(base.list, mine.list, theirs.list, chipKey, chipChanged);
+  if (sameJSON(is.filter((k) => was.includes(k)), was.filter((k) => is.includes(k)))) {
+    list = mergeSet(base.list, mine.list, theirs.list, chipKey, chipChanged, true);
   } else {   // my order, with their removals and additions
     const [B, T] = [keyed(base.list, chipKey), keyed(theirs.list, chipKey)];
     const M = keyed(mine.list, chipKey);
@@ -1170,8 +1207,8 @@ function saveState() {
   const merged = mergeShared(sharedBase, mine, stored ? sharedOf(stored) : null);
   const out = { v: SAVE_VERSION, prefs: merged.prefs, work: { ...view, ...Object.fromEntries(SHARED_WORK.map((k) => [k, merged[k]])) } };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); } catch { /* ignore */ }
-  sharedBase = merged;
-  viewWritten = view;
+  sharedBase = copyJSON(merged);
+  viewWritten = copyJSON(view);
   if (!sameJSON(merged, mine)) { adoptShared(out); requestAnimationFrame(render); }   // (another tab's changes too)
 }
 // The shared parts of what is saved, into this tab's state (its view kept)
@@ -1201,7 +1238,7 @@ function syncShared() {
   const mine = sharedOf(savedForm());
   const merged = mergeShared(sharedBase, mine, theirs);
   adoptShared({ v: SAVE_VERSION, prefs: merged.prefs, work: { ...viewOf(savedForm()), ...Object.fromEntries(SHARED_WORK.map((k) => [k, merged[k]])) } });
-  sharedBase = theirs;   // (what is stored: mine, if I had changed anything since, is written next)
+  sharedBase = copyJSON(theirs);   // (what is stored: mine, if I had changed anything since, is written next)
   render();
 }
 
@@ -1405,7 +1442,8 @@ function applyLink(search, parts = null, fresh = false) {
       const tuned = tuningsOf(linkInst).find((t) => t.id === readTuning(linkInst, p.get('tuning')));
       const strings = piano ? [] : readCustom(linkInst, p.get('tuning')) || (tuned || tuningsOf(linkInst)[0]).strings;
       const lift = piano ? PIANO_LOW : readCapo(p.get('capo') || 0, linkInst) || 0;
-      const notes = piano ? frets.map((k) => lift + k) : frets.map((f, i) => (f < 0 || strings[i] === undefined ? null : strings[i] + lift + f)).filter((m) => m !== null);
+      const neck = { ...findInstrument(linkInst), strings };
+      const notes = piano ? frets.map((k) => lift + k) : frets.map((f, i) => (f < 0 || strings[i] === undefined ? null : shapePitch(neck, i, f) + lift)).filter((m) => m !== null);
       if (notes.length) {
         const low = mod12(Math.min(...notes));
         const i = c.def.steps.findIndex((st) => mod12(c.root + st) === low);
@@ -1574,7 +1612,7 @@ const chordParts = (ch) => (!ch ? null : { name: ch.symbol, shape: ch.shape ? sh
    parts: what is loaded (all of it by default) */
 function linkPreview(search, has, parts = null) {
   const mine = state;
-  const mySetup = setupText();
+  const mySetup = setupKey();
   const myChord = chordLine(currentChord());
   state = JSON.parse(JSON.stringify(mine));
   state.list = [];   // the list shown is the link's, not yours
@@ -1588,13 +1626,13 @@ function linkPreview(search, has, parts = null) {
     // new one, only a shape your chip remembers there (else nothing to set
     // the link's against: the frets of another neck say nothing)
     const withNeck = has.neck && (!parts || parts.neck);
-    const moves = withNeck && setupText() !== mySetup;
+    const moves = withNeck && setupKey() !== mySetup;
     const piano = Boolean(instrument().piano);
     const remembered = (own, def, inversion) => {   // (its shape kept for this neck and inversion, or null)
       const text = own && own.shapes && own.shapes[shapeContext(def, inversion)];
-      return text ? shapeShort({ frets: readFrets(text), piano }) : null;
+      return text ? shapeShort({ frets: readFrets(text), piano }, chordSpelling(own.root, def)) : null;
     };
-    const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index]) : ''; };
+    const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index], chordSpelling(r.root, findChord(r.type))) : ''; };
     // Your saved chips whose shape the link's list changes: { name: [yours, the link's] }
     const listShapes = {};
     if (has.recent && withNeck) {
@@ -1613,7 +1651,7 @@ function linkPreview(search, has, parts = null) {
     const chords = (s) => s.list.map((r) => [r.root, r.type, r.bass]);
     // (a list's chords that are in the other too, in its order)
     const shared = (list, other) => list.filter((r) => other.some((x) => sameEntry(x, r))).map((r) => `${r.root}:${r.type}:${r.bass}`).join(' ');
-    const loses = (has.neck && setupText() !== mySetup)
+    const loses = (has.neck && setupKey() !== mySetup)
       || (has.chord && mine.chord.on && myChord !== chordLine(ch))   // (its shape too)
       || (has.scale && mine.scale.on && !same(mine.scale, state.scale))
       || (has.recent && chords(mine).some(([root, type, bass]) => !state.list.some((r) => sameEntry(r, { root, type, bass }))))   // a chord of yours it drops
@@ -1621,6 +1659,7 @@ function linkPreview(search, has, parts = null) {
       || Object.keys(listShapes).length > 0;   // or reshapes
     return {
       setup: has.neck ? setupText() : null,
+      setupKey: has.neck ? setupKey() : null,
       setupParts: has.neck ? setupParts() : null,
       // the link's custom tuning: it takes the custom tuning's place
       custom: has.neck && state.tuning[state.instrument] === 'custom' ? { inst: state.instrument, strings: state.custom[state.instrument] } : null,
@@ -1678,7 +1717,7 @@ function renderLinkPopup() {
   // their shapes only against a shape your chip remembers on that setup (the
   // frets of another instrument, tuning or capo say nothing next to yours);
   // the same names, No change, yet their shapes come with the setup
-  const newSetup = has.neck && parts.neck && setupText() !== preview.setup;
+  const newSetup = has.neck && parts.neck && setupKey() !== preview.setupKey;
   pendingLink.withSetup = {};
   // The list's chips whose shape changes: only with the link's neck (see
   // applyLink; on a new setup, see linkPreview)
@@ -1695,7 +1734,7 @@ function renderLinkPopup() {
   for (let [row, key, now, link] of rows) {
     row.hidden = link === null;
     if (link === null) continue;
-    let same = String(now) === String(link) && !(key === 'recent' && reshapes);
+    let same = key === 'neck' ? setupKey() === preview.setupKey : String(now) === String(link) && !(key === 'recent' && reshapes);
     const memory = newSetup ? preview.chordMemory : null;   // (the chord's shape your chip has on the new setup)
     if (key === 'chord' && newSetup) {
       same = (nowParts ? nowParts.name : '') === (linkParts ? linkParts.name : '')
@@ -1729,7 +1768,7 @@ function renderLinkPopup() {
     const what = empty(now) || gains ? 'Adds' : empty(link) ? 'Clears' : drops ? 'Removes' : reorders ? 'Reorders' : 'Replaces';
     tag.textContent = same ? 'No change' : !on ? 'Not loaded' : what;
     tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
-    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)))
+    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)), preview.setupKey.split('|')[1] !== setupKey().split('|')[1])
       : reorders ? show(link, on ? 'win' : 'lose')   // (just the new order)
         : key === 'recent' ? listDiff(now, link, on, reshaped)
         : reshapedChord ? listDiff(now, link, on, reshapedChord) : '');
@@ -1765,13 +1804,15 @@ function customLine(custom, on) {
   return `<span class="lk-extra">${lkValue(notes(mine), on ? 'lose' : 'win')}`
     + `<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${lkValue(notes(custom.strings), on ? 'win' : 'lose')}</span></span>`;
 }
-function neckDiff(now, link, on, customLater = false) {
+function neckDiff(now, link, on, customLater = false, retuned = false) {
   if (now[0] !== link[0]) return '';
-  const part = (a, b) => (a === b ? esc(a)
-    : `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(a)}</span> <span class="${on ? 'lk-new' : 'lk-old'}">${esc(b)}</span>`);
+  // (two saved tunings of the same name: both, an arrow between them,
+  // "Practice → Practice")
+  const part = (a, b, differ = a !== b) => (!differ ? esc(a)
+    : `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(a)}</span> ${a === b ? '<span class="lk-arrow" aria-label="to">→</span> ' : ''}<span class="${on ? 'lk-new' : 'lk-old'}">${esc(b)}</span>`);
   // the link's custom tuning replaces the one kept aside: here only the
   // preset that goes (the line under it shows the custom tuning's change)
-  const tuning = customLater ? `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(now[1])}</span>` : part(now[1], link[1]);
+  const tuning = customLater ? `<span class="${on ? 'lk-old' : 'lk-new'}">${esc(now[1])}</span>` : part(now[1], link[1], now[1] !== link[1] || retuned);
   return `<span class="lk-val diff">${esc(now[0])} (${tuning}, ${part(now[2], link[2])})</span>`;
 }
 function listDiff(now, link, on, reshaped = {}) {
@@ -1860,6 +1901,8 @@ function setupText() {
   const [name, tuning, capoText] = setupParts();
   return tuning ? `${name} (${tuning}, ${capoText})` : name;
 }
+// The setup as it sounds: two saved tunings may share a name, never their notes
+const setupKey = () => [state.instrument, instrument().strings, capo()].join('|');
 function renderShare() {
   const ch = currentChord();
   const sc = currentScale();
@@ -2116,7 +2159,7 @@ function keepDrawn(root, type, frets) {
 const shapeMidis = (frets) => {
   const inst = cappedInstrument();
   if (inst.piano) return frets.map((k) => PIANO_LOW + k);
-  return frets.map((f, s) => (f < 0 ? null : inst.strings[s] + f)).filter((m) => m !== null);
+  return frets.map((f, s) => (f < 0 ? null : shapePitch(inst, s, f))).filter((m) => m !== null);
 };
 /* A chord's name, the way it is written everywhere (chips, panels, links,
    Name a chord): its symbol, and after a slash its bass note when that is
@@ -2152,13 +2195,14 @@ function legacyBass(r) {
 /* A shape in words. Strings: its tab ("x 3 2 0 1 0", "x32010") and its
    place ("fret 3"). The piano: its notes, low to high, as the chord on
    screen spells them ("C4 E4 G4"), and its lowest one ("C4"). */
-const pianoName = (k) => {
+// (spell: the chord's spelling the key is named in; the chord on screen's by default)
+const chordOnSpell = () => (state.chord.on ? chordSpelling(state.chord.root, findChord(state.chord.type)) : null);
+const pianoName = (k, spell = chordOnSpell()) => {
   const m = PIANO_LOW + k;
-  const spell = state.chord.on ? chordSpelling(state.chord.root, findChord(state.chord.type)) : null;
   return pitchText(m, (spell && spell.names.get(mod12(m))) || plainNote(m, state.flats));
 };
-const shapeTab = (shape) => (shape.piano ? shape.frets.map(pianoName).join(' ') : tabOf(shape));
-const shapeShort = (shape) => (shape.piano ? shapeTab(shape) : shortTab(shape));
+const shapeTab = (shape, spell = chordOnSpell()) => (shape.piano ? shape.frets.map((k) => pianoName(k, spell)).join(' ') : tabOf(shape));
+const shapeShort = (shape, spell) => (shape.piano ? shapeTab(shape, spell) : shortTab(shape));
 const shapeWhere = (shape) => (shape.piano ? pianoName(shape.frets[0]) : shapePlace(shape));
 // A shape that fits this neck and plays only notes of the chord, at least
 // two (how a link's custom shape is checked). The piano: keys of the
@@ -2171,7 +2215,7 @@ function playsChord(root, def, frets) {
       && frets.every((k) => pcs0.has(mod12(PIANO_LOW + k)));
   }
   if (frets.length !== inst.strings.length) return false;
-  if (frets.some((f, s) => !Number.isInteger(f) || f < -1 || f > inst.frets || (startFret(inst, s) && f > 0))) return false;
+  if (frets.some((f, s) => !Number.isInteger(f) || f < -1 || f > inst.frets || (f > 0 && f <= startFret(inst, s)))) return false;   // (a drone: fretted past its start)
   const pcs = new Set(chordTones(root, def).map((t) => t.pc));
   const notes = shapeMidis(frets);
   return notes.length >= 2 && notes.every((m) => pcs.has(mod12(m)));
@@ -3181,7 +3225,7 @@ function strumFrets(frets) {
   frets.forEach((f, s) => {
     if (f < 0) return;
     const delay = i++ * STRUM_GAP;
-    playNote(inst.strings[s] + c + f, delay, 0.45);
+    playNote(shapePitch(inst, s, f) + c, delay, 0.45);
     flashCell(s, shapeNeckFret(inst, s, f, c), delay);
   });
 }
@@ -3189,7 +3233,8 @@ function strumFrets(frets) {
 /* ==========================================================================
    Name a chord: notes placed on the neck are named. While it is on, a tap
    on the neck places that string's note there (the same fret again lifts
-   it; the open string, or a banjo's drone, rings or is muted) and nothing
+   it; the open string rings or is muted; a banjo's drone can be fretted
+   here, though the shape finder never frets it) and nothing
    else changes; what cannot be used meanwhile is hidden (the chord list, the
    shape bar, the tabs and panels, the instrument, tuning and capo, Share).
    It starts from the shape on screen, or from nothing. Placing a note sounds
@@ -3275,7 +3320,6 @@ function namerTap(cell) {
   const frets = naming.frets;
   let placed;
   if (f === startFret(inst, s) + capo()) placed = frets[s] = frets[s] === 0 ? -1 : 0;   // open: rings, or is muted
-  else if (startFret(inst, s)) return;   // a banjo's drone is never fretted in a chord
   else placed = frets[s] = frets[s] === f - capo() ? -1 : f - capo();
   naming.pick = 0;
   const sound = placed >= 0 && !state.muteTaps;
@@ -3323,7 +3367,7 @@ function renderNamer() {
     const count = readings.length > 1 ? `Name ${naming.pick + 1}/${readings.length}` : '';
     els.namerSymbol.innerHTML = tx(readingSymbol(r));
     els.namerSymbol.title = readingSymbol(r);
-    const frets = shapeShort({ piano: Boolean(instrument().piano), frets: naming.frets });
+    const frets = shapeShort({ piano: Boolean(instrument().piano), frets: naming.frets }, spell);   // (spelled as the name: B♭ D F)
     const main = wide ? meaning : frets;
     const counts = readings.length > 1 ? fitsAttr([count, `${naming.pick + 1}/${readings.length}`]) : '';
     els.namerText.innerHTML = (count ? `<span class="dock-count" ${counts}>${esc(count)}</span>` : '')
@@ -4444,12 +4488,30 @@ function setupDockTouch() {
   }, { passive: false });
 }
 
-/* A stepper's middle button: the panel it steps through. Phones: its
-   sheet opens; wide screens: the page scrolls down to it. */
+/* A stepper's middle button: the panel it steps through, its hero card
+   (the chord's name, or the scale's) in the middle of the room there is:
+   phones, its sheet opens, scrolled to it; wide screens, the page scrolls
+   to it (the panel unfolded). With no card (no chord, no scale): the
+   panel's top. */
 function showPanel(tab) {
-  if (!isWide()) { openTab(tab); return; }
   const panel = tab === 'chord' ? els.panelChord : els.panelScale;
-  panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const hero = () => {
+    const head = panel.querySelector('.np-head');
+    return head && head.getClientRects().length ? head : null;
+  };
+  if (!isWide()) {
+    openTab(tab);
+    const card = ui.tab === tab && hero();
+    if (card) {
+      const [at, room] = [card.getBoundingClientRect(), els.sheetBody.getBoundingClientRect()];
+      els.sheetBody.scrollTop += at.top + at.height / 2 - (room.top + room.height / 2);
+    }
+    return;
+  }
+  if (state.folded[tab]) { state.folded[tab] = false; render(); }
+  const card = hero();
+  if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  else panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 function openTab(tab) {
   const wasOpen = ui.tab !== null;
@@ -4670,21 +4732,24 @@ function handGroups(inst, sc, capo, order, reach) {
   };
   // What a group itself costs: 2 for one fret too wide (see the costs
   // above), 2 for each note passed over
-  // Two strings side by side in a group, the second's notes from fret a to
-  // b, the first's outline from pa to pb: their outlines, made to share a
-  // fret where the notes don't (the second's stretched towards the first,
-  // else the first's towards the second), no outline over more frets than a
-  // string's notes may be (reach.run); null: they can't be. Returns [the
+  // Two strings side by side in a group (q and the one before), the
+  // second's notes from fret a to b, the first's outline from pa to pb:
+  // their outlines, made to share a fret where the notes don't (the
+  // second's stretched towards the first, else the first's towards the
+  // second), no outline over more frets than a string's notes may be
+  // (reach.run), nor round a scale note the group does not play there (it
+  // would look played on that string); null: they can't be. Returns [the
   // first's from, to, the second's from, to, 1 if stretched].
-  const bridge = (pa, pb, a, b) => {
+  const bare = (q, x, y) => { for (let f = x; f <= y; f++) if (scaleRank(sc, order[q].m + f) !== null) return false; return true; };
+  const bridge = (q, pa, pb, a, b) => {
     if (b >= pa && a <= pb) return [pa, pb, a, b, 0];
     const fits = (x, y) => y - fret1(x) <= reach.run;
     if (b < pa) {
-      if (fits(a, pa)) return [pa, pb, a, pa, 1];
-      if (fits(b, pb)) return [b, pb, a, b, 1];
+      if (fits(a, pa) && bare(q, b + 1, pa)) return [pa, pb, a, pa, 1];
+      if (fits(b, pb) && bare(q - 1, b, pa - 1)) return [b, pb, a, b, 1];
     } else {
-      if (fits(pb, b)) return [pa, pb, pb, b, 1];
-      if (fits(pa, a)) return [pa, a, a, b, 1];
+      if (fits(pb, b) && bare(q, pb, a - 1)) return [pa, pb, pb, b, 1];
+      if (fits(pa, a) && bare(q - 1, pb + 1, a)) return [pa, a, a, b, 1];
     }
     return null;
   };
@@ -4719,7 +4784,7 @@ function handGroups(inst, sc, capo, order, reach) {
         const h2 = Math.max(high, b);
         if (h2 - l2 > stretch) { if (b > high) break; continue; }
         const was = q ? [DA[q - 1], DB[q - 1]] : null;
-        const join = q ? bridge(DA[q - 1], DB[q - 1], a, b) : [0, 0, a, b, 0];
+        const join = q ? bridge(q, DA[q - 1], DB[q - 1], a, b) : [0, 0, a, b, 0];
         if (!join) continue;
         S[q] = r;
         A[q] = a;
@@ -4751,7 +4816,7 @@ function handGroups(inst, sc, capo, order, reach) {
       if (!ok) break;
       if (q && ranks[0] > box.E[q - 1] + 1) ok = false;   // a note skipped
       const [a, b] = [frets[0], frets[frets.length - 1]];
-      const join = q ? bridge(box.DA[q - 1], box.DB[q - 1], a, b) : [0, 0, a, b, 0];
+      const join = q ? bridge(q, box.DA[q - 1], box.DB[q - 1], a, b) : [0, 0, a, b, 0];
       if (!join) { ok = false; break; }
       if (q) [box.DA[q - 1], box.DB[q - 1]] = [join[0], join[1]];
       boxFolds += join[4];
@@ -4897,7 +4962,7 @@ function renderNeck(ch, sc) {
   const shapeAt = new Map();
   if (ch && ch.shape) {
     ch.shape.frets.forEach((f, s) => {
-      if (f >= 0) shapeAt.set(`${s}:${shapeNeckFret(inst, s, f, c)}`, ch.degOfPc.get(mod12(inst.strings[s] + c + f)));
+      if (f >= 0) shapeAt.set(`${s}:${shapeNeckFret(inst, s, f, c)}`, ch.degOfPc.get(mod12(shapePitch(inst, s, f) + c)));
     });
   }
   const ghosts = ch && !ch.naming && (state.allTones || !ch.shape);   // (naming: only the notes placed)
@@ -5348,7 +5413,8 @@ function renderChordPanel(ch, sc) {
   const aliases = (CHORD_ALIASES[ch.def.id] || []).map((a) => rootName + a + slash);
   els.chordAlt.textContent = aliases.length ? `=\u00a0${aliases.join(', ')}` : '';   // (the = never alone at a line's end)
   // With a capo, name the shape to play: the chord moved down by the capo
-  const c = capo();
+  // (no shape: nothing to play)
+  const c = ch.shape ? capo() : 0;
   els.chordCapo.hidden = !c;
   const moved = c ? spellChord(ch.root - c, ch.def, state.flats) : null;
   const shapeName = c ? noteText(moved.root) + ch.def.symbol + (ch.bassIndex ? `/${noteText(moved.notes[ch.bassIndex])}` : '') : '';
@@ -5386,7 +5452,7 @@ function renderChordPanel(ch, sc) {
   const notes = inst.piano
     ? ch.shape.frets.map((k) => ({ k, midi: PIANO_LOW + k }))
     : ch.shape.frets
-      .map((f, s) => ({ f, s, midi: inst.strings[s] + f }))
+      .map((f, s) => ({ f, s, midi: shapePitch(inst, s, f) }))
       .filter((x) => x.f >= 0)
       .sort((a, b) => a.midi - b.midi || a.s - b.s);
   const offKey = offKeyTest(sc);
@@ -6183,3 +6249,15 @@ function setupInstallTip() {
 }
 
 if (typeof document !== 'undefined') init();
+
+/* Node (test/, which runs this file without a page): the parts the tests
+   check, none of them the interface */
+if (typeof module !== 'undefined') {
+  module.exports = {
+    INSTRUMENTS, TUNINGS, tunedInstrument, findInstrument, startFret, shapePitch, PIANO_LOW, PIANO_KEYS,
+    ALL_CHORDS, findChord, chordTones, findShapes, pianoShapes, barresFor, fingersFor, tabOf,
+    shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
+    ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote,
+    nameChord, describeChord, customChord, chordOf, degreesOver,
+    scaleGroups, groupsFor: scaleGroups, REACH, mergeShared };
+}
