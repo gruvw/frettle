@@ -6,7 +6,10 @@
    - an unbroken run of the scale, string after string, low to high: no
      scale note skipped (one may be played twice, as in the open position)
    - on a string, its notes within reach: 4 frets (7 on a mandolin or
-     mandola), the open string counting as fret 1 (the capo's fret, with one)
+     mandola), the open string counting as fret 1 (the capo's fret, with one);
+     5 where 4 leave too many of the scale's notes out of every group (long
+     frets only: the whole-tone scale, most scales in drop and open tunings);
+     at most 4 fretted notes, a finger each (an open string needs none)
    - the whole group within 6 frets (8 on a mandolin or mandola)
    - its outline: on each string, round all of its notes, within the same
      reach, sharing a fret with the next string's (one outline), and round
@@ -15,7 +18,7 @@
    - no two groups share 3/4 or more of the notes of the smaller one */
 const test = require('node:test');
 const assert = require('node:assert');
-const { scaleGroups, INSTRUMENTS, TUNINGS, ALL_SCALES, REACH, startFret } = require('../web/script.js');
+const { scaleGroups, INSTRUMENTS, TUNINGS, ALL_SCALES, REACH, MAX_FINGERS, startFret } = require('../web/script.js');
 
 const CAPOS = [0, 3];
 const scales = ALL_SCALES.filter((d) => d.steps.length < 12);   // (chromatic: no groups)
@@ -26,7 +29,6 @@ test('every scale group follows the rules', () => {
   for (const base of INSTRUMENTS.filter((i) => !i.piano)) {
     for (const tuning of TUNINGS[base.id] || [{ id: 'standard', strings: base.strings }]) {
       const inst = { ...base, strings: tuning.strings };
-      const reach = inst.fifths ? REACH.short : REACH.long;
       const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
       // Low to high, a re-entrant string an octave lower (as scaleGroups orders them)
       const pitch = long.map((s) => inst.strings[s]);
@@ -42,6 +44,9 @@ test('every scale group follows the rules', () => {
             const fret1 = (f) => Math.max(f, capo + 1);
             const groups = scaleGroups(inst, { def, root, set }, capo);
             groupCount += groups.length;
+            // (long frets: the longer reach, where a string's notes in this setup need it)
+            const loose = !inst.fifths && groups.some((g) => g.bars.some(({ a, b }) => b - fret1(a) > REACH.long.run));
+            const reach = inst.fifths ? REACH.short : loose ? REACH.loose : REACH.long;
             const notesOf = [];
             let lastLow = -Infinity;
             for (const [gi, g] of groups.entries()) {
@@ -57,6 +62,9 @@ test('every scale group follows the rules', () => {
                 if (!(a >= capo && b <= inst.frets && a <= b)) fail(`${at}: frets ${a} to ${b} not playable`);
                 if (!inScale(m + a) || !inScale(m + b)) fail(`${at}: frets ${a} to ${b} don't start and end on scale notes`);
                 if (b - fret1(a) > reach.run) fail(`${at}: notes over ${b - fret1(a) + 1} frets`);
+                let fretted = 0;
+                for (let f = Math.max(a, capo + 1); f <= b; f++) if (inScale(m + f)) fretted++;
+                if (fretted > MAX_FINGERS) fail(`${at}: ${fretted} fretted notes`);
                 if (!(da <= a && db >= b)) fail(`${at}: outline ${da} to ${db} leaves out notes at ${a} to ${b}`);
                 if (db - fret1(da) > reach.run) fail(`${at}: outline over ${db - fret1(da) + 1} frets`);
                 for (let f = da; f <= db; f++) if ((f < a || f > b) && inScale(m + f)) fail(`${at}: outline round fret ${f}, a scale note not played there`);

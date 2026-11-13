@@ -3474,7 +3474,7 @@ function renderGroupPlay() {
    you can play (above the capo), lighting each note in the Notes row. The
    last note rings out. Pressing again stops it; so does picking another
    scale. A note of the row can also be tapped to hear it. */
-const SCALE_GAP = 0.3;   // seconds between notes
+const SCALE_GAP = 0.25;   // seconds between notes
 let scaleRun = null;     // { key, sources, timers }
 function scalePitches(sc) {   // the Notes row's pitches, root to octave
   const low = instrument().piano ? 60 : Math.min(...instrument().strings) + capo();   // (the piano: from middle C up)
@@ -4676,7 +4676,28 @@ function scaleGroups(inst, sc, capo) {
   const pitches = long.map((s) => inst.strings[s]);
   for (let i = pitches.length - 2; i >= 0; i--) while (pitches[i] >= pitches[i + 1]) pitches[i] -= 12;
   const order = pitches.map((m, i) => ({ m, s: long[i] }));
-  const groups = handGroups(inst, sc, capo, order, inst.fifths ? REACH.short : REACH.long);
+  let groups = handGroups(inst, sc, capo, order, inst.fifths ? REACH.short : REACH.long);
+  // Long frets: over a fifth of the scale's notes in no group (the whole-tone
+  // scale, most scales in drop and open tunings), then a longer reach on a
+  // string (REACH.loose), its groups kept if they hold more than one note more
+  if (!inst.fifths) {
+    const missed = (found) => {
+      const held = new Set();
+      for (const g of found) for (let q = 0; q < order.length; q++) for (let f = g.A[q]; f <= g.B[q]; f++) held.add(`${q}:${f}`);
+      let all = 0;
+      let out = 0;
+      order.forEach(({ m }, q) => {
+        for (let f = capo; f <= inst.frets; f++) if (sc.set.has(mod12(m + f))) { all++; if (!held.has(`${q}:${f}`)) out++; }
+      });
+      return { all, out };
+    };
+    const now = missed(groups);
+    if (now.out > LOOSE_AFTER * now.all) {
+      const loose = handGroups(inst, sc, capo, order, REACH.loose);
+      if (now.out - missed(loose).out > 1) groups = loose;
+    }
+  }
+  groups = groups.map((g, id) => ({ id, bars: order.map(({ s }, q) => ({ s, a: g.A[q], b: g.B[q], da: g.DA[q], db: g.DB[q] })) }));
   groupsCache.key = key;
   groupsCache.groups = groups;
   return groups;
@@ -4700,8 +4721,11 @@ const rankSemis = (sc, r) => {
    ukulele, banjo): 4 frets on a string, one finger per fret, and 5 for a
    group, 6 with a stretch, never more. Short frets (mandolin, mandola,
    tuned in fifths): 7 frets on a string and for a group, 8 with a
-   stretch. */
-const REACH = { long: { run: 3, group: 4 }, short: { run: 6, group: 6 } };
+   stretch. Where those leave over a fifth of a scale's notes out of every
+   group (LOOSE_AFTER; see scaleGroups), long frets reach 5 frets on a
+   string (loose). */
+const REACH = { long: { run: 3, group: 4 }, loose: { run: 4, group: 4 }, short: { run: 6, group: 6 } };
+const LOOSE_AFTER = 0.2;
 /* What a note left out of every group costs (below the first group, above
    the last, or between two). More than a stretch: a group that can be
    played there is shown. */
@@ -4817,6 +4841,7 @@ function handGroups(inst, sc, capo, order, reach) {
       if (r < lo[q] || r > hi[q]) return;
       const a = fret(q, r);
       for (let len = minLen; r + len - 1 <= hi[q]; len++) {
+        if (len - (a <= capo ? 1 : 0) > MAX_FINGERS) break;   // (a finger a fretted note; the open string needs none)
         const b = fret(q, r + len - 1);
         const from = fret1(a);
         if (b - from > reach.run) break;
@@ -4950,7 +4975,7 @@ function handGroups(inst, sc, capo, order, reach) {
     if (k > most) { groups = found; most = k; }
     if (most >= 0.6 * all) break;
   }
-  return groups.map((g, id) => ({ id, bars: order.map(({ s }, q) => ({ s, a: g.A[q], b: g.B[q], da: g.DA[q], db: g.DB[q] })) }));
+  return groups;   // (the frets of each string's notes, A to B, and of its outline, DA to DB)
 }
 
 function renderNeck(ch, sc) {
@@ -6347,5 +6372,5 @@ if (typeof module !== 'undefined') {
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
     ALL_SCALES, spellScale, spellChord, noteText, pitchText, plainNote,
     nameChord, describeChord, customChord, chordOf, degreesOver,
-    scaleGroups, groupsFor: scaleGroups, REACH, mergeShared, loadState, sharedForm, SAVE_VERSION };
+    scaleGroups, groupsFor: scaleGroups, REACH, MAX_FINGERS, mergeShared, loadState, sharedForm, SAVE_VERSION };
 }
