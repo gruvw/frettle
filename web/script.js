@@ -181,7 +181,7 @@ const SCALES = [
     { id: 'major-pentatonic', name: 'Major pentatonic', short: 'Maj. pent', steps: [0, 2, 4, 7, 9] },
     { id: 'minor-pentatonic', name: 'Minor pentatonic', short: 'Min. pent', steps: [0, 3, 5, 7, 10] },
     { id: 'major-blues', name: 'Major blues', short: 'Maj. blues', steps: [0, 2, 3, 4, 7, 9] },
-    { id: 'blues', name: 'Blues', short: 'Blues', steps: [0, 3, 5, 6, 7, 10] },
+    { id: 'blues', name: 'Minor blues', short: 'Min. blues', steps: [0, 3, 5, 6, 7, 10] },   // (id: as links have it)
     { id: 'hirajoshi', name: 'Hirajoshi', short: 'Hirajoshi', steps: [0, 2, 3, 7, 8] },
   ] },
   { group: 'Double harmonic', items: [
@@ -5713,7 +5713,7 @@ function listNumeral(sc, root, def) {
 /* The scale's name in a sentence: "A natural minor", "A Dorian" (mode
    names keep their capital), "A blues scale" */
 const SCALE_TITLES = {
-  major: 'major', minor: 'natural minor', blues: 'blues scale', 'whole-tone': 'whole tone scale',
+  major: 'major', minor: 'natural minor', blues: 'minor blues scale', 'whole-tone': 'whole tone scale',
   'dim-wh': 'diminished whole-half', 'dim-hw': 'diminished half-whole', chromatic: 'chromatic scale',
   'phrygian-dominant': 'Phrygian dominant', 'lydian-dominant': 'Lydian dominant', altered: 'altered scale',
   'major-blues': 'major blues scale', hirajoshi: 'Hirajoshi scale',
@@ -5741,22 +5741,40 @@ function scaleDegrees(def) {
   });
 }
 
-/* Common scales with exactly the same notes: A minor and C major, D Dorian
-   and C major... Only the major, natural minor and pentatonic scales are
-   named, the ones people know these notes by. */
-const RELATIVE_IDS = ['major', 'minor', 'major-pentatonic', 'minor-pentatonic'];
+/* Scales with exactly the same notes, as people relate them: the major
+   scale's modes by the major and minor scales they are known by (D Dorian:
+   C major, A minor), the pentatonic and blues pairs, harmonic minor and its
+   5th mode, melodic minor with its jazz modes, the two double harmonic
+   scales (the major scale's other modes would make too long a list: C
+   major names only A minor). The symmetric scales repeat their notes from
+   other roots of their own: C whole tone is D E F♯ G♯ B♭ whole tone; a
+   diminished scale also names the other kind from one root, the best known
+   (C whole-half: D half-whole). Roots as the scale on screen spells them,
+   but a white key's (E♯, F♭, B♯, C♭) and a double sharp or flat's, plainly
+   (F♯ melodic minor: B Lydian dominant, F altered, not E♯ altered). */
+const MODE_RELATIVES = ['major', 'minor'];
+const RELATIVES = {
+  major: ['minor'], minor: ['major'],
+  dorian: MODE_RELATIVES, phrygian: MODE_RELATIVES, lydian: MODE_RELATIVES, mixolydian: MODE_RELATIVES, locrian: MODE_RELATIVES,
+  'major-pentatonic': ['minor-pentatonic'], 'minor-pentatonic': ['major-pentatonic'],
+  'major-blues': ['blues'], blues: ['major-blues'],
+  'harmonic-minor': ['phrygian-dominant'], 'phrygian-dominant': ['harmonic-minor'],
+  'melodic-minor': ['lydian-dominant', 'altered'], 'lydian-dominant': ['melodic-minor', 'altered'], altered: ['melodic-minor', 'lydian-dominant'],
+  'double-harmonic-major': ['double-harmonic-minor'], 'double-harmonic-minor': ['double-harmonic-major'],
+  'whole-tone': ['whole-tone'], 'dim-wh': ['dim-wh', 'dim-hw'], 'dim-hw': ['dim-hw', 'dim-wh'],
+};
+const RELATIVE_FROM = { 'dim-wh': { 'dim-hw': 2 }, 'dim-hw': { 'dim-wh': 10 } };   // (the other kind: only from this root, in semitones up)
+const RELATIVE_NAMES = { minor: 'minor', 'major-blues': 'major blues', blues: 'minor blues', altered: 'altered', 'whole-tone': 'whole tone', 'dim-wh': 'whole-half', 'dim-hw': 'half-whole' };
+// → ["C major", "A minor"], ["E♭ G♭ A whole-half", "D half-whole"]: one item per kind, its roots apart by spaces
 function relativeScales(sc) {
-  if (sc.def.steps.length >= 12) return [];
-  const found = [];
-  for (const id of RELATIVE_IDS) {
-    if (id === sc.def.id) continue;
+  return (RELATIVES[sc.def.id] || []).map((id) => {
     const def = findScale(id);
-    if (def.steps.length !== sc.set.size) continue;
-    for (const n of sc.spell.notes) {
-      if (def.steps.every((st) => sc.set.has(mod12(n.pc + st)))) found.push(`${noteText(n)} ${id === 'minor' ? 'minor' : scaleTitle(def)}`);
-    }
-  }
-  return found;
+    const from = RELATIVE_FROM[sc.def.id] && RELATIVE_FROM[sc.def.id][id];
+    const roots = def.steps.length !== sc.set.size ? [] : sc.spell.notes.filter((n) => (id !== sc.def.id || n.pc !== mod12(sc.root))
+      && (from === undefined || n.pc === mod12(sc.root + from)) && def.steps.every((st) => sc.set.has(mod12(n.pc + st))));
+    const plain = (n) => ((n.acc && LETTER_PC.includes(n.pc)) || Math.abs(n.acc) > 1 ? plainNote(n.pc, n.acc < 0) : n);
+    return roots.length ? `${roots.map((n) => noteText(plain(n))).join(' ')} ${RELATIVE_NAMES[id] || scaleTitle(def)}` : null;
+  }).filter(Boolean);
 }
 
 /* ==========================================================================
