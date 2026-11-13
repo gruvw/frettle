@@ -338,11 +338,34 @@ function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorK
   return { root, notes, names, flats };
 }
 function spellScale(rootPc, def, preferFlats) {
-  const offsets = def.steps.length >= 12 ? null : (SCALE_LETTERS[def.id] || [1, 2, 3, 4, 5, 6, 7]).map((d) => d - 1);
+  if (def.steps.length >= 12) return spellChromatic(rootPc, def, preferFlats);
+  const offsets = (SCALE_LETTERS[def.id] || [1, 2, 3, 4, 5, 6, 7]).map((d) => d - 1);
   // A scale with a ♭2 and a ♭6 is read in a minor key, whatever its 3rd:
   // C♯ Phrygian dominant (C♯ D E♯ F♯...), not D♭ (D♭ E♭♭ F...)
   const dark = offsets && def.steps.includes(1) && def.steps.includes(8);
   return spellKey(rootPc, def.steps, offsets, preferFlats, null, dark);
+}
+/* The chromatic scale from its root: the root's major scale (the root
+   spelled with the fewer accidentals, as a key), and each note in between
+   as the one of its two names that is plain (D, not C♯♯; F, not E♯), as
+   Flats has it when both are (D♯ or E♭). Every note's badge then says what
+   its name does, 3 and 7 where they are: C♯ is D♭ D E♭ ... ; F♯ is F♯ G G♯
+   A A♯ B C C♯ D D♯ E E♯ (its 7th, E♯, the major scale's own) */
+function spellChromatic(rootPc, def, preferFlats) {
+  const pc = mod12(rootPc);
+  const cost = (root) => MAJOR_STEPS.reduce((sum, st, i) => { const n = spellAs(root.pc + st, (root.letter + i) % 7); return sum + Math.abs(n.acc) + (Math.abs(n.acc) > 1 ? 10 : 0); }, 0);
+  const root = LETTER_PC.includes(pc) ? plainNote(pc, preferFlats)
+    : [plainNote(pc, false), plainNote(pc, true)].sort((x, y) => cost(x) - cost(y) || (preferFlats ? x.acc - y.acc : y.acc - x.acc))[0];
+  const plain = (n) => Math.abs(n.acc) <= 1 && !(n.acc && LETTER_PC.includes(n.pc));
+  const offsets = def.steps.map((st) => {
+    const i = MAJOR_STEPS.indexOf(st);
+    if (i >= 0) return i;
+    const above = MAJOR_STEPS.findIndex((m) => m > st);
+    const [up, down] = [above - 1, above].map((o) => spellAs(root.pc + st, (root.letter + o) % 7));   // (the degree below raised, the one above lowered)
+    if (plain(up) !== plain(down)) return plain(up) ? above - 1 : above;
+    return preferFlats ? above : above - 1;
+  });
+  return spellKey(rootPc, def.steps, offsets, preferFlats, root);
 }
 const degreeOffset = (deg) => (deg === 'R' ? 0 : (Number(deg.replace(/\D/g, '')) - 1) % 7);
 /* A chord's notes as chord charts write them: no double sharps or flats
@@ -487,14 +510,15 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
   const bassPc = inversion === 'any' ? null : tones[Number(inversion)].pc;
   const optional = [...optionalTones(def, inversion)].map((i) => tones[i].pc);
   const required = tones.map((t) => t.pc).filter((pc) => !optional.includes(pc));
-  const minSounding = Math.min(n, Math.max(required.length, tones.length <= 2 ? 2 : 3));
+  // (a note the drone rings needs no string here: the banjo's Em7/B, 0 x 4 3 2)
+  const minSounding = Math.min(n, Math.max(required.filter((pc) => !extraPcs.includes(pc)).length, tones.length <= 2 ? 2 : 3));
   const maxInner = n >= 6 ? 1 : 0;
-  // Top strings left out: one at most, but any number for a power chord (two
-  // notes) on a guitar's 5 strings or more, played on the low strings (G5:
-  // 3 5 5 x x x; a 4-string instrument plays its own across all four)
-  const maxTrail = tones.length <= 2 && n >= 5 ? n : 1;
   // On a re-entrant tuning (ukulele high G) the lowest note matters little
   const reentrant = inst.strings.some((m, i) => i > 0 && m < inst.strings[i - 1]);
+  // Top strings left out: one at most, but any number for a power chord (two
+  // notes), played on the low strings (G5: 3 5 5 x x x; on a bass, E5: 0 2 x x);
+  // not on a re-entrant tuning, whose low strings aren't its lowest notes
+  const maxTrail = tones.length <= 2 && !reentrant ? n : 1;
   const found = [];
 
   function evaluate(frets, pos) {
@@ -537,8 +561,9 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     const maxFret = minFret + span;
     const small = n < 5;   // 4 strings: ukulele, bass, mandolin, mandola
     const feat = {
-      // (a power chord: best on three strings, root, 5th and octave, G5 3 5 5 x x x)
-      sound: maxTrail > 1 ? -Math.abs(sound.length - 3) : sound.length,
+      // (a power chord: best on three strings, root, 5th and octave, G5 3 5 5 x x x;
+      // on four strings, on two, root and 5th: the bass's E5, 0 2 x x)
+      sound: maxTrail > 1 ? -Math.abs(sound.length - (n >= 5 ? 3 : 2)) : sound.length,
       opt: optional.filter((pc) => pcs.has(pc) || extraPcs.includes(pc)).length,
       lead: small ? 0 : first,
       leadSmall: small ? first : 0,
@@ -757,8 +782,9 @@ const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape
    is played as two, the octave apart.
    Returns [{ frets: keys from A0 (0) up, pos: the lowest, piano: true }]. */
 function pianoShapes(rootPc, def, inversion) {
-  const steps = def.steps.length > 1 ? def.steps : [0, def.span];
-  const basses = inversion === 'any' ? def.steps.map((_, i) => i) : [Number(inversion) || 0].filter((i) => i < def.steps.length);
+  const steps = def.span ? [0, def.span] : def.steps;
+  const basses = def.span ? [0].filter(() => inversion === 'any' || !Number(inversion))   // (an interval of a set span: its root in the bass)
+    : inversion === 'any' ? def.steps.map((_, i) => i) : [Number(inversion) || 0].filter((i) => i < def.steps.length);
   const shapes = [];
   for (const b of basses) {
     const bass = steps[b];
@@ -862,6 +888,26 @@ const customDefs = new Map();
 const OCTAVE_MAX = 7;   // (a piano's keys)
 const OCTAVE_WORDS = [null, 'Perfect octave', 'Double octave', 'Triple octave'];
 const octaveDefs = new Map();
+/* Two notes more than an octave apart, the same way: C4 and D5, C(M9), a
+   major 9th; its id the quality and the number ("i-maj9"), its notes the
+   simple interval's, its shapes spanning just that */
+const QUALITY = { min: ['m', 'Minor'], maj: ['M', 'Major'], perf: ['P', 'Perfect'], aug: ['A', 'Augmented'] };
+const COMPOUND_SEMIS = { min: [1, 3, 8, 10], maj: [2, 4, 9, 11], perf: [5, 7], aug: [6] };   // (the tritone, above an octave: an augmented 11th, ...)
+const intervalNumber = (simple) => [0, 2, 2, 3, 3, 4, 4, 5, 6, 6, 7, 7][simple];   // (1: unison ... 7: 7th; the tritone a 4th)
+const ordinalOf = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`;
+const compoundDefs = new Map();
+function compoundType(span) {
+  const simple = mod12(span);
+  const quality = Object.keys(COMPOUND_SEMIS).find((q) => COMPOUND_SEMIS[q].includes(simple));
+  if (!quality) return undefined;
+  const n = intervalNumber(simple) + 7 * Math.floor(span / 12);
+  if (span < 13 || span > 12 * OCTAVE_MAX + 11) return undefined;
+  if (!compoundDefs.has(span)) {
+    compoundDefs.set(span, { id: `i-${quality}${n}`, steps: [0, simple], degrees: ['R', DYAD_DEGREES[simple]], custom: true, span,
+      symbol: `(${QUALITY[quality][0]}${n})`, name: `${QUALITY[quality][1]} ${ordinalOf(n)} interval` });
+  }
+  return compoundDefs.get(span);
+}
 function octaveType(k) {
   if (!Number.isInteger(k) || k < 1 || k > OCTAVE_MAX) return undefined;
   if (!octaveDefs.has(k)) {
@@ -874,6 +920,13 @@ function octaveType(k) {
 function customChord(id) {
   const octave = /^i-(\d+)$/.exec(String(id));
   if (octave && (octave[1] - 1) % 7 === 0) return octaveType((octave[1] - 1) / 7);
+  const compound = /^i-(min|maj|perf|aug)(\d+)$/.exec(String(id));
+  if (compound) {
+    const n = Number(compound[2]);
+    const simple = COMPOUND_SEMIS[compound[1]].find((x) => intervalNumber(x) === ((n - 1) % 7) + 1);
+    const def = simple === undefined ? undefined : compoundType(simple + 12 * Math.floor((n - 1) / 7));
+    return def && def.id === id ? def : undefined;
+  }
   if (typeof id !== 'string' || !/^i(-[a-z0-9]+)+$/.test(id)) return undefined;
   if (customDefs.has(id)) return customDefs.get(id);
   const degrees = ['R', ...id.slice(2).split('-').map((x) => x.replace(/s/g, '#'))];
@@ -948,7 +1001,9 @@ function nameChord(midis, scalePcs = null) {
   for (const root of roots) {
     if (best.has(root)) continue;
     const degrees = pcs.length === 2 ? ['R', DYAD_DEGREES[mod12(pcs.find((pc) => pc !== root) - root)]] : degreesOver(root, pcs);
-    const def = degrees && chordOf(degrees);
+    const apart = Math.max(...midis) - Math.min(...midis);
+    // (just two notes, more than an octave apart: by their distance, C4 D5 a major 9th)
+    const def = degrees && (new Set(midis).size === 2 && apart > 12 ? compoundType(apart) : chordOf(degrees));
     if (!def) continue;
     const tones = chordTones(root, def);
     const bassIndex = tones.findIndex((t) => t.pc === bass);
@@ -1220,6 +1275,7 @@ function mergeShared(base, mine, theirs) {
   return { prefs, saved, list: list.slice(0, LIST_MAX), drawn };
 }
 function saveState() {
+  pruneDrawn();
   const own = savedForm();
   const mine = sharedOf(own);
   const view = viewOf(own);
@@ -1234,6 +1290,12 @@ function saveState() {
 // The shared parts of what is saved, into this tab's state (its view kept)
 function adoptShared(saved) {
   const s = loadState(saved);
+  // (the shape on screen stays: shapes are picked by their place in the
+  // list, and a custom shape from another tab can come in before it)
+  const was = state.chord.on ? currentChord() : null;
+  const keep = was && was.shape ? fretsText(was.shape.frets) : null;
+  const inUse = drawnInUse();
+  const drawnBefore = state.drawn;
   for (const k of ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded', 'muteTaps']) state[k] = s[k];
   state.share = s.share;
   state.folded = s.folded;
@@ -1248,6 +1310,14 @@ function adoptShared(saved) {
   state.list = s.list;
   state.recent = state.recent.filter((r) => !state.list.some((x) => sameEntry(x, r)));   // (a chord now in the list: its chip there)
   state.drawn = s.drawn;
+  // (a custom shape in use here that the other tab no longer uses: kept)
+  const sameDrawn = (x, d) => x.neck === d.neck && drawnKey(x.root, x.type, x.frets) === drawnKey(d.root, d.type, d.frets);
+  for (const d of drawnBefore) if (inUse.has(drawnKey(d.root, d.type, d.frets)) && !state.drawn.some((x) => sameDrawn(x, d))) state.drawn.push(d);
+  const now = keep !== null ? currentChord() : null;
+  if (now && (!now.shape || fretsText(now.shape.frets) !== keep)) {
+    const at = now.shapes.findIndex((sh) => fretsText(sh.frets) === keep);
+    if (at >= 0) state.shape = at;
+  }
 }
 // Another tab saved (or this one comes back): the shared parts as stored now
 function syncShared() {
@@ -2161,7 +2231,8 @@ const shapeContext = (def = findChord(state.chord.type), inversion = inversionFo
    and its bass (A and A/C♯ each keep their own), the last DRAWN_MAX. Listed
    among the chord's shapes, after the first, by their place on the neck,
    when the inversion allows their bass note; marked as custom where shapes
-   are shown. Saved and shared (as frets) like any shape. */
+   are shown. Saved and shared (as frets) like any shape. Kept while in use
+   (see pruneDrawn). */
 const DRAWN_MAX = 40;
 const NECK_RE = /^(-?\d+(,-?\d+)*|piano)\|\d+$/;
 const neckContext = () => [instrument().piano ? 'piano' : instrument().strings, capo()].join('|');
@@ -2178,6 +2249,26 @@ function keepDrawn(root, type, frets) {
   state.drawn = state.drawn.filter((x) => !(x.root === mod12(root) && x.type === type && x.neck === neck && bass(x.frets) === bass(frets)));
   state.drawn.push({ root: mod12(root), type, neck, frets });
   state.drawn = state.drawn.slice(-DRAWN_MAX);
+}
+/* A custom shape is kept while it is in use: on screen, or remembered by a
+   chip (the chord list's, or this tab's recent chords). One this tab stops
+   using goes (at the next save); the first save of a tab, every one not in
+   use here. Another tab may still use one (on its screen, its recent
+   chords): it keeps it then, and saves it back (adoptShared). */
+const drawnKey = (root, type, frets) => `${mod12(root)}|${type}|${frets}`;
+function drawnInUse() {
+  const used = new Set();
+  for (const r of [...state.list, ...state.recent]) for (const text of Object.values(r.shapes || {})) used.add(drawnKey(r.root, r.type, text));
+  const ch = state.chord.on ? currentChord() : null;
+  if (ch && ch.shape && ch.shape.drawn) used.add(drawnKey(ch.root, ch.def.id, fretsText(ch.shape.frets)));
+  return used;
+}
+let drawnUsed = null;   // the custom shapes this tab used at its last save (null: none yet)
+function pruneDrawn() {
+  const now = drawnInUse();
+  const was = drawnUsed;
+  state.drawn = state.drawn.filter((d) => { const key = drawnKey(d.root, d.type, d.frets); return now.has(key) || (was && !was.has(key)); });
+  drawnUsed = now;
 }
 // A shape's notes on the neck as it is (capo on): their pitches, low string
 // first (the piano: its keys, low to high)
@@ -3484,6 +3575,18 @@ function scalePitches(sc) {   // the Notes row's pitches, root to octave
 function pingScaleNote(i) {
   ping(els.scaleNotes.querySelectorAll('.scale-note')[i]);
 }
+/* Play: the row follows the note sounding, in its middle (a row wider than
+   the panel: the chromatic scale on a phone). Scrolled before the note
+   lights up, no further than the row goes: its glow widens the row for a
+   moment, which would let it scroll past its end and back. */
+function followScaleNote(i) {
+  const row = els.scaleNotes;
+  const note = row.querySelectorAll('.scale-note')[i];
+  if (!note || row.scrollWidth <= row.clientWidth) return;
+  const [at, room] = [note.getBoundingClientRect(), row.getBoundingClientRect()];
+  const left = row.scrollLeft + at.left + at.width / 2 - (room.left + room.width / 2);
+  row.scrollTo({ left: Math.max(0, Math.min(left, row.scrollWidth - row.clientWidth)), behavior: 'smooth' });
+}
 function playScale() {
   if (scaleRun) { stopScale(); return; }
   const sc = currentScale();
@@ -3493,7 +3596,7 @@ function playScale() {
   scaleRun = { key: scaleKey(sc), sources: [], timers: [] };
   pitches.forEach((midi, i) => {
     scaleRun.sources.push(playNote(midi, i * SCALE_GAP, 0.5));
-    scaleRun.timers.push(setTimeout(() => pingScaleNote(i), i * SCALE_GAP * 1000));
+    scaleRun.timers.push(setTimeout(() => { followScaleNote(i); pingScaleNote(i); }, i * SCALE_GAP * 1000));
   });
   // Done once the last note has started: it rings on, and Play is back
   scaleRun.timers.push(setTimeout(() => { scaleRun = null; renderPlayButton(); }, (pitches.length - 1) * SCALE_GAP * 1000 + 50));
@@ -3504,11 +3607,14 @@ function stopScale() {
   for (const src of scaleRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
   for (const t of scaleRun.timers) clearTimeout(t);
   scaleRun = null;
+  els.scaleNotes.scrollTo({ left: els.scaleNotes.scrollLeft });   // (the row stops where it is)
   renderPlayButton();
 }
+// A note tapped: it alone (a scale playing stops, the row where it is)
 function playScaleNote(i) {
   const sc = currentScale();
   if (!sc) return;
+  stopScale();
   playNote(scalePitches(sc)[i]);
   pingScaleNote(i);
 }
@@ -5600,7 +5706,7 @@ function renderScalePanel(sc, ch) {
 
   // Description, like the Chord panel's: name, formula and the common
   // scales with the same notes
-  const degrees = scaleDegrees(sc.def);
+  const degrees = scaleDegrees(sc);
   els.scaleSymbol.textContent = sc.rootName;
   els.scaleSymbol.classList.add('on');
   fitText(els.scaleSymbol);
@@ -5682,7 +5788,10 @@ function scaleTriads(sc) {
   const notes = sc.spell.notes;
   if (notes.length >= 12) return null;
   const found = [];
-  if (notes.length === 7) {
+  // Seven notes on seven letters: on each, the triad stacked in thirds
+  // (every other note); else every triad whose notes are in the scale (the
+  // altered scale has E♭ and E: A♭ and A♭aug both fit)
+  if (notes.length === 7 && new Set(notes.map((n) => n.letter)).size === 7) {
     notes.forEach((n, i) => {
       const type = triadType(mod12(notes[(i + 2) % 7].pc - n.pc), mod12(notes[(i + 4) % 7].pc - n.pc));
       if (type) found.push({ n, type });
@@ -5755,14 +5864,14 @@ const scaleInText = (sc) => {
 /* Interval of each scale note from the root, by its degree (the letter the
    scale is spelled with) and how far it sits from the major scale's:
    A minor pentatonic is 1 ♭3 4 5 ♭7 */
-const CHROMATIC_DEGREES = ['1', '♭2', '2', '♭3', '3', '4', '♭5', '5', '♭6', '6', '♭7', '7'];
-function scaleDegrees(def) {
-  if (def.steps.length >= 12) return CHROMATIC_DEGREES;
-  const degrees = SCALE_LETTERS[def.id] || [1, 2, 3, 4, 5, 6, 7];
-  return def.steps.map((step, i) => {
-    const d = degrees[i];
-    const shift = step - MAJOR_STEPS[d - 1];
-    return (shift < 0 ? '♭'.repeat(-shift) : '♯'.repeat(shift)) + d;
+function scaleDegrees(sc) {
+  const { notes, root } = sc.spell;
+  return notes.map((n) => {   // (from the notes as spelled: C♯ is ♯1, D♭ ♭2, as the note names say)
+    const d = (n.letter - root.letter + 7) % 7;
+    let shift = mod12(n.pc - sc.root) - MAJOR_STEPS[d];
+    if (shift > 6) shift -= 12;
+    if (shift < -6) shift += 12;
+    return (shift < 0 ? '♭'.repeat(-shift) : '♯'.repeat(shift)) + (d + 1);
   });
 }
 

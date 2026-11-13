@@ -1283,7 +1283,13 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
   overflow-x: auto;
   overflow-y: hidden;
 }
+/* (a note's glow and pop, its badge with it, paint past it but don't widen
+   the row: the scrollbar would grow and shrink back as the last note
+   sounds. Clipped round padding its margins take back, not a clip margin:
+   Safari has none; the padding lets taps through to what is under it) */
 .scale-chain > li { grid-row: 1; display: flex; }
+.scale-chain > li:not(.scale-gap) { overflow: clip; padding: 18px; margin: -18px; pointer-events: none; }
+.scale-chain > li:not(.scale-gap) > * { pointer-events: auto; }
 .scale-chain > .scale-gap { grid-row: 1 / 3; }
 .scale-note {   /* a button: tap to hear it */
   position: relative;

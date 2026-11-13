@@ -55,6 +55,16 @@ test('familiar names', () => {
   assert.ok(nameChord([60, 64, 68, 69]).map(symbol).includes('C6(♯5)'));
 });
 
+test('two notes over an octave apart are named by their distance', () => {
+  assert.strictEqual(symbol(nameChord([60, 74])[0]), 'C(M9)');   // (14 semitones: a major 9th, not a major 2nd)
+  assert.strictEqual(nameChord([60, 74])[0].def.name, 'Major 9th interval');
+  assert.strictEqual(symbol(nameChord([60, 75])[0]), 'C(m10)');
+  assert.strictEqual(symbol(nameChord([60, 77])[0]), 'C(P11)');
+  assert.strictEqual(symbol(nameChord([48, 74])[0]), 'C(M16)');
+  assert.strictEqual(symbol(nameChord([60, 62])[0]), 'C(M2)');
+  assert.strictEqual(symbol(nameChord([60, 79])[0]), 'C5');   // (a 12th of root and 5th: still a power chord)
+});
+
 test('one note in octaves is an interval of its span', () => {
   assert.strictEqual(symbol(nameChord([48, 60])[0]), 'C(P8)');
   assert.strictEqual(symbol(nameChord([48, 72])[0]), 'C(P15)');
