@@ -3242,14 +3242,17 @@ function strumFrets(frets) {
    muted (a setting); Play strums them all.
    The notes get a name for each of them that can be the root, the most
    likely first: the arrows step through them, changing only the name (and
-   the intervals marked on the notes), never the notes.
+   the intervals marked on the notes), never the notes. A root picked with
+   the arrows stays picked as notes come and go (its name, wherever it
+   falls among the others), until that note itself goes: then the most
+   likely name again.
    Two ways out, both back to the neck as usual: Select puts the chord named
    on the neck with this very shape (kept as a custom shape when the shape
    finder does not list it), in the inversion of its bass note; Cancel (or
    Escape) leaves everything as it was, the chord on screen or none.
    The naming works on the notes, not the frets (see nameChord).
    ========================================================================== */
-let naming = null;   // { frets: per string, -1 muted; pick: the name picked (0: the most likely) }
+let naming = null;   // { frets: per string, -1 muted; pick: the name picked (0: the most likely); root: the root picked with the arrows, or null }
 // The names of the notes placed, one per root, the most likely first
 function namerReadings() {
   const sc = currentScale();
@@ -3268,7 +3271,7 @@ function namerChord() {
 function openNamer() {
   if (naming) return;
   const ch = currentChord();
-  naming = { frets: ch && ch.shape ? ch.shape.frets.slice() : instrument().strings.map(() => -1), pick: 0 };
+  naming = { frets: ch && ch.shape ? ch.shape.frets.slice() : instrument().strings.map(() => -1), pick: 0, root: null };
   stopGroup();
   stopScale();
   ui.tab = null;   // (phones: the sheet closes)
@@ -3308,7 +3311,7 @@ function namerTap(cell) {
     const k = Number(cell.dataset.key);
     const on = !naming.frets.includes(k);
     naming.frets = on ? [...naming.frets, k].sort((a, b) => a - b) : naming.frets.filter((x) => x !== k);
-    naming.pick = 0;
+    namerRepick();
     const sound = on && !state.muteTaps;
     if (sound) playNote(PIANO_LOW + k);
     render();
@@ -3321,20 +3324,29 @@ function namerTap(cell) {
   let placed;
   if (f === startFret(inst, s) + capo()) placed = frets[s] = frets[s] === 0 ? -1 : 0;   // open: rings, or is muted
   else placed = frets[s] = frets[s] === f - capo() ? -1 : f - capo();
-  naming.pick = 0;
+  namerRepick();
   const sound = placed >= 0 && !state.muteTaps;
   if (sound) playNote(fretPitch(inst, s, f));
   render();
   if (sound) flashCell(s, f);
 }
 function namerStep(step) {
-  const n = namerReadings().length;
+  const readings = namerReadings();
+  const n = readings.length;
   if (n < 2) return;
   naming.pick = (naming.pick + step + n) % n;
+  naming.root = readings[naming.pick].root;
   render();
+}
+// The notes changed: the name of the root picked with the arrows while that
+// note is still placed (null: none picked, or it is gone), else the most likely
+function namerRepick() {
+  if (naming.root !== null && !shapeMidis(naming.frets).some((m) => mod12(m) === naming.root)) naming.root = null;
+  naming.pick = Math.max(0, namerReadings().findIndex((r) => r.root === naming.root));
 }
 function namerClear() {
   naming.frets = instrument().piano ? [] : naming.frets.map(() => -1);
+  naming.root = null;
   naming.pick = 0;
   render();
 }
@@ -3676,14 +3688,17 @@ function renderRecent() {
   if (!show) { els.dockRecentList.innerHTML = els.recentList.innerHTML = ''; ui.chipKey = ''; return; }
   const full = state.list.length >= LIST_MAX;
   const shown = recentEntry();
+  const sc = currentScale();
   const chip = (r, i, pinned) => {
     const def = findChord(r.type);
     const spell = chordSpelling(r.root, def);
     const on = r === shown;
     const name = entrySymbol(r);
+    const num = listNumeral(sc, r.root, def);   // (a chord of the scale on one of its triads: "ii")
     const cls = `${pinned ? 'pinned' : 'trail'}${on ? ' on' : ''}${!pinned && full ? ' bare' : ''}`;
     const tap = `<button type="button" class="chip recent${on ? ' selected' : ''}" ${pinned ? 'data-i' : 'data-r'}="${i}" aria-pressed="${on}" ` +
-      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${r.bass ? `, ${INVERSION_NAMES[r.bass].toLowerCase()}` : ''}${pinned ? '' : ', recent'}`)}"><span class="tx">${esc(name)}</span></button>`;
+      `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${r.bass ? `, ${INVERSION_NAMES[r.bass].toLowerCase()}` : ''}${num ? `, ${num} in ${sc.rootName} ${scaleTitle(sc.def)}` : ''}${pinned ? '' : ', recent'}`)}">` +
+      `${num ? `<span class="chip-num tx">${esc(num)}</span>` : ''}<span class="tx">${esc(name)}</span></button>`;
     // A recent chip: its dashed edge (drawn, for dashes longer than a
     // browser's dashed line) and its + (none while the list is full)
     const side = pinned
@@ -5427,11 +5442,13 @@ function renderChordPanel(ch, sc) {
   els.chordKey.hidden = !outside;
   if (outside) {
     const key = scaleInText(sc);
+    const num = chordNumeral(sc, ch.root, ch.def);   // ("Every note is in C major (ii)", "Outside C major (♭VII): B♭")
+    const keyNum = `${esc(key)}${num ? ` (${esc(num)})` : ''}`;
     els.chordKey.classList.toggle('out', outside.length > 0);
     // (the notes kept together: on two lines, the break comes after the colon)
     els.chordKey.innerHTML = outside.length
-      ? `<span>Outside ${esc(key)}: <span class="np-tail">${esc(outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', '))}</span></span>`
-      : `<span>Every note is in ${esc(key)}</span>`;
+      ? `<span>Outside ${keyNum}: <span class="np-tail">${esc(outside.map((t) => noteText(ch.spell.names.get(t.pc))).join(', '))}</span></span>`
+      : `<span>Every note is in ${keyNum}</span>`;
   }
 
   els.shapeCount.hidden = false;
@@ -5629,15 +5646,42 @@ function scaleTriads(sc) {
       }
     }
   }
-  return found.map(({ n, type }) => {
-    const degree = (n.letter - sc.spell.root.letter + 7) % 7;   // 0 = I
-    let shift = mod12(n.pc - sc.root) - MAJOR_STEPS[degree];
-    if (shift > 6) shift -= 12;
-    if (shift < -6) shift += 12;
-    const accidental = shift < 0 ? '♭'.repeat(-shift) : '♯'.repeat(shift);
-    const numeral = type === 'maj' || type === 'aug' ? ROMAN[degree] : ROMAN[degree].toLowerCase();
-    return { root: n.pc, type, name: noteText(n), num: accidental + numeral + (type === 'dim' ? '°' : type === 'aug' ? '+' : '') };
-  });
+  return found.map(({ n, type }) => ({ root: n.pc, type, name: noteText(n), num: degreeNumeral(sc, n, findChord(type)) }));
+}
+/* A chord's degree in a scale, as a Roman numeral, from its root as the
+   scale spells it (n), measured against the major scale: ii, V, ♭VII (in
+   minor: i, ♭III). Its case is its 3rd (minor: lower; major, or none:
+   upper), then ° (diminished), ø (half-diminished) or + (augmented). */
+function degreeNumeral(sc, n, def) {
+  const degree = (n.letter - sc.spell.root.letter + 7) % 7;   // 0 = I
+  let shift = mod12(n.pc - sc.root) - MAJOR_STEPS[degree];
+  if (shift > 6) shift -= 12;
+  if (shift < -6) shift += 12;
+  const has = (d) => def.degrees.includes(d);
+  const minor = has('b3') && !has('3');
+  const sign = minor && has('b5') && !has('5') ? (has('b7') ? 'ø' : '°') : has('3') && has('#5') && !has('5') ? '+' : '';
+  return (shift < 0 ? '♭'.repeat(-shift) : '♯'.repeat(shift)) + (minor ? ROMAN[degree].toLowerCase() : ROMAN[degree]) + sign;
+}
+/* ...any chord's, with a scale on screen (not the chromatic one): a chord
+   of 3 notes or more (or a power chord), in the scale or not (B♭ in C
+   major: ♭VII), its root as its name spells it (G♭dim: ♭v°, F♯dim: ♯iv°).
+   The chord panel's line about the scale ends with it. */
+function chordNumeral(sc, root, def) {
+  if (!sc || sc.def.steps.length >= 12 || (def.steps.length < 3 && def.id !== 'p5')) return '';
+  return degreeNumeral(sc, chordSpelling(root, def).root, def);
+}
+/* ...the same, on a chord of the list: only for a chord built on one of
+   the scale's triads (its root, 3rd and 5th: one of those the scale panel
+   lists), every other note in the scale too: Dm7 ii, G7 V, Bm7♭5 viiø in
+   C major, not Gsus4 (no 3rd), nor B♭ (not in it); not Fm in A harmonic
+   minor either (its A♭ sounds as the scale's G♯, but F's triad there is
+   F A C) */
+function listNumeral(sc, root, def) {
+  const has = (d) => def.degrees.includes(d);
+  const type = has('3') ? (has('5') ? 'maj' : has('#5') ? 'aug' : null) : has('b3') ? (has('5') ? 'min' : has('b5') ? 'dim' : null) : null;
+  if (!type || !sc || !(scaleTriads(sc) || []).some((t) => t.root === mod12(root) && t.type === type)) return '';
+  if (!chordTones(root, def).every((t) => sc.set.has(t.pc))) return '';
+  return chordNumeral(sc, root, def);
 }
 
 /* The scale's name in a sentence: "A natural minor", "A Dorian" (mode
