@@ -5,7 +5,7 @@
    what is stored now). */
 const test = require('node:test');
 const assert = require('node:assert');
-const { mergeShared } = require('../web/script.js');
+const { mergeShared, loadState, sharedForm, SAVE_VERSION } = require('../web/script.js');
 
 const shared = (parts = {}) => ({ prefs: {}, saved: {}, list: [], drawn: [], ...parts });
 const tuning = (name, notes) => ({ name, tuning: notes });
@@ -106,4 +106,14 @@ test('a tab that never saw what is stored adds to it, erasing nothing', () => {
   const merged = mergeShared(null, shared({ list: [chip('G-maj')] }), theirs);
   assert.deepStrictEqual(merged.saved, theirs.saved);
   assert.deepStrictEqual(chips(merged), ['C-maj*0', 'G-maj*0']);
+});
+
+test('damaged saved data is read as a reload reads it: merging it never fails', () => {
+  const junk = { v: SAVE_VERSION, prefs: { flats: 'yes', share: 3 },
+    work: { list: [null, 7, { chord: 'H-zz' }, { chord: 'C-maj', bass: 0 }], saved: { guitar: [null, { name: '', tuning: 'bad' }] }, drawn: 'x' } };
+  const theirs = sharedForm(loadState(junk));
+  assert.deepStrictEqual(chips(theirs), ['C-maj*0']);
+  assert.deepStrictEqual(theirs.saved, {});
+  const mine = sharedForm(loadState({ v: SAVE_VERSION, prefs: {}, work: { list: [{ chord: 'G-maj', bass: 0 }] } }));
+  assert.deepStrictEqual(chips(mergeShared(null, mine, theirs)), ['C-maj*0', 'G-maj*0']);
 });
