@@ -4,7 +4,8 @@
    - a group covers every string, its notes playable (from the capo to the
      last fret), each string's first and last fret a scale note
    - an unbroken run of the scale, string after string, low to high: no
-     scale note skipped (one may be played twice, as in the open position)
+     scale note skipped, none played twice (not even in the open position,
+     where two strings are a third apart)
    - on a string, its notes within reach: 4 frets (7 on a mandolin or
      mandola), the open string counting as fret 1 (the capo's fret, with one);
      5 where 4 leave too many of the scale's notes out of every group (long
@@ -73,6 +74,7 @@ test('every scale group follows the rules', () => {
                   if (Math.max(p.da, da) > Math.min(p.db, db)) fail(`${at}: outline shares no fret with the string before`);
                 }
                 if (prevLast !== null && m + a > next(prevLast)) fail(`${at}: skips a scale note after the string before`);
+                if (prevLast !== null && m + a <= prevLast) fail(`${at}: plays a note the string before plays`);
                 prevLast = m + b;
                 for (let f = a; f <= b; f++) if (inScale(m + f)) notes.add(`${q}:${f}`);
                 low = Math.min(low, fret1(a));

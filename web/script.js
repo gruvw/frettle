@@ -263,8 +263,20 @@ const findInstrument = (id) => INSTRUMENTS.find((i) => i.id === id);
 const mod12 = (n) => ((n % 12) + 12) % 12;
 const fmtDeg = (d) => d.replace(/b/g, '♭').replace(/#/g, '♯');
 
+// (deg: as shown, an interval over an octave as the interval it is)
 function chordTones(rootPc, def) {
-  return def.steps.map((step, i) => ({ pc: mod12(rootPc + step), deg: def.degrees[i] }));
+  return def.steps.map((step, i) => ({ pc: mod12(rootPc + step), deg: shownDegrees(def)[i] }));
+}
+const shownDegrees = (def) => def.shown || def.degrees;
+// A degree in words: "Major 3rd"; past the 13th's, as an interval over an
+// octave ("Minor 10th", "Major 16th")
+function degreeName(d) {
+  if (DEGREE_NAMES[d]) return DEGREE_NAMES[d];
+  const m = /^(b|#)?(\d+)$/.exec(d);
+  if (!m) return '';
+  const n = Number(m[2]);
+  const perfect = [1, 4, 5].includes(((n - 1) % 7) + 1);
+  return `${m[1] === '#' ? 'Augmented' : m[1] === 'b' ? (perfect ? 'Diminished' : 'Minor') : perfect ? 'Perfect' : 'Major'} ${ordinalOf(n)}`;
 }
 
 /* ==========================================================================
@@ -502,8 +514,12 @@ function optionalTones(def, inversion, piano = false) {
 
 /* extraPcs: notes also ringing (a banjo's open drone), which count as chord
    tones the shape has. forced: a chart shape kept even if it leaves out a
-   required tone (the banjo's D7, 0 2 1 0, has no F♯). */
-function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = null) {
+   required tone (the banjo's D7, 0 2 1 0, has no F♯). relaxed: for a chord
+   that has no shape otherwise, one more muted string allowed between the
+   notes and one more after them, and the long 4-fret stretches (still
+   within a hand's width and four fingers): the ukulele's Am(add9),
+   4 x 5 3; the bass's D9/F♯, 2 5 2 5. */
+function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = null, relaxed = false) {
   const tones = chordTones(rootPc, def);
   const n = inst.strings.length;
   const chordPcs = new Set(tones.map((t) => t.pc));
@@ -512,13 +528,13 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
   const required = tones.map((t) => t.pc).filter((pc) => !optional.includes(pc));
   // (a note the drone rings needs no string here: the banjo's Em7/B, 0 x 4 3 2)
   const minSounding = Math.min(n, Math.max(required.filter((pc) => !extraPcs.includes(pc)).length, tones.length <= 2 ? 2 : 3));
-  const maxInner = n >= 6 ? 1 : 0;
+  const maxInner = (n >= 6 ? 1 : 0) + (relaxed ? 1 : 0);
   // On a re-entrant tuning (ukulele high G) the lowest note matters little
   const reentrant = inst.strings.some((m, i) => i > 0 && m < inst.strings[i - 1]);
   // Top strings left out: one at most, but any number for a power chord (two
   // notes), played on the low strings (G5: 3 5 5 x x x; on a bass, E5: 0 2 x x);
   // not on a re-entrant tuning, whose low strings aren't its lowest notes
-  const maxTrail = tones.length <= 2 && !reentrant ? n : 1;
+  const maxTrail = tones.length <= 2 && !reentrant ? n : relaxed ? 2 : 1;
   const found = [];
 
   function evaluate(frets, pos) {
@@ -547,7 +563,7 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     if (bassPc !== null && bass !== bassPc) return null;
 
     const { fingers, barre, barreFrom } = fingersFor(frets);
-    if (fingers > MAX_FINGERS || !stretchOk(inst, frets)) return null;
+    if (fingers > MAX_FINGERS || (!relaxed && !stretchOk(inst, frets))) return null;
 
     // Open strings ringing between fretted notes high up are awkward to keep clear
     let sandwich = 0;
@@ -610,13 +626,18 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
 
 // An octave type's notes: its span from the lowest to the highest (not a unison)
 const spans = (def, midis) => Math.max(...midis) - Math.min(...midis) === def.span;
+// (none as usual: the relaxed rules, see shapeCandidates)
 function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
-  if (inst.starts && def.span) {   // (a ringing drone counts)
-    return droneShapes(inst, rootPc, def, inversion, weights)
-      .filter((sh) => spans(def, sh.frets.flatMap((f, s) => (f < 0 ? [] : [shapePitch(inst, s, f)]))));
-  }
-  if (inst.starts) return droneShapes(inst, rootPc, def, inversion, weights);
-  return pickShapes(shapeCandidates(inst, rootPc, def, inversion), weights, chartShape(inst, rootPc, def));
+  const find = (relaxed) => {
+    if (inst.starts && def.span) {   // (a ringing drone counts)
+      return droneShapes(inst, rootPc, def, inversion, weights, relaxed)
+        .filter((sh) => spans(def, sh.frets.flatMap((f, s) => (f < 0 ? [] : [shapePitch(inst, s, f)]))));
+    }
+    if (inst.starts) return droneShapes(inst, rootPc, def, inversion, weights, relaxed);
+    return pickShapes(shapeCandidates(inst, rootPc, def, inversion, [], null, relaxed), weights, chartShape(inst, rootPc, def));
+  };
+  const shapes = find(false);
+  return shapes.length ? shapes : find(true);
 }
 
 /* Banjo: chords are fretted on the long strings, as on any 4-string
@@ -627,7 +648,7 @@ function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
    It never sets the bass: high up the neck, where all the fretted notes
    are above it, it is left out (as banjo players skip it there), and a
    shape that needed it for a chord tone goes. */
-function droneShapes(inst, rootPc, def, inversion, weights) {
+function droneShapes(inst, rootPc, def, inversion, weights, relaxed = false) {
   const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
   const drones = inst.strings.map((m, s) => s).filter((s) => startFret(inst, s));
   const longInst = { ...inst, strings: long.map((s) => inst.strings[s]), starts: undefined };
@@ -641,7 +662,7 @@ function droneShapes(inst, rootPc, def, inversion, weights) {
   const low = (shape) => Math.min(...shape.frets.map((f, q) => (f < 0 ? Infinity : longInst.strings[q] + f)));
   // A drone that rings with this shape: in the chord, and above its lowest note
   const ringsWith = (s, shape) => rings(s) && inst.strings[s] > low(shape);
-  const candidates = shapeCandidates(longInst, rootPc, def, inversion, ringing, chart).filter((shape) => {
+  const candidates = shapeCandidates(longInst, rootPc, def, inversion, ringing, chart, relaxed).filter((shape) => {
     if (chart && shape.frets.join(",") === chart.join(",")) return true;   // (a chart shape: kept, as there)
     const pcs = new Set(shape.frets.flatMap((f, q) => (f < 0 ? [] : [mod12(longInst.strings[q] + f)])));
     for (const s of drones) if (ringsWith(s, shape)) pcs.add(mod12(inst.strings[s]));
@@ -659,9 +680,20 @@ function droneShapes(inst, rootPc, def, inversion, weights) {
    different shape, since both versions are worth knowing (G: 3 2 0 0 0 3 /
    3 2 0 0 3 3); higher up, an open string in a fretted shape is a variant.
    A fret that moves more than 2 frets means another hand position, so the
-   shapes are different. */
+   shapes are different. A shape of four strings or more that leaves out the
+   low strings and keeps the bass note is not a variant either: it is played
+   with another hand shape (the small F, x x 3 2 1 1, beside the barre,
+   1 3 3 2 1 1). */
 const openPosition = (frets) => Math.max(...frets) <= 4;
+// (a shape's bass note: its lowest)
+const bassPcOf = (shape) => mod12(Number(shape.sig.split(',')[0]));
+// (the first string it plays)
+const leadString = (shape) => shape.frets.findIndex((f) => f >= 0);
 function isVariant(a, b) {
+  // (a shape of four strings or more on higher strings, its bass note the
+  // same: its own hand shape, see above)
+  const sounding = (shape) => shape.frets.filter((f) => f >= 0).length;
+  if (leadString(a) !== leadString(b) && bassPcOf(a) === bassPcOf(b) && Math.min(sounding(a), sounding(b)) >= 4) return false;
   let shared = 0;
   let frets = 0;
   let mutes = 0;
@@ -903,7 +935,10 @@ function compoundType(span) {
   const n = intervalNumber(simple) + 7 * Math.floor(span / 12);
   if (span < 13 || span > 12 * OCTAVE_MAX + 11) return undefined;
   if (!compoundDefs.has(span)) {
-    compoundDefs.set(span, { id: `i-${quality}${n}`, steps: [0, simple], degrees: ['R', DYAD_DEGREES[simple]], custom: true, span,
+    // (its notes spelled as the simple interval's, degrees; shown as the
+    // interval it is, shown: a major 9th's D is its 9, not a 2)
+    const shown = `${quality === 'min' ? 'b' : quality === 'aug' ? '#' : ''}${n}`;
+    compoundDefs.set(span, { id: `i-${quality}${n}`, steps: [0, simple], degrees: ['R', DYAD_DEGREES[simple]], shown: ['R', shown], custom: true, span,
       symbol: `(${QUALITY[quality][0]}${n})`, name: `${QUALITY[quality][1]} ${ordinalOf(n)} interval` });
   }
   return compoundDefs.get(span);
@@ -1048,6 +1083,7 @@ function defaultState() {
     drawn: [],                        // custom shapes (Name a chord): [{ root, type, neck, frets }], newest last (see listShapes)
     inversion: { ...DEFAULT_INVERSION },  // per instrument
     shape: null,                      // index in the shape list, this visit only (null: the chord's home shape, homeShape)
+    loose: false,                     // the chord on screen is a link's, on a shape its chip does not have: shown apart from it (see applyLink)
     scale: { on: true, root: 0, type: 'major' },   // off: type null (see scaleOff)
     share: { neck: true, chord: true, scale: true, list: true },
     folded: { chord: false, scale: false },   // wide screens: a panel folded to its title row   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
@@ -1114,6 +1150,7 @@ function loadState(saved) {
     const chord = readChord(work.chord);
     if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id } : { on: false, root: chord.root, type: null };
     s.chordBass = chord && chord.def ? chord.bass : null;   // (which of its chips was on screen: see init)
+    s.looseFrets = chord && chord.def && chord.frets ? chord.frets : null;   // (a chord shown apart from its chip: its shape, see init)
     const scale = readScale(work.scale);
     if (scale) s.scale = scale.def ? { on: true, root: scale.root, type: scale.def.id } : { on: false, root: scale.root, type: null };
     // (its bass: saved since chips are told apart by it; as saved before, worked out in init)
@@ -1137,7 +1174,6 @@ function loadState(saved) {
       if (r && s.recent.length < RECENT_KEEP && !known(r)) s.recent.push(r);
     }
     // Custom shapes: their chord, neck (open strings and capo) and frets
-    // (one per bass note: see keepDrawn; saved before, one per chord)
     for (const d of Array.isArray(work.drawn) ? work.drawn : []) {
       const c = d && readChord(d.chord);
       if (!c || !c.def || !NECK_RE.test(d.neck) || !FRETS_RE.test(d.frets)) continue;
@@ -1186,7 +1222,9 @@ function savedForm() {
       saved: shared.saved,
       capo: state.capo,
       inversion: state.inversion,   // (each instrument's, as its menu shows it: a reload shows it again, not as worked out anew)
-      chord: shown ? chordBassText(shown.root, shown.def, shown.bassIndex) : noteToken(plainNote(state.chord.root, state.flats)),   // (with its bass: which of its chips it is)
+      // (with its bass: which of its chips it is; shown apart from it, its shape too)
+      chord: shown ? chordBassText(shown.root, shown.def, shown.bassIndex) + (state.loose && shown.shape ? `.${fretsText(shown.shape.frets)}` : '')
+        : noteToken(plainNote(state.chord.root, state.flats)),
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, state.flats)),
       list: shared.list,
       recent: state.recent.map((r) => ({ ...savedEntry(r), used: order.indexOf(r) })),
@@ -1458,6 +1496,8 @@ function shapeToken(root, def, { shapes, index, inversion }, bass) {
   const plain = index === homeShape(shapes, root, inversion) && !shape.drawn && plainInversion(root, def, bass) === inversion;
   return plain ? '' : `.${fretsText(shape.frets)}`;
 }
+// A bass note's inversion, as named (null: none, or not one of this chord's)
+const namedInversion = (def, bass) => (Number.isInteger(bass) && bass > 0 && inversionFor(def, String(bass)) === String(bass) ? String(bass) : null);
 // The inversion a link's chord opens in for its bass note: the default one
 // when its first shape has that bass already (A, as picked from the menus),
 // else that bass's; null: no shape with that bass on this neck
@@ -1517,6 +1557,7 @@ function applyLink(search, parts = null, fresh = false) {
   // Your chord's chip, as it is on screen (its bass: the shape's), for when
   // the link leaves your chord as it is
   const own = state.chord.on ? { root: state.chord.root, type: state.chord.type, bass: shownBass() } : null;
+  const ownShape = state.loose && currentChord().shape ? fretsText(currentChord().shape.frets) : null;   // (yours shown apart from its chip: on that shape)
   const linkInversion = p.has('inversion') ? p.get('inversion') : p.get('voicing');   // (a link from before: "voicing")
   // A chord's bass on the link's own neck (its shape's lowest note; else
   // its name's, the link's inversion, or the root) and the inversion that gives
@@ -1555,14 +1596,16 @@ function applyLink(search, parts = null, fresh = false) {
   if (neck) setCapo(readCapo(p.get('capo') || 0, state.instrument) || 0);
   const chord = readChord(p.get('chord'));
   const linkChord = take('chord') && chord && chord.def;
-  if (linkChord) state.chord = { on: true, root: chord.root, type: chord.def.id };
+  if (linkChord) { state.chord = { on: true, root: chord.root, type: chord.def.id }; state.loose = false; }
   else if (take('chord') && (fresh || p.get('chord') === NONE)) chordOff();
   if (neck && linkChord) {
     // Its bass note (D-maj*Fs, its shape's, or the root), as without the neck
     // (see keepBass; a link from before: its inversion), then its shape in
     // the inversion that lists it (an "Any bass note" one may list it alone)
+    // (a bass named that has no shape on this neck: kept, the chord shown
+    // without a shape, as it was shared: C9/G on a bass)
     const kept = keepBass(chord);
-    let inversion = INVERSIONS.includes(linkInversion) ? linkInversion : kept ? kept.inversion : DEFAULT_INVERSION[state.instrument];
+    let inversion = INVERSIONS.includes(linkInversion) ? linkInversion : kept ? kept.inversion : namedInversion(chord.def, chord.bass) || DEFAULT_INVERSION[state.instrument];
     if (chord.frets) {
       const listed = (v) => listShapes(chord.root, chord.def, inversionFor(chord.def, v)).some((shape) => fretsText(shape.frets) === chord.frets);
       const found = [inversion, DEFAULT_INVERSION[state.instrument], ...INVERSIONS].find(listed);
@@ -1615,7 +1658,7 @@ function applyLink(search, parts = null, fresh = false) {
         if (kept && entry.bass === undefined) entry.bass = kept.bass;
       } else if (linkInversion === null) {   // (no shape: the first one, in the inversion for its bass, as it was shared; no bass named: the root)
         if (entry.bass === undefined) entry.bass = 0;
-        entry.inversions[state.instrument] = plainInversion(c.root, c.def, entry.bass) ?? DEFAULT_INVERSION[state.instrument];
+        entry.inversions[state.instrument] = plainInversion(c.root, c.def, entry.bass) ?? namedInversion(c.def, entry.bass) ?? DEFAULT_INVERSION[state.instrument];
       } else if (entry.bass) {   // (a link from before, with its inversion: that of its bass)
         entry.inversions[state.instrument] = inversionFor(c.def, String(entry.bass));
       }
@@ -1646,14 +1689,27 @@ function applyLink(search, parts = null, fresh = false) {
     }
   }
   // Your own chord: on its chip, as it remembers it (the shape you had, a
-  // C/E stays C/E), where this neck can play it
-  if (!linkChord) recallChip((own && chipEntry(own.root, own.type, own.bass)) || recentEntry(), false, true);
-  // The link's chord: its chip (one made for it if need be) remembers the
-  // shape it came on, so a reload brings that shape back, not the chip's old one
+  // C/E stays C/E), where this neck can play it; shown apart from its chip,
+  // on the shape it had, if this neck still lists it
+  const ownAt = ownShape && !linkChord && state.chord.on ? currentChord().shapes.findIndex((sh) => fretsText(sh.frets) === ownShape) : -1;
+  if (ownAt >= 0) state.shape = ownAt;
+  else if (!linkChord) { state.loose = false; recallChip((own && chipEntry(own.root, own.type, own.bass)) || recentEntry(), false, true); }
   else if (state.chord.on) {
+    // The link's chord: its chip (one made for it if need be) remembers the
+    // shape it came on, so a reload brings that shape back. A chip of yours
+    // that comes back on another shape keeps it: the chord is shown apart
+    // from it (the link's list, when loaded, has its chips' shapes). Without
+    // the link's neck, the link has no shape: on your chip's.
     let entry = recentEntry();
     if (!entry) addRecent(entry = newEntry(state.chord.root, state.chord.type, shownBass()));
-    rememberShape(entry);
+    else if (!neck) recallChip(entry);
+    else {
+      const back = chipShape(entry);
+      const was = back.shapes[back.index];
+      const now = currentChord().shape;
+      state.loose = Boolean(now) && (!was || fretsText(was.frets) !== fretsText(now.frets));
+    }
+    if (!state.loose) rememberShape(entry);
   }
   return true;
 }
@@ -1703,6 +1759,10 @@ function linkPreview(search, has, parts = null) {
   const mine = state;
   const mySetup = setupKey();
   const myChord = chordLine(currentChord());
+  const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index], chordSpelling(r.root, findChord(r.type))) : ''; };
+  // (your chips' shapes, worked out on your own state: the link's custom
+  // shapes are not yours)
+  const yourShapes = new Map(mine.list.map((r) => [r, shapeOf(r)]));
   state = JSON.parse(JSON.stringify(mine));
   state.list = [];   // the list shown is the link's, not yours
   try {
@@ -1721,14 +1781,13 @@ function linkPreview(search, has, parts = null) {
       const text = own && own.shapes && own.shapes[shapeContext(def, inversion)];
       return text ? shapeShort({ frets: readFrets(text), piano }, chordSpelling(own.root, def)) : null;
     };
-    const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index], chordSpelling(r.root, findChord(r.type))) : ''; };
     // Your saved chips whose shape the link's list changes: { name: [yours, the link's] }
     const listShapes = {};
     if (has.recent && withNeck) {
       for (const r of state.list) {
         const own = mine.list.find((x) => sameEntry(x, r));
         if (!own) continue;
-        const yours = moves ? remembered(own, findChord(r.type), chipShape(r).inversion) : shapeOf(own);
+        const yours = moves ? remembered(own, findChord(r.type), chipShape(r).inversion) : yourShapes.get(own);
         if (yours !== null && yours !== shapeOf(r)) listShapes[entrySymbol(r)] = [yours, shapeOf(r)];
       }
     }
@@ -2164,7 +2223,7 @@ function currentScale() {
 /* Turning the chord or the scale off ("None", Deselect, a link without one)
    keeps only its root: the type is forgotten, so nothing can go on reading
    an old type (every way back on picks a new one) */
-function chordOff() { state.chord.on = false; state.chord.type = null; openEntry = null; resetInversion(); }   // and its chip is final
+function chordOff() { state.chord.on = false; state.chord.type = null; state.loose = false; openEntry = null; resetInversion(); }   // and its chip is final
 function scaleOff() { state.scale.on = false; state.scale.type = null; }
 /* A root with no type picked: written as the scale on screen writes it, or
    else as the neck does (Flats setting) */
@@ -2186,9 +2245,23 @@ function updateChord(patch) {
   const fresh = !state.chord.on || ('type' in patch && patch.type !== state.chord.type) || ('root' in patch && patch.root !== state.chord.root);
   if (fresh) resetInversion();
   Object.assign(state.chord, patch, { on: true });
-  state.shape = null;
+  state.loose = false;
+  state.shape = menuShape();
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
   render();
+}
+
+/* A chord picked from the menus that has a chip already (the list's, a
+   recent one): the shape the chip remembers in this inversion, not lost to
+   the first one (a custom shape among them); null: none, its first shape */
+function menuShape() {
+  const def = findChord(state.chord.type);
+  const inversion = inversionFor(def);
+  const shapes = listShapes(state.chord.root, def, inversion);
+  if (!shapes.length) return null;
+  const bass = /^\d+$/.test(inversion) ? Number(inversion) : bassIndexOf(state.chord.root, def, shapes[homeShape(shapes, state.chord.root, inversion)]);
+  const entry = chipEntry(state.chord.root, def.id, bass);
+  return entry ? rememberedShape(entry, inversion) : null;
 }
 
 /* The chord list and the recent chords, for all instruments. The list is
@@ -2213,9 +2286,14 @@ function updateChord(patch) {
    list chip stays as it is and the chord gets a new recent chip.
    Each chip remembers the shape you chose for it, per instrument, tuning,
    capo and inversion (`shapes`): tapping the chip, or coming back to this
-   instrument, brings that shape back. Picking the chord from the menus starts
-   from its first shape, as always (and the chip remembers that). Shapes only
-   change in memory when you choose them, never because a setting reset them. */
+   instrument, brings that shape back, and so does picking the chord from the
+   menus (a new one starts from its first shape). Shapes only change in
+   memory when you choose them, never because a setting reset them.
+   A link's chord on a shape its chip does not have (the chord list not
+   loaded with it) is shown apart from the chip (state.loose): no chip is
+   lit, and the chip keeps its shape (a chord has one chip). It ends when
+   the chord on screen changes (another chord or bass, a chip, the menus,
+   another neck). */
 const LIST_MAX = 16;
 const RECENT_MAX = 3;    // recent chords shown, at least
 const RECENT_KEEP = 6;   // ... kept, and the chords the row aims to show in all
@@ -2226,9 +2304,9 @@ let menuPick = '';       // how the chord on screen was just picked: 'root', 'ty
 let chipPick = false;    // ... or from its chip
 const shapeContext = (def = findChord(state.chord.type), inversion = inversionFor(def)) => [instrument().strings, capo(), inversion].join('|');
 /* Custom shapes: drawn in Name a chord, when the shape finder does not list
-   them. Kept per chord, bass note and neck (open strings and capo: the same
-   frets on another neck are other notes), one each, as a chip is a chord
-   and its bass (A and A/C♯ each keep their own), the last DRAWN_MAX. Listed
+   them. Kept per chord and neck (open strings and capo: the same frets on
+   another neck are other notes), the last DRAWN_MAX: a chip remembering
+   one, another chip (a link's) one of its own, each is kept. Listed
    among the chord's shapes, after the first, by their place on the neck,
    when the inversion allows their bass note; marked as custom where shapes
    are shown. Saved and shared (as frets) like any shape. Kept while in use
@@ -2244,9 +2322,7 @@ function drawnFrets(root, type) {
 }
 function keepDrawn(root, type, frets) {
   const neck = neckContext();
-  const def = findChord(type);
-  const bass = (text) => bassIndexOf(root, def, { frets: readFrets(text) });
-  state.drawn = state.drawn.filter((x) => !(x.root === mod12(root) && x.type === type && x.neck === neck && bass(x.frets) === bass(frets)));
+  state.drawn = state.drawn.filter((x) => !(x.root === mod12(root) && x.type === type && x.neck === neck && x.frets === frets));
   state.drawn.push({ root: mod12(root), type, neck, frets });
   state.drawn = state.drawn.slice(-DRAWN_MAX);
 }
@@ -2358,7 +2434,7 @@ const newEntry = (root, type, bass) => ({ root, type, bass, shapes: {}, inversio
 const sameEntry = (a, b) => a.root === b.root && a.type === b.type && a.bass === b.bass;
 const chipEntry = (root, type, bass) => [...state.list, ...state.recent].find((r) => sameEntry(r, { root, type, bass })) || null;
 const shownBass = () => (state.chord.on ? currentChord().bassIndex : null);   // the chord on screen's bass (its shape's, or its inversion's)
-const recentEntry = () => (state.chord.on ? chipEntry(state.chord.root, state.chord.type, shownBass()) : null);   // the chord on screen's
+const recentEntry = () => (state.chord.on && !state.loose ? chipEntry(state.chord.root, state.chord.type, shownBass()) : null);   // the chord on screen's (none: shown apart)
 
 // A chord into the recent ones, first; past RECENT_KEEP the one unused longest goes
 function addRecent(entry) {
@@ -2430,6 +2506,7 @@ function chipShape(entry) {
    guitar). Its chip's shape there if that has the same bass, else the
    first shape with it; if the new neck has none, as its chip remembers. */
 function changeNeck(change) {
+  state.loose = false;   // (a link's shape was for the link's neck: back on the chord's chip)
   const before = currentChord();
   const bass = before && before.shape ? before.bassIndex : null;
   const entry = recentEntry();   // (its chip: the same chip after, where the new neck can play its bass)
@@ -2465,6 +2542,8 @@ function trackChord() {
   const bass = shownBass();
   const key = state.chord.on ? `${state.chord.root}:${state.chord.type}:${bass}` : '';
   const sameInst = shownChord !== undefined && shownChord.inst === state.instrument;
+  // A chord shown apart from its chip: until it changes, or its chip goes
+  if (state.loose && (!state.chord.on || (shownChord && shownChord.key !== key) || !chipEntry(state.chord.root, state.chord.type, bass))) state.loose = false;
   const setup = [state.instrument, instrument().strings, capo()].join('|');
   if (!shownChord || shownChord.setup !== setup) openEntry = null;   // a new instrument, tuning or capo: final
   const how = menuPick;
@@ -2478,7 +2557,10 @@ function trackChord() {
   if (!changed) {
     // The chord on screen always has its chip: the one the page opens on
     // (saved, or a link's), or one whose bass another neck can't play
-    if (!shownChord.entry) addRecent(shownChord.entry = newEntry(state.chord.root, state.chord.type, bass));
+    if (!shownChord.entry && !state.loose) {
+      addRecent(shownChord.entry = newEntry(state.chord.root, state.chord.type, bass));
+      rememberShape(shownChord.entry);
+    }
     return;
   }
   const open = how === 'type' && openEntry && state.recent.includes(openEntry) ? openEntry : null;
@@ -2510,6 +2592,7 @@ function playChip(entry) {
   if (!entry) return;
   keepChord();
   state.chord = { on: true, root: entry.root, type: entry.type };
+  state.loose = false;
   recallChip(entry, true);   // as it was last used: its inversion and shape
   chipPick = true;
   ui.reveal = true;   // phones: bring the shape into view, even if this chip was already the one on screen
@@ -2771,7 +2854,7 @@ function clearRecent() {
 // screen if it is one of them (a recent one goes with its chip)
 function clearRecentOnly() {
   closeClearRecent();
-  const shown = recentEntry();
+  const shown = state.chord.on ? chipEntry(state.chord.root, state.chord.type, shownBass()) : null;   // (shown apart from it too: it goes with it)
   state.recent = [];
   openEntry = null;
   if (state.chord.on && !state.list.includes(shown)) chordOff();
@@ -2794,8 +2877,8 @@ function selectShape(index) {
    in its middle), so the hand stays there when the scale changes (another
    root or type, tuning or capo): the group that starts at the same fret if
    there is one, else the nearest (the one whose middle is nearest of two
-   as near). Before any pick, or on another instrument: the first group
-   (nearest the nut). */
+   as near). Before any pick, on another instrument, or with the capo taken
+   off: the first group (nearest the nut). */
 const groupFrets = (g) => [Math.min(...g.bars.map((b) => b.a)), Math.max(...g.bars.map((b) => b.b))];
 const groupMid = (g) => { const [a, b] = groupFrets(g); return (a + b) / 2; };
 function pickGroup(groups) {
@@ -3407,6 +3490,7 @@ function closeNamer(select) {
     const { root, def } = reading;
     if (!state.chord.on || state.chord.type !== def.id) resetInversion();   // as a chord picked from the menus
     state.chord = { on: true, root, type: def.id };
+    state.loose = false;
     // Its bass note's inversion ("Any bass note" stays so)
     if (state.inversion[state.instrument] !== 'any') state.inversion[state.instrument] = String(reading.bassIndex);
     if (!chordShapes(root, def, inversionFor(def)).some((x) => fretsText(x.frets) === text)) keepDrawn(root, def.id, text);
@@ -4755,7 +4839,8 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
    so moving from one to the next keeps a note or two under the fingers, and
    together they cover the whole neck.
    Each group is an unbroken run of the scale from its lowest note to its
-   highest: 2 or 3 notes on a string (2 in a pentatonic), no string's notes
+   highest, each note once: 2 or 3 notes on a string (2 in a pentatonic; the
+   open position may leave one, see handGroups), no string's notes
    spread over more than 4 frets (one finger per fret), the group 5 frets
    wide, 6 where the scale allows no less. Open strings sit at the nut,
    before fret 1: the open position is frets 1 to 4. Mandolin and mandola
@@ -4968,22 +5053,42 @@ function handGroups(inst, sc, capo, order, reach) {
     };
     for (let r = lo[0]; r <= hi[0]; r++) walk(0, r, Infinity, -Infinity, 0);
     // The open position as players know it: every scale note from the nut
-    // (or the capo) to the 4th fret, on every string. Its run may play a note
-    // twice (where two strings are a third apart, like a guitar's G and B),
-    // but it skips none, and it takes in the open strings a straight run
-    // would leave out (D major pentatonic on guitar: 0,2 | 0,2 | 0,2,4 |
-    // 2,4 | 0,3 | 0,2).
+    // (or the capo) to the 4th fret, on every string, taking in the open
+    // strings a straight run would leave out (D major pentatonic on guitar:
+    // 0,2 | 0,2 | 0,2,4 | 2 | 0,3 | 0,2). It skips no note, and plays none
+    // twice: where two strings are a third apart (a guitar's G and B), the
+    // lower one's last note is the next one's first, kept on one string only.
+    // Taken off the string that still plays two notes or more without it
+    // (the other one, if only one does), else off the fretted one: the open
+    // string stays (else off the lower string). A string so left with one
+    // note is the open position's only one.
     const box = { S: [], E: [], A: [], B: [], DA: [], DB: [] };
     let boxFolds = 0;
     let ok = true;
-    for (let q = 0; q < n && ok; q++) {
-      const ranks = [];
-      const frets = [];
+    const notes = order.map(({ m }) => {   // each string's scale notes there, low to high: { r: rank, f: fret }
+      const out = [];
       for (let f = capo; f <= Math.min(capo + 4, N); f++) {
-        const r = scaleRank(sc, order[q].m + f);
-        if (r !== null) { ranks.push(r); frets.push(f); }
+        const r = scaleRank(sc, m + f);
+        if (r !== null) out.push({ r, f });
       }
-      ok = ranks.length >= minLen && ranks.length > 0;
+      return out;
+    });
+    const trimmed = notes.map(() => false);
+    for (let q = 1; q < n; q++) {
+      const below = notes[q - 1];
+      const here = notes[q];
+      while (below.length && here.length && here[0].r <= below[below.length - 1].r) {
+        const spare = (list) => list.length - 1 >= minLen;
+        const open = (note) => note.f <= capo;
+        const offBelow = spare(below) !== spare(here) ? spare(below)
+          : open(below[below.length - 1]) === open(here[0]) || open(here[0]);
+        if (offBelow) { below.pop(); trimmed[q - 1] = true; } else { here.shift(); trimmed[q] = true; }
+      }
+    }
+    for (let q = 0; q < n && ok; q++) {
+      const ranks = notes[q].map((x) => x.r);
+      const frets = notes[q].map((x) => x.f);
+      ok = ranks.length >= (trimmed[q] ? 1 : minLen) && ranks.length > 0;
       if (!ok) break;
       if (q && ranks[0] > box.E[q - 1] + 1) ok = false;   // a note skipped
       const [a, b] = [frets[0], frets[frets.length - 1]];
@@ -5142,8 +5247,9 @@ function renderNeck(ch, sc) {
   const keyFlats = sc ? sc.spell.flats : ch ? ch.spell.flats : state.flats || Boolean(inst.tuning && inst.tuning.flats);
   const onlyScale = Boolean(sc && state.scaleOnly);
   const groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
-  // Another instrument: back to the first group. Anything else (another
-  // scale root or type, tuning, capo, Groups switched off and on): the
+  // Another instrument (or the capo taken off, see its picker): back to the
+  // first group. Anything else (another scale root or type, tuning, another
+  // capo, Groups switched off and on): the
   // group at the place picked, or the nearest one (pickGroup).
   if (ui.groupInst !== state.instrument) {
     ui.groupInst = state.instrument;
@@ -5243,8 +5349,13 @@ function renderNeck(ch, sc) {
         // A string the shape does not play: its open note, with a pink ×
         // badge where a chord note has its interval (with "Only scale
         // notes" too: it says which string, not a note to play); quiet,
-        // or as a scale note when the scale shown has it
-        cls += ` mute named${sc && sc.set.has(pc) ? ` scale${pc === sc.root ? ' scale-root' : ''}` : ''}`;
+        // or as a scale note when the scale shown has it. With All chord
+        // tones, a chord tone there shows as the others do (its × amber,
+        // as their intervals, when the scale shown does not have it)
+        const tone = ghosts && ch.degOfPc.has(pc);
+        if (tone) deg = ch.degOfPc.get(pc);
+        cls += ` mute named${tone ? ` ghost${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`
+          : sc && sc.set.has(pc) ? ` scale${pc === sc.root ? ' scale-root' : ''}` : ''}`;
         n = ch.spell.names.get(pc) || (sc && sc.spell.names.get(pc)) || n;
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
@@ -5261,10 +5372,13 @@ function renderNeck(ch, sc) {
         cls += onlyScale && f !== nut(s) ? ' plain out' : sc ? ' plain off' : ' plain';
       }
       const text = noteText(n);
-      let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, ${where}`;
+      let title = `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}`;
       if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
       if (f < nut(s)) title += `, behind the ${stop}`;
-      if (cls.includes(' mute')) title = cls.includes(' named') ? `${pitchText(midi, n)}, ${where}, not played` : `String ${num} not played`;
+      if (cls.includes(' mute')) {
+        title = cls.includes(' named') ? `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}, not played` : `String ${num} not played`;
+        if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
+      }
       const octave = octaveOf(s, f);
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
         `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}`;
@@ -5348,7 +5462,7 @@ function renderPiano(ch, sc) {
     } else {
       cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';
     }
-    let title = `${pitchText(midi, n)}${deg ? ` (${DEGREE_NAMES[deg]})` : ''}, key ${k + 1}`;
+    let title = `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, key ${k + 1}`;
     if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
     const badge = deg ? `<span class="deg-badge" aria-hidden="true">${tx(fmtDeg(deg))}</span>` : '';
     const key = `<div class="key ${black ? 'black' : 'white'}" data-key="${k}" style="--i:${white}">` +
@@ -5561,7 +5675,7 @@ function renderChordPanel(ch, sc) {
   fitSymbol(els.chordSymbol, ch.symbol, ch.bassIndex > 0);
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
   const optional = optionalTones(ch.def, String(ch.bassIndex), Boolean(instrument().piano));   // (in brackets, as in the Chord type menu; never the shape's bass)
-  const formula = ch.def.degrees.map((d, i) => {
+  const formula = shownDegrees(ch.def).map((d, i) => {
     const deg = fmtDeg(d === 'R' ? '1' : d);
     return optional.has(i) ? `(${deg})` : deg;
   }).join(' ');
@@ -5640,7 +5754,7 @@ function renderChordPanel(ch, sc) {
       `title="Click to hear ${esc(name)}${off ? `, not in ${scaleInText(sc)}` : ''}">` +
       `<span class="np-note-name">${esc(name)}</span>` +
       `<span class="np-deg">${tx(fmtDeg(deg))}</span>` +
-      `<span class="np-role" ${fitsAttr([DEGREE_NAMES[deg], shortWords(DEGREE_NAMES[deg])])}>${esc(DEGREE_NAMES[deg])}</span>` +
+      `<span class="np-role" ${fitsAttr([degreeName(deg), shortWords(degreeName(deg))])}>${esc(degreeName(deg))}</span>` +
       `<span class="np-loc"><kbd>${tx(loc)}</kbd></span></li>`;
   }).join('');
   refitWords(els.chordTones);   // (each interval's name: shorter where it does not fit)
@@ -5650,7 +5764,7 @@ function renderChordPanel(ch, sc) {
   const missing = chordTones(ch.root, ch.def).filter((t) => !played.has(t.pc));
   els.chordMissing.hidden = !missing.length;
   els.chordMissing.innerHTML = missing.length
-    ? `Not in this shape: <span class="np-tail">${missing.map((t) => `<span class="np-item">${esc(`${noteText(ch.spell.names.get(t.pc))} (${DEGREE_NAMES[t.deg].toLowerCase()})`)}</span>`).join(', ')}</span>`
+    ? `Not in this shape: <span class="np-tail">${missing.map((t) => `<span class="np-item">${esc(`${noteText(ch.spell.names.get(t.pc))} (${degreeName(t.deg).toLowerCase()})`)}</span>`).join(', ')}</span>`
     : '';
 
   els.shapeList.innerHTML = ch.shapes.map((shape, i) => {
@@ -5662,8 +5776,8 @@ function renderChordPanel(ch, sc) {
       `${shape.drawn ? BOOKMARK_ICON : ''}` + (shape.piano
         // (the piano: its notes, the lowest, where it sits, in the label's colour)
         ? `<span class="tx"><span class="chip-lead">${esc(where)}</span> ${esc(shapeTab(shape).split(' ').slice(1).join(' '))}</span></button></li>`
-        : `<span class="chip-num tx">${esc(where[0].toUpperCase() + where.slice(1))}</span>` +   // ("Fret 5", "Open": as the group chips)
-          `<span class="mono tx">${esc(tabOf(shape))}</span></button></li>`);
+        // (where it sits, "Fret 5", "Open" as the group chips, on the tab's baseline: one line, as the triads)
+        : `<span class="mono tx"><span class="chip-num">${esc(where[0].toUpperCase() + where.slice(1))}</span>${esc(tabOf(shape))}</span></button></li>`);
   }).join('');
   keepChipVisible();
 }
@@ -5960,8 +6074,13 @@ function init() {
   // it was saved as (saved before: its only chip)
   // (no bass saved with it: the root, as a link's; saved before chips had
   // a bass: its only chip, whatever its bass)
-  if (state.chord.on) recallChip(chips.find((r) => sameEntry(r, { root, type, bass: state.chordBass ?? 0 })) || chips.find((r) => r.root === root && r.type === type));
+  // (shown apart from its chip, see applyLink: on the shape it had, in the
+  // inversion saved, while this neck lists it)
+  const looseAt = state.chord.on && state.looseFrets ? currentChord().shapes.findIndex((sh) => fretsText(sh.frets) === state.looseFrets) : -1;
+  if (looseAt >= 0) Object.assign(state, { shape: looseAt, loose: true });
+  else if (state.chord.on) recallChip(chips.find((r) => sameEntry(r, { root, type, bass: state.chordBass ?? 0 })) || chips.find((r) => r.root === root && r.type === type));
   delete state.chordBass;
+  delete state.looseFrets;
   startLink(location.search);   // opened from a shared link
 
   // Instrument and tuning: popups, each tile showing the open strings
@@ -6131,7 +6250,11 @@ function init() {
         { length: maxCapo(state.instrument) },
         (_, i) => ({ value: i + 1, label: String(i + 1) })) },
     ],
-    onPick: (v) => { changeNeck(() => setCapo(Number(v))); render(); },
+    onPick: (v) => {
+      if (!Number(v) && capo()) ui.groupAt = null;   // (the capo taken off: back to the first group)
+      changeNeck(() => setCapo(Number(v)));
+      render();
+    },
   }));
 
   // Clearing the chord or the scale also closes its panel on phones
@@ -6369,15 +6492,15 @@ function installable() {
 /* Suggest installing the app, gently: only in a browser that can (or
    where it can be done by hand: not in another app's built-in browser),
    only if not installed already, and only once the app has been in use a
-   while on this visit (two minutes on screen and a few taps), at a pause
+   while on this visit (a minute on screen and a few taps), at a pause
    (a few seconds without one), never right away. It stays until answered. "Not now": asked once more on a visit a
    week or more later (again after a while); "Not now" again, or the app
    installed: never again. "Install": the browser's own install where it
    offers one, else the steps for this browser. */
 const INSTALL_KEY = 'frettle-install-tip';
-const INSTALL_AFTER = 120;   // seconds on screen this visit
+const INSTALL_AFTER = 60;    // seconds on screen this visit
 const INSTALL_TAPS = 6;      // ... and presses (a touch, a click or a key)
-const INSTALL_PAUSE = 4000;  // ms without one, just before
+const INSTALL_PAUSE = 3000;  // ms without one, just before
 const INSTALL_AGAIN = 7 * 24 * 3600 * 1000;   // ms before asking the second time
 function setupInstallTip() {
   const tip = document.getElementById('installTip');
@@ -6442,7 +6565,7 @@ function setupInstallTip() {
       if (outcome === 'accepted') { write({ ...read(), installed: true }); tip.hidden = true; } else answer();
       return;
     }
-    text.innerHTML = `<strong>Install Frettle</strong><span>${steps}</span>`;
+    text.innerHTML = `<strong>How to install</strong><span>${steps}</span>`;
     later.hidden = true;
     now.textContent = 'Done';
     now.classList.remove('primary');
