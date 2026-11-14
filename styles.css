@@ -704,7 +704,7 @@ button, a { scroll-margin: 6px; }
   cursor: pointer;
 }
 .chip-num { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
-.tx > .chip-num { margin-inline-end: 6px; }   /* a numeral in the name's line (triads, the chord list): on its baseline, a chip's gap before the name */
+.tx > .chip-num { margin-inline-end: 6px; font-family: var(--font); }   /* a numeral (triads, the chord list) or a shape's place, in the line of its name or tab: on its baseline, a chip's gap before it */
 /* A piano shape's chip: its lowest note (where it sits) in the label's
    colour, the same size as the other notes, all one line of text */
 .chip-lead { color: var(--muted); }
@@ -829,9 +829,11 @@ button, a { scroll-margin: 6px; }
 .neck.horizontal .barre { padding-inline-end: 2px; }
 .neck.horizontal .barre i { width: 10px; height: calc(100% * (var(--k) - 1) / var(--k)); }
 
-/* Capo: a bar in the fret space just behind its wire; frets behind it fade */
+/* Capo: a bar in the fret space just behind its wire; frets behind it fade.
+   Under the scale group outline (drawn after it: same layer) and the notes;
+   those in its own cells over it (.cell.capo .note) */
 .capo-bar {
-  z-index: 3;
+  z-index: 1;
   border-radius: var(--r-pill);
   background: var(--accent);
   pointer-events: none;
@@ -921,6 +923,7 @@ button, a { scroll-margin: 6px; }
    moment, darker, as it rings */
 .note.off, .note.out, .note.mute.named { background: color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)); color: color-mix(in srgb, var(--text) 62%, var(--bg)); }
 .note.mute.named.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }   /* (a string not played, its open note in the scale: a scale note, with its ×) */
+.note.mute.named.ghost { background: var(--bg); color: var(--chord); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chord) 55%, transparent); }   /* (... a chord tone, All chord tones on: as the others, see .note.ghost) */
 .note.out { visibility: hidden; }
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
@@ -1091,8 +1094,8 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
 .neck-strip .waiting { visibility: hidden; }
 
 /* Scale groups: rounded outlines (an SVG drawn by script.js), above the
-   strings and fret wires, below the note pills: one at a time, the group
-   picked, in the scale's colour */
+   strings, fret wires and the capo, below the note pills: one at a time,
+   the group picked, in the scale's colour */
 .group-layer {
   position: absolute;
   left: 0;
