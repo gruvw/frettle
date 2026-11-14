@@ -3829,7 +3829,7 @@ function renderRecent() {
     const cls = `${pinned ? 'pinned' : 'trail'}${on ? ' on' : ''}${!pinned && full ? ' bare' : ''}`;
     const tap = `<button type="button" class="chip recent${on ? ' selected' : ''}" ${pinned ? 'data-i' : 'data-r'}="${i}" aria-pressed="${on}" ` +
       `title="${esc(`${noteText(spell.root)} ${def.name.toLowerCase()}${r.bass ? `, ${INVERSION_NAMES[r.bass].toLowerCase()}` : ''}${num ? `, ${num} in ${sc.rootName} ${scaleTitle(sc.def)}` : ''}${pinned ? '' : ', recent'}`)}">` +
-      `${num ? `<span class="chip-num tx">${esc(num)}</span>` : ''}<span class="tx">${esc(name)}</span></button>`;
+      `<span class="tx">${num ? `<span class="chip-num">${esc(num)}</span>` : ''}${esc(name)}</span></button>`;   // (one line of text: the numeral on the name's baseline)
     // A recent chip: its dashed edge (drawn, for dashes longer than a
     // browser's dashed line) and its + (none while the list is full)
     const side = pinned
@@ -5743,8 +5743,8 @@ function renderScalePanel(sc, ch) {
     const def = findChord(t.type);
     const sel = ch && ch.root === t.root && ch.def.id === t.type;
     return `<button type="button" class="chip${sel ? ' selected' : ''}" data-root="${t.root}" data-type="${t.type}" ` +
-      `title="Select ${esc(t.name)} ${def.name.toLowerCase()}"><span class="chip-num tx">${esc(t.num)}</span>` +
-      `<span class="tx">${esc(t.name + def.symbol)}</span></button>`;
+      `title="Select ${esc(t.name)} ${def.name.toLowerCase()}"><span class="tx"><span class="chip-num">${esc(t.num)}</span>` +
+      `${esc(t.name + def.symbol)}</span></button>`;   // (as the chord list's chips)
   }).join('');
 }
 

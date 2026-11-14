@@ -25,7 +25,7 @@
   --ok: #5ccf8d;
   --warn: #f0b75a;
   --kbd-bg: #262932;
-  --chord: #ff4d86;
+  --chord: #e8336f;
   --chord-text: #ffffff;
   --scale: #22b8a6;
   --scale-text: #03201c;
@@ -73,8 +73,8 @@
   --cell-w: 46px;        /* horizontal neck only */
   --open-w: 54px;
   --scroll-gap: 10px;    /* space between scrolling content and its scrollbar */
-  --fret-wire: color-mix(in srgb, var(--pk-grey) 38%, transparent);
-  --string: color-mix(in srgb, var(--pk-grey) 70%, transparent);
+  --fret-wire: color-mix(in srgb, var(--pk-grey) 50%, transparent);
+  --string: color-mix(in srgb, var(--pk-grey) 70%, var(--bg));   /* (solid: drawn over the fret wires, it hides them) */
   --nut: color-mix(in srgb, var(--pk-white) 85%, transparent);
   --inlay: color-mix(in srgb, var(--text) 4%, var(--bg));
   --octave-alt: color-mix(in srgb, var(--text) 8%, var(--bg));   /* every other octave */
@@ -704,6 +704,7 @@ button, a { scroll-margin: 6px; }
   cursor: pointer;
 }
 .chip-num { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); }
+.tx > .chip-num { margin-inline-end: 6px; }   /* a numeral in the name's line (triads, the chord list): on its baseline, a chip's gap before the name */
 /* A piano shape's chip: its lowest note (where it sits) in the label's
    colour, the same size as the other notes, all one line of text */
 .chip-lead { color: var(--muted); }
@@ -779,6 +780,7 @@ button, a { scroll-margin: 6px; }
 
 /* Vertical: strings go down, fret wires and the nut run across */
 .neck.vertical .cell::before { top: 0; bottom: 0; left: 50%; width: var(--sw, 1px); transform: translateX(-50%); }
+.neck.vertical .cell.fret:not(.string-start)::before { bottom: -2px; }   /* over its fret wire: strings in front of the frets */
 .neck.vertical .cell.fret { border-bottom: 2px solid var(--fret-wire); }
 .neck.vertical .cell.open { border-bottom: 5px solid var(--nut); }
 .neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 8px; }
@@ -787,6 +789,7 @@ button, a { scroll-margin: 6px; }
 
 /* Horizontal: strings go across, fret wires and the nut run down */
 .neck.horizontal .cell::before { left: 0; right: 0; top: 50%; height: var(--sw, 1px); transform: translateY(-50%); }
+.neck.horizontal .cell.fret:not(.string-start)::before { inset-inline-end: -2px; }   /* (as across) */
 .neck.horizontal .cell.fret { border-inline-end: 2px solid var(--fret-wire); }
 .neck.horizontal .cell.open { border-inline-end: 5px solid var(--nut); }
 .neck.horizontal .ruler { align-self: start; height: 24px; }
@@ -1467,7 +1470,7 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--chord-text) 14%, transparent);
+  background: color-mix(in srgb, #000 20%, transparent);   /* a darker pink: the white × stands out (5.9:1) */
   color: var(--chord-text);
   cursor: pointer;
 }
@@ -1723,7 +1726,7 @@ body.naming .neck-panel { border-color: var(--accent); }
   background: var(--panel);
   cursor: pointer;
 }
-.sheet-close span { width: 40px; height: 5px; border-radius: var(--r-pill); background: var(--border); }
+.sheet-close span { width: 40px; height: 5px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--pk-grey) 70%, var(--panel)); }   /* the handle: visible (3.3:1), still quiet */
 /* The sheet clips at its edges: the focus ring goes around the handle itself */
 .sheet-close:focus-visible { outline: none; }
 .sheet-close:focus-visible span { outline: 2px solid var(--accent); outline-offset: 3px; }
