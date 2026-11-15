@@ -522,11 +522,11 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .scale-bar .field.scale-type { order: 2; }
 .scale-bar .deselect { order: 3; }
 .switch-row { order: 4; flex: 1 0 100%; display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
-.chord-bar .switch-row { grid-template-columns: 1fr 1fr; }   /* phones: All chord tones and Name a chord, side by side */
+.chord-bar .switch-row { grid-template-columns: 1fr 1fr; }   /* phones: Alternative root and All chord tones, side by side (Name a chord: on the title row) */
 @media (max-width: 359px) { .chord-bar .switch-row { grid-template-columns: 1fr; } }
 .pill-toggle.namer-open { color: var(--text); }   /* (a button, not a switch: never dimmed like one that is off) */
 .namer-open .ico { flex: none; width: 16px; height: 16px; color: var(--accent); }
-.switch-row .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
+.switch-row .pill-toggle, .panel-head > .namer-open { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
 /* Buttons that open a picker popup, styled as menus */
 .select-btn {
