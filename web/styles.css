@@ -214,6 +214,7 @@ kbd {
 .inst-slot .inst-tuning { display: inline-block; overflow: visible; }   /* (whole, on the next line if need be) */
 .neck-title .reset-btn { flex: none; background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
 /* Reset's popup: what goes, a line each ("CHORD Dm") */
+body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .reset-what { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--sp-2) var(--sp-4); }
 
 /* About popup: the picker's look, sized to its one line */
@@ -1002,7 +1003,7 @@ button, a { scroll-margin: 6px; }
 .oct-label.mid { color: var(--text); }   /* middle C's octave */
 /* Wide screens: the keys across */
 .neck.piano.horizontal {
-  --wk: max(30px, calc(100cqw / var(--whites)));   /* a white key's width: the panel's, shared out */
+  --wk: max(36px, calc(100cqw / var(--whites)));   /* a white key's width: 36px (room for two neighbours' notes, a root's ring round one), more only where the panel is wider than the 52 keys need */
   --bk: calc(var(--wk) * 0.6);
   --kl: 170px;  /* a white key's length */
   width: calc(var(--whites) * var(--wk));
@@ -2121,10 +2122,13 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .namer-caption { display: none; }
   .namer-actions { grid-area: actions; display: flex; padding: 0; }
   .namer-actions .btn { height: var(--control-h); min-width: 96px; }
-  @container neck-panel (max-width: 579.98px) {
-    .btn.small.namer-mute { width: var(--chip-h); padding: 0; }   /* (its word left out: one row with Cancel and Select) */
-    .namer-mute .tx { display: none; }
-  }
+  /* Less room (fitNamer): the title row's icons alone; Cancel and Select
+     narrower; then those two on their own row at the bottom */
+  .namer.tight .btn.small.namer-mute { width: var(--chip-h); padding: 0; }
+  .namer.tight .namer-mute .tx { display: none; }
+  .namer.snug .namer-actions .btn { min-width: 0; padding: 0 var(--sp-4); }
+  .namer.stacked:not([hidden]) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "result" "actions"; }
+  .namer.stacked .namer-actions { display: grid; grid-template-columns: 1fr 1fr; }
   @container neck-panel (min-width: 1140px) {
     .namer:not([hidden]) { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "head result actions"; }
     .namer-result { justify-self: end; }
@@ -2195,13 +2199,13 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .switch-row .pill-toggle { padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); }
   /* Chord and scale switches at the right end of the panel's title row
      (moved there by placeSettings), the shape count next to the title */
-  .sheet .panel-head { justify-content: flex-start; }
-  .panel-head .switch-row { order: 0; flex: none; margin: 0 0 0 auto; gap: var(--sp-2); }
-  /* The neck's settings likewise: on the right of the title row, and on the
-     right when they wrap under it (a narrow screen on its side), as the
-     chord's and the scale's switches do */
-  .neck-head .settings-slot { margin-left: auto; }
-  .neck-head .settings, .panel-head .switch-row { justify-content: flex-end; }
+  /* ... each of them, and each of the neck's settings, an item of the title
+     row itself: as many as fit beside the title, on the right, and the last
+     ones (from the right) on the next line when they do not all fit, on the
+     right too (a narrow screen on its side) */
+  .panel-head .switch-row, .neck-head .settings-slot, .neck-head .settings { display: contents; }
+  .panel-head { justify-content: flex-end; column-gap: var(--sp-2); }
+  .panel-head > .neck-title, .panel-head > .theory-title:has(+ .status[hidden]), .panel-head > .status, .panel-head > h2:only-child { margin-right: auto; }   /* (the title, and the count beside it: on the left) */
   /* Scale bar: Root, Type, then Play and Deselect at the end (as Strum and
      Deselect are on the chord bar) */
   .scale-bar .scale-play { order: 3; margin-left: auto; }

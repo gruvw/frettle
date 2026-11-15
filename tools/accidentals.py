@@ -25,15 +25,16 @@ NAME = 'Frettle Accidentals'
 def rect(x0, y0, x1, y1): return [('M', (x0, y0)), ('L', (x1, y0)), ('L', (x1, y1)), ('L', (x0, y1))]
 def poly(pts): return [('M', pts[0])] + [('L', p) for p in pts[1:]]
 
-# The flat as Noto Music draws it (its points, from its stem's right edge,
-# on a stem 31 wide and a bowl 168 wide), scaled up to sit with letters
-# (K), the bowl a little wider and its counter a little smaller as the
-# weight goes up: the loop's top end broad where it leaves the stem, as a
-# pen draws it, thin at the tail
+# The flat after Noto Music's (its points, from its stem's right edge, on a
+# bowl 168 wide), scaled up to sit with letters (K), the bowl a little
+# wider and its counter a little smaller as the weight goes up: the loop's
+# top end broad where it leaves the stem, as a pen draws it; its bottom
+# round, running level into the stem's end, its counter closing a little up
+# the stem
 FLAT_OUT = [(0, 225), ('q', 37, 262), (84, 262), ('q', 116, 262), ('q', 168, 219), (168, 178),
-            ('q', 168, 146), ('q', 130, 92), (98, 65), (29, 6), ('q', 10, -10), ('q', -20, -41), ('tail', -55)]
-FLAT_IN = [(0, 12), ('q', 26, 40), ('q', 62, 87), (72, 105), ('q', 83, 124), ('q', 94, 156), (94, 170),
-           ('q', 94, 198), ('q', 68, 223), (53, 223), ('q', 37, 223), ('q', 6, 200), (0, 180)]
+            ('q', 168, 100), ('q', 118, 18), (66, -26), ('q', 40, -55 / 1.14), (0, -55 / 1.14)]   # (level with the stem's end, flat into it: see flat)
+FLAT_IN = [(0, 22), ('q', 40, 24), ('q', 82, 68), (92, 120), ('q', 97, 152), ('q', 94, 198), ('q', 68, 223), (53, 223),
+           ('q', 37, 223), ('q', 6, 200), (0, 180)]
 K = 1.03
 
 def weight(s): return (s - 90) / 80             # 0 at 400, 1 at 800
@@ -61,23 +62,11 @@ def flat(x0, s):
     ky = K * 1.14                        # the bowl's height: taller than Noto Music's, so it leaves the stem higher
     top = 640
     out = [(x0, top), (R, top)]
-    # The bowl's bottom, from (98, 65) to the tail at the stem's bottom left:
-    # Noto Music's run between those two points, turned and stretched to
-    # end at this stem (wider, heavier), so it runs straight into it
-    A, B = (98, 65), (-31, -55)
-    A2, B2 = (R + fx * A[0], ky * A[1]), (x0, K * B[1])
-    def run(x, y):
-        ux, uy = B[0] - A[0], B[1] - A[1]; L2 = ux * ux + uy * uy
-        a = ((x - A[0]) * ux + (y - A[1]) * uy) / L2; b = ((x - A[0]) * -uy + (y - A[1]) * ux) / L2
-        vx, vy = B2[0] - A2[0], B2[1] - A2[1]
-        return (A2[0] + a * vx - b * vy, A2[1] + a * vy + b * vx)
-    bottom = False
     for p in FLAT_OUT:
-        if p[0] == 'tail': out.append(B2); continue
         q = p[0] == 'q'; x, y = p[1:] if q else p
-        pt = run(x, y) if bottom else (R + fx * x, ky * y)
-        bottom = bottom or (x, y) == A
+        pt = (R + fx * x, ky * y)
         out.append(('q', *pt) if q else pt)
+    out.append((x0, K * -55))   # (the loop's bottom, the stem's end: one line, under the baseline)
     inn = []
     for p in FLAT_IN:
         q = p[0] == 'q'; x, y = p[1:] if q else p
