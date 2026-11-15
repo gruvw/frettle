@@ -4315,13 +4315,15 @@ function placeSettings() {
   if (els.instrumentPicker.parentElement !== instSlot) instSlot.appendChild(els.instrumentPicker);
   if (els.resetAll.parentElement !== instSlot) instSlot.appendChild(els.resetAll);   // (beside it: after it on wide screens, on the left on phones, see .reset-btn)
   // Chord and scale switches: at the end of the panel's title row on wide screens,
-  // under the menus on phones. Play the scale: before Deselect on wide
+  // under the menus on phones (Name a chord there at the end of the title
+  // row, a button, not a switch). Play the scale: before Deselect on wide
   // screens (as Strum is for chords), on the Notes line on phones.
   const put = (el, parent, before = null) => { if (el.parentElement !== parent || el.nextElementSibling !== before) parent.insertBefore(el, before); };
   // The phone dock's chord list and shape bar: in the quick bar under the
   // neck on wide screens, before the groups' bar (which only exists there)
   if (wide) {
     put(els.chordSwitches, els.chordHead);
+    put(els.namerOpen, els.chordSwitches);
     put(els.scaleSwitches, els.scaleHead);
     put(els.scalePlay, els.scaleBar, els.scaleClear);
     put(els.dockRecent, els.quickInner, els.quickGroupBar);
@@ -4329,6 +4331,8 @@ function placeSettings() {
     put(els.namer, els.neckPanel);   // Name a chord: in the quick bar's place
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
+    put(els.namerOpen, els.chordHead);
+    els.namerOpen.classList.remove('whole');   // (out of the switches' grid, see fitSwitches)
     put(els.scaleSwitches, els.scaleBar, els.scaleClear);
     put(els.scalePlay, els.notesLine);
     put(els.dockRecent, els.dockBar, els.dockTabs);
