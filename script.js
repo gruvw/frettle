@@ -1982,7 +1982,7 @@ function renderLinkPopup() {
     const what = empty(now) || gains ? 'Adds' : empty(link) ? 'Clears' : drops ? 'Removes' : reorders ? 'Reorders' : 'Replaces';
     tag.textContent = same ? 'No change' : !on ? 'Not loaded' : what;
     tag.className = `lk-tag${on ? (what === 'Adds' ? ' gain' : ' lose') : ''}`;
-    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)), preview.setupKey.split('|')[1] !== setupKey().split('|')[1])
+    const diff = !same && (key === 'neck' ? neckDiff(setupParts(), preview.setupParts, on, Boolean(customOff(preview.custom)), preview.setupKey.split('|')[1] !== setupKey().split('|')[1], preview.setupKey.split('|')[1].split(',').map(Number))
       : reorders ? show(link, on ? 'win' : 'lose')   // (just the new order)
         : key === 'recent' ? listDiff(now, link, on, reshaped)
         : reshapedChord ? listDiff(now, link, on, reshapedChord) : '');
@@ -2014,12 +2014,17 @@ function customOff(custom) {
 function customLine(custom, on) {
   const mine = customOff(custom);
   if (!mine) return '';
-  const notes = (list) => tuningNotes(list, state.flats, custom.inst);
-  return `<span class="lk-extra">${lkValue(notes(mine), on ? 'lose' : 'win')}`
-    + `<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${lkValue(notes(custom.strings), on ? 'win' : 'lose')}</span></span>`;
+  const notes = (list, other) => tuningNotes(list, state.flats, custom.inst, other);
+  return `<span class="lk-extra">${lkValue(notes(mine, custom.strings), on ? 'lose' : 'win')}`
+    + `<span class="lk-to"><span class="lk-arrow" aria-label="to">→</span>${lkValue(notes(custom.strings, mine), on ? 'win' : 'lose')}</span></span>`;
 }
-function neckDiff(now, link, on, customLater = false, retuned = false) {
+function neckDiff(now, link, on, customLater = false, retuned = false, linkStrings = null) {
   if (now[0] !== link[0]) return '';
+  // Two tunings written alike, an octave apart on a string: that string's
+  // octave on both ("F2 A D G B E → F3 A D G B E")
+  const mine = instrument().strings;
+  const written = (strings, text, other) => (text === tuningNotes(strings, state.flats, state.instrument) ? tuningNotes(strings, state.flats, state.instrument, other) : text);
+  if (retuned && linkStrings && now[1] === link[1]) [now, link] = [[now[0], written(mine, now[1], linkStrings), now[2]], [link[0], written(linkStrings, link[1], mine), link[2]]];
   // (two saved tunings of the same name: both, an arrow between them,
   // "Practice → Practice")
   const part = (a, b, differ = a !== b) => (!differ ? esc(a)
@@ -2282,7 +2287,7 @@ function currentChord() {
   const inversion = inversionFor(def);
   const tones = chordTones(root, def);
   const spell = chordSpelling(root, def, state.chord.letter);
-  const key = [instrument().strings.join(','), capo(), root, def.id, inversion, drawnFrets(root, def.id).join(' ')].join('|');
+  const key = [state.instrument, instrument().strings.join(','), capo(), root, def.id, inversion, drawnFrets(root, def.id).join(' ')].join('|');   // (the instrument too: two with the same strings, another neck: its frets, its reach)
   if (shapeCache.key !== key) {
     const shapes = listShapes(root, def, inversion);
     shapeCache = { key, shapes, home: homeShape(shapes, root, inversion) };
@@ -2518,6 +2523,7 @@ function listShapes(root, def, inversion = inversionFor(def)) {
   for (const text of drawnFrets(root, def.id)) {
     if (shapes.some((x) => fretsText(x.frets) === text)) continue;
     const frets = readFrets(text);
+    if (!playsChord(root, def, frets)) continue;   // (drawn on another instrument tuned the same, past this one's frets)
     if (inversion !== 'any' && mod12(Math.min(...shapeMidis(frets))) !== chordTones(root, def)[Number(inversion)].pc) continue;
     const fretted = frets.filter((f) => f > 0);
     const shape = { frets, pos: piano ? frets[0] : fretted.length ? Math.min(...fretted) : 0, drawn: true, piano };
@@ -3090,14 +3096,21 @@ function newBuffer(channels, length, rate) {
 }
 const SOUNDS_AHEAD = Boolean(newBuffer(1, 1, SOUND_RATE));
 
+/* Sound stopped by the browser: going again. Suspended until a first
+   tap; on iPhones also "interrupted" (a call, another app, the screen
+   locked), which a tap ends too. One closed for good: a new one. */
+function wakeAudio() {
+  if (audio && audio.ctx.state !== 'running' && audio.ctx.state !== 'closed') audio.ctx.resume().catch(() => { /* (not yet: the next tap) */ });
+}
 function audioOut() {
+  if (audio && audio.ctx.state === 'closed') audio = null;
   if (!audio) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     const ctx = new AC();
     audio = { ctx, out: soundChain(ctx) };
   }
-  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  wakeAudio();
   return audio;
 }
 /* The audio starts at the first tap or key press anywhere (the browser
@@ -3106,7 +3119,7 @@ function startAudioEarly() {
   const start = () => {
     if (navigator.userActivation && !navigator.userActivation.isActive) return;   // (not yet a tap the browser counts: the next one)
     const a = audioOut();
-    if (a && a.ctx.state !== 'suspended') EARLY_EVENTS.forEach((type) => document.removeEventListener(type, start, true));
+    if (a && a.ctx.state === 'running') EARLY_EVENTS.forEach((type) => document.removeEventListener(type, start, true));
   };
   EARLY_EVENTS.forEach((type) => document.addEventListener(type, start, true));
 }
@@ -3557,7 +3570,7 @@ function onPress(box, selector, act) {   // (selector null: the box itself, a bu
    first note of a visit is not lost. */
 if (typeof document !== 'undefined') {
   for (const type of ['pointerup', 'touchend', 'keydown']) {
-    document.addEventListener(type, () => { if (audio && audio.ctx.state === 'suspended') audio.ctx.resume(); }, { passive: true });
+    document.addEventListener(type, wakeAudio, { passive: true });
   }
 }
 
@@ -5113,14 +5126,17 @@ const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? ins
 /* Open string names, low to high: "D A D G B E". A short string (a banjo's
    drone) is written in small letters, as banjo players write it: "g D G B D".
    A string on the standard tuning's note in another octave has its octave:
-   "G3 C E A" (low G ukulele), "E1 A D G B E". (Words only: links and saved
+   "G3 C E A" (low G ukulele), "E1 A D G B E"; so has one on another
+   tuning's (`other`) note in another octave, as both are shown side by
+   side: "F2 A D G B E → F3 A D G B E". (Words only: links and saved
    tunings keep the pitches.) */
-function tuningNotes(strings, flats = false, instId = null) {
+function tuningNotes(strings, flats = false, instId = null, other = null) {
   const inst = instId && findInstrument(instId);
   const standard = inst && !inst.piano && inst.strings.length === strings.length ? inst.strings : null;
+  const octave = (to, m, s) => to && to.length === strings.length && m !== to[s] && mod12(m) === mod12(to[s]);
   return strings.map((m, s) => {
     const n = plainNote(m, flats);
-    const moved = standard && m !== standard[s] && mod12(m) === mod12(standard[s]);
+    const moved = octave(standard, m, s) || octave(other, m, s);
     return stringNote(inst, s, moved ? pitchText(m, n) : noteText(n));
   }).join(' ');
 }
@@ -5155,7 +5171,7 @@ const groupsCache = { key: null, groups: [] };
 function scaleGroups(inst, sc, capo) {
   const L = sc.def.steps.length;
   if (L >= 12) return [];   // chromatic: nothing to group
-  const key = [inst.strings, inst.frets, inst.fifths, sc.def.id, sc.root, capo].join('|');
+  const key = [inst.id, inst.strings, inst.frets, inst.fifths, sc.def.id, sc.root, capo].join('|');
   if (groupsCache.key === key) return groupsCache.groups;
   const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
   // Strings from the lowest to the highest. A re-entrant string (the high G
@@ -6373,6 +6389,19 @@ function init() {
     'quickBar', 'quickInner', 'quickGroupBar', 'quickGroupPrev', 'quickGroupNext', 'quickGroupInfo', 'quickGroupSymbol', 'quickGroupTab', 'quickGroupPlay']) {
     els[id] = document.getElementById(id);
   }
+  // A page and a script of two versions (an update half arrived, see sw.js):
+  // the page again, for both of one version (once: never in a loop); never
+  // the script on a page it was not made for
+  const RELOADED = 'frettle-reloaded';
+  const whole = Object.values(els).every(Boolean);
+  try {
+    if (whole) sessionStorage.removeItem(RELOADED);
+    else if (!sessionStorage.getItem(RELOADED)) {
+      sessionStorage.setItem(RELOADED, '1');
+      location.reload();
+    }
+  } catch { /* (no session storage: as it is) */ }
+  if (!whole) return;
   els.dockBar = document.querySelector('.dock-bar');
   els.neckPanel = document.querySelector('.neck-panel');
   els.dockTabs = document.querySelector('.dock-bar .tabs');
