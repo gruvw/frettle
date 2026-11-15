@@ -20,6 +20,7 @@ const FILES = [
   'index.html',
   'styles.css',
   'script.js',
+  'accidentals.woff2',
   'manifest.json',
   'favicon.svg',
   'favicon.ico',

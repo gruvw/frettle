@@ -8,6 +8,17 @@
    the desktop layout (horizontal neck, panels below it). The same query is
    used in script.js (WIDE_QUERY), keep them in sync.
    ========================================================================== */
+/* The accidentals, ♯ ♭ 𝄪 𝄫, drawn for Frettle to sit with the system font
+   (its weights 400 to 800, sized on its capitals), the same on every device:
+   system fonts draw ♯ and ♭ from whatever font has them, and few have 𝄪 or
+   𝄫. Only those four characters come from it (unicode-range). */
+@font-face {
+  font-family: "Frettle Accidentals";
+  src: url("accidentals.woff2") format("woff2");
+  font-weight: 100 1000;
+  font-display: block;
+  unicode-range: U+266D, U+266F, U+1D12A, U+1D12B;
+}
 :root {
   color-scheme: dark;
 
@@ -34,8 +45,8 @@
   --pk-grey: #8f9198;
 
   /* Type scale */
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font: "Frettle Accidentals", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Frettle Accidentals", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --fs-tag: 0.625rem;    /* octave tags on the neck */
   --fs-xs: 0.75rem;      /* uppercase labels, ruler numbers, note pills and badges */
   --fs-sm: 0.86rem;      /* secondary text, chips, small buttons */
@@ -621,6 +632,7 @@ button, a { scroll-margin: 6px; }
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
 .settings .select-btn, .settings #tglLefty { grid-column: 1 / -1; }   /* menus, and the last switch, full width */
 .settings-slot:empty { display: none; }
+.pill-toggle[hidden] { display: none; }   /* (Alternative root, where the scale names the chord's root) */
 .pill-toggle {
   display: inline-flex;
   align-items: center;
@@ -958,7 +970,7 @@ button, a { scroll-margin: 6px; }
    it lies over them); every note over every key (as it pops when played,
    too), its badge with it */
 .key { position: absolute; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.neck.piano .note { z-index: 1; }
+.neck.piano .note { z-index: 1; flex-shrink: 0; }   /* (as wide as its name, past a narrow black key's sides: B♭♭♭) */
 .key.white { background: var(--key-white); box-shadow: inset 0 0 0 0.5px var(--key-edge); }
 .key.black { background: var(--key-black); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pk-grey) 30%, transparent); }
 /* A plain note on a black key: the pill's outline brighter, to stand out
@@ -1622,6 +1634,7 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
 .namer-mute[aria-pressed="true"] .sound-off { display: block; }
 .namer-mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .btn.small.namer-mute { width: var(--chip-h); padding: 0; }
+.namer-head .btn[hidden] { display: none; }   /* (Alternative root: hidden where the scale shown names the root) */
 .namer-result { display: flex; align-items: center; gap: 6px; height: var(--control-h); }
 .namer-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1); }
 .namer-name .dock-tab { flex: 1 1 0; }   /* (the name first: its number and the notes take what is left) */
@@ -1926,10 +1939,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 
 /* Root picker: a grid of the 12 notes */
 .picker-grid.roots { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.roots .pick { position: relative; height: 56px; justify-items: center; padding: 0; font-size: var(--fs-lg); font-weight: 700; }
-/* The other name of a black key (D♭ / C♯), tucked under the name, so every
-   tile's main name sits at the same height */
-.roots .pick .pick-sub { position: absolute; left: 0; right: 0; bottom: 4px; padding: 2px 0; text-align: center; font-size: var(--fs-xs); font-weight: 600; line-height: 1; }
+.roots .pick { position: relative; height: 56px; grid-template-columns: minmax(0, 1fr); justify-items: center; padding: 0; font-size: var(--fs-lg); font-weight: 700; }
+/* A root with two names: the one used at the top, the other one (dimmed)
+   at the bottom; one name, centred */
+.roots .pick.two { row-gap: 5px; }
+.roots .pick .pick-sub { text-align: center; font-size: var(--fs-sm); font-weight: 600; line-height: 1; }
 
 /* ==========================================================================
    Hover effects only where there is a real pointer (no "stuck" hover after

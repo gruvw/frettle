@@ -34,6 +34,7 @@
        a square of 48px or more). sizes="32x32" keeps Chrome on the SVG. -->
   <link rel="icon" href="favicon.ico" sizes="32x32">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preload" href="accidentals.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 
   <!-- Installable app (home screen, full screen, works offline) -->
@@ -112,7 +113,7 @@
             <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Octaves</span>
           </button>
           <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
-                  title="Use flats for notes outside the key, and for keys that can be written either way (F♯ / G♭)">
+                  title="Use flats when either name would do (D♭, not C♯): the neck's notes when no scale or chord decides, and a root that makes as easy a key both ways (G♭ major, not F♯)">
             <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Flats</span>
           </button>
           <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false"
@@ -164,6 +165,10 @@
               <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
                       title="Also mark every other place the chord's notes appear on the neck">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
+              </button>
+              <button type="button" id="tglChordAlt" class="pill-toggle" aria-pressed="false"
+                      title="Write the chord's root with its other name (C♯ for D♭)">
+                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Alternative root</span>
               </button>
               <button type="button" id="namerOpen" class="pill-toggle namer-open"
                       title="Place notes on the neck and see which chord they make">
@@ -234,6 +239,10 @@
               <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
                       title="Outline the scale in hand-sized groups, a few notes per string, and step from one to the next">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Groups</span>
+              </button>
+              <button type="button" id="tglScaleAlt" class="pill-toggle" aria-pressed="false"
+                      title="Write the scale's root with its other name (C♯ for D♭)">
+                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Alternative root</span>
               </button>
             </div>
           </div>
@@ -309,6 +318,8 @@
           <span class="namer-title"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg><span class="tx">Name a chord</span></span>
           <button type="button" id="namerMute" class="btn small namer-mute" aria-pressed="false" aria-label="Mute the notes placed"
                   title="Mute the notes placed (Play still sounds)"><svg class="ico sound-on" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg><svg class="ico sound-off" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg><span class="tx">Mute taps</span></button>
+          <button type="button" id="namerAlt" class="btn small namer-mute" aria-pressed="false" aria-label="Alternative root"
+                  title="Write the root with its other name (C♯ for D♭)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M14 5l3 3-3 3M20 16H7M10 13l-3 3 3 3"/></svg><span class="tx">Alternative root</span></button>
           <button type="button" id="namerClear" class="btn small" title="Lift every note"><span class="tx">Clear</span></button>
         </div>
         <p id="namerCaption" class="namer-caption" aria-live="polite"></p>
