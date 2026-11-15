@@ -202,7 +202,19 @@ kbd {
 .share-btn.done { color: var(--ok); border-color: var(--ok); }   /* link copied, for a moment */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.inst-slot { grid-area: inst; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before script.js places it: the neck does not jump */
+.inst-slot { grid-area: inst; position: relative; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before script.js places it: the neck does not jump */
+/* Reset: phones, on the left of the row, the instrument menu staying centred
+   (with room for it: the menu stops short of it); wide screens, after the
+   menu, in the neck's title */
+.inst-slot .reset-btn { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
+/* (phones: a long name wraps, the tuning on the next line, rather than be cut short) */
+.inst-slot .inst-btn { max-width: calc(100% - 2 * (var(--control-h) + var(--sp-2))); height: auto; min-height: var(--control-h); padding-block: 6px; white-space: normal; }
+.inst-slot .inst-label { display: block; text-align: center; line-height: 1.25; }
+.inst-slot .inst-name { overflow: visible; }
+.inst-slot .inst-tuning { display: inline-block; overflow: visible; }   /* (whole, on the next line if need be) */
+.neck-title .reset-btn { flex: none; background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
+/* Reset's popup: what goes, a line each ("CHORD Dm") */
+.reset-what { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--sp-2) var(--sp-4); }
 
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
@@ -425,7 +437,7 @@ kbd {
 /* Instrument: a button that opens the picker popup (the neck's title on wide
    screens). The tuning (when not the standard one) follows in grey, then a
    small purple arrow that says "this opens a menu". */
-.neck-title { margin: 0; min-width: 0; font-size: inherit; }
+.neck-title { display: flex; align-items: center; gap: var(--sp-2); margin: 0; min-width: 0; font-size: inherit; }   /* (the instrument menu, then Reset) */
 .inst-btn {
   display: inline-flex;
   align-items: center;
@@ -449,6 +461,7 @@ kbd {
   border-bottom: 0;
   border-top-color: var(--accent);
 }
+.inst-label { display: flex; align-items: center; column-gap: var(--sp-2); min-width: 0; }   /* the name, then any tuning */
 .inst-name, .inst-tuning { overflow: hidden; text-overflow: ellipsis; }
 .inst-name { flex: none; }   /* a long tuning name (a saved one) gives way, not the instrument's */
 .inst-tuning { min-width: 0; }
@@ -630,9 +643,9 @@ button, a { scroll-margin: 6px; }
 
 /* Switch-style toggles and the capo button (the neck settings) */
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
-.settings .select-btn, .settings #tglLefty { grid-column: 1 / -1; }   /* menus, and the last switch, full width */
+.settings .select-btn { grid-column: 1 / -1; }   /* menus full width */
+.settings .whole, .switch-row .whole { grid-column: 1 / -1; }   /* phones: an odd last switch, the whole row (fitSwitches) */
 .settings-slot:empty { display: none; }
-.pill-toggle[hidden] { display: none; }   /* (Alternative root, where the scale names the chord's root) */
 .pill-toggle {
   display: inline-flex;
   align-items: center;
@@ -1068,7 +1081,6 @@ button, a { scroll-margin: 6px; }
    groups: their controls go (its octave numbers always show) */
 body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty,
 body.piano #tglScaleGroups { display: none; }
-body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; }
 
 /* The strip (script.js): each string's first cell, held at the edge of the
    view once the neck has scrolled past it, over everything on the neck.
@@ -1183,6 +1195,14 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
    D Dorian) never split */
 .np-tail { display: inline-block; }
 .np-item { white-space: nowrap; }
+/* The chord's formula, a bar, its notes ("Formula 1 3 5 | D♭ F A♭"); on two
+   lines, the notes start the second one, with no bar: each part has the
+   bar's room before it, and the line starts that much to the left, out of
+   sight (the line clips), so a bar at a line's start does not show */
+.np-parts { display: flex; flex-wrap: wrap; margin-inline-start: -1.3em; }
+.np-parts > * { padding-inline-start: 1.3em; }
+.np-then { position: relative; }
+.np-then::before { content: "|"; position: absolute; inset-inline-start: 0; width: 1.3em; text-align: center; color: var(--muted); }
 /* Scale panel: the same description block, in the scale's teal */
 .scale-body .np-symbol.on { background: var(--scale); color: var(--scale-text); }
 
@@ -1634,7 +1654,8 @@ body.piano .settings #tglFlats, body.piano #tglScaleOnly { grid-column: 1 / -1; 
 .namer-mute[aria-pressed="true"] .sound-off { display: block; }
 .namer-mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .btn.small.namer-mute { width: var(--chip-h); padding: 0; }
-.namer-head .btn[hidden] { display: none; }   /* (Alternative root: hidden where the scale shown names the root) */
+.btn.small.namer-move { flex: none; width: var(--chip-h); padding: 0; }   /* (the shape moved a fret: an arrow, no word) */
+.namer-move .ico { width: 16px; height: 16px; }
 .namer-result { display: flex; align-items: center; gap: 6px; height: var(--control-h); }
 .namer-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); padding: 0 var(--sp-1); }
 .namer-name .dock-tab { flex: 1 1 0; }   /* (the name first: its number and the notes take what is left) */
@@ -2176,6 +2197,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
      (moved there by placeSettings), the shape count next to the title */
   .sheet .panel-head { justify-content: flex-start; }
   .panel-head .switch-row { order: 0; flex: none; margin: 0 0 0 auto; gap: var(--sp-2); }
+  /* The neck's settings likewise: on the right of the title row, and on the
+     right when they wrap under it (a narrow screen on its side), as the
+     chord's and the scale's switches do */
+  .neck-head .settings-slot { margin-left: auto; }
+  .neck-head .settings, .panel-head .switch-row { justify-content: flex-end; }
   /* Scale bar: Root, Type, then Play and Deselect at the end (as Strum and
      Deselect are on the chord bar) */
   .scale-bar .scale-play { order: 3; margin-left: auto; }
