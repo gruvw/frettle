@@ -2939,6 +2939,34 @@ function setupChipDrag(row) {
   });
 }
 
+/* Reset: no chord, no scale, no capo (the chord list, the instrument and
+   its tuning stay), once asked. Off when there is nothing to reset, and
+   while naming a chord. */
+function askReset() {
+  // What goes: each with its name, as its panel or menu shows it
+  const ch = currentChord();
+  const sc = currentScale();
+  els.resetWhat.innerHTML = [
+    ch && ['Chord', ch.symbol],
+    sc && ['Scale', `${sc.rootName} ${scaleTitle(sc.def)}`],
+    capo() && ['Capo', `Fret ${capo()}`],
+  ].filter(Boolean).map(([what, name]) => `<span class="label">${what}</span><span class="delete-name">${tx(name)}</span>`).join('');
+  if (els.resetAsk.showModal) els.resetAsk.showModal(); else els.resetAsk.setAttribute('open', '');
+  els.resetAskCancel.focus();
+}
+function closeReset() {
+  if (!els.resetAsk.open) return;
+  if (els.resetAsk.close) els.resetAsk.close(); else els.resetAsk.removeAttribute('open');
+}
+function resetAll() {
+  closeReset();
+  if (capo()) { ui.groupAt = null; changeNeck(() => setCapo(0)); }   // (as No capo in its menu: back to the first group)
+  chordOff();
+  scaleOff();
+  ui.tab = null;   // (phones: the sheet closes, as on Deselect)
+  render();
+}
+
 /* The bin: the list and the recent chords empty, and the chord on screen
    goes with them. With chords saved in the list, asked first: all of them
    (Clear all), or only the recent ones (Clear recent, when there are some:
@@ -3661,6 +3689,34 @@ function namerTap(cell) {
   render();
   if (sound) flashCell(s, f);
 }
+/* The notes placed moved together, one fret along the neck (the piano: one
+   key): up (-1) toward the nut, down (+1) toward the body, the same shape a
+   semitone lower or higher. Not past an open string (up) or the neck's
+   last fret (down), nor the keyboard's ends: null, no move. */
+function namerMoved(step) {
+  const inst = instrument();
+  if (inst.piano) {
+    const keys = naming.frets.map((k) => k + step);
+    return keys.length && keys.every((k) => k >= 0 && k < PIANO_KEYS) ? keys : null;
+  }
+  if (!naming.frets.some((f) => f >= 0)) return null;
+  const top = cappedInstrument().frets;
+  const moved = naming.frets.map((f, s) => {
+    if (f < 0) return f;   // (muted: stays so)
+    const open = startFret(inst, s);   // (a banjo's short string: its fret 5 is its open string)
+    if (step < 0) return f === 0 ? NaN : f - 1 === open ? 0 : f - 1;
+    return f === 0 ? open + 1 : f + 1;
+  });
+  return moved.every((f) => Number.isFinite(f) && f <= top) ? moved : null;
+}
+function namerMove(step) {
+  const moved = namerMoved(step);
+  if (!moved) return;
+  naming.frets = moved;
+  if (naming.root !== null) naming.root = mod12(naming.root + step);   // (the root picked with the arrows, moved with them)
+  namerRepick();
+  render();
+}
 function namerStep(step) {
   const readings = namerReadings();
   const n = readings.length;
@@ -3696,12 +3752,20 @@ function renderNamer() {
   els.namerPlay.disabled = els.namerClear.disabled = !notes.length;
   els.namerPrev.disabled = els.namerNext.disabled = readings.length < 2;
   els.namerMute.setAttribute('aria-pressed', String(Boolean(state.muteTaps)));
-  // Alternative root: hidden where the scale shown names the root; off for
-  // D, G and A (one name)
-  const usual = r && !scaleRootName(r.root) ? ownChordSpelling(r.root, r.def).root : null;
-  els.namerAlt.hidden = !usual;
-  els.namerAlt.disabled = !usual || !otherRoot(r.root, usual);
-  els.namerAlt.setAttribute('aria-pressed', String(Boolean(usual && namerLetter(r) !== null)));
+  // Alternative root, as the chord panel's: off with no name yet, for D, G
+  // and A (one name), and for a root the scale shown names
+  // The moves: off where the notes cannot go further (or there are none)
+  const what = instrument().piano ? 'key' : 'fret';
+  els.namerUp.disabled = !namerMoved(-1);
+  els.namerDown.disabled = !namerMoved(1);
+  for (const [el, words] of [[els.namerUp, instrument().piano ? 'lower' : 'toward the nut'], [els.namerDown, instrument().piano ? 'higher' : 'toward the body']]) {
+    const text = `Move the notes one ${what} ${words}`;
+    el.title = text;
+    el.setAttribute('aria-label', text);
+  }
+  const free = r && !scaleRootName(r.root) && otherRoot(r.root, ownChordSpelling(r.root, r.def).root);
+  els.namerAlt.disabled = !free;
+  els.namerAlt.setAttribute('aria-pressed', String(Boolean(free && namerLetter(r) !== null)));
   /* What the name (its symbol, the bass after a slash: "C/E") means in
      words ("C major, 1st inversion", as the chord panel says it; some run
      long): on phones on its own line above, the whole width; on wide
@@ -3928,6 +3992,8 @@ function draw() {
   const seen = noteFocus(ch, sc);   // (what was last acted on: the phone's stepper, the keys and the neck's scroll follow it)
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
+  fitSwitches();
+  els.resetAll.disabled = Boolean(naming) || (!state.chord.on && !state.scale.on && !capo());
   renderDock(ch, sc);
   renderFolds(ch, sc);
   saveState();
@@ -4206,6 +4272,7 @@ function placeSettings() {
   // The instrument menu: the neck's title on wide screens, above the neck on phones
   const instSlot = wide ? els.instWideSlot : els.instNarrowSlot;
   if (els.instrumentPicker.parentElement !== instSlot) instSlot.appendChild(els.instrumentPicker);
+  if (els.resetAll.parentElement !== instSlot) instSlot.appendChild(els.resetAll);   // (beside it: after it on wide screens, on the left on phones, see .reset-btn)
   // Chord and scale switches: at the end of the panel's title row on wide screens,
   // under the menus on phones. Play the scale: before Deselect on wide
   // screens (as Strum is for chords), on the Notes line on phones.
@@ -4464,7 +4531,12 @@ function openPicker({ title, groups, value, layout = '', note = '', noteNone = '
 }
 /* A list that scrolls ends partway through a tile, never just under a row
    of them: so it plainly goes on. Its height is cut, if need be, through
-   the middle of the last tile that shows. */
+   the last tile that shows, between a third and two thirds of the way down
+   (as little as that takes). Never by more than a tenth of the screen's
+   height (PEEK_MOST): on a short screen (a phone on its side) a popup
+   that would get much shorter stays as it is, a row's edge at its bottom,
+   rather than show too little. */
+const PEEK_MOST = 0.1;
 function peekPicker() {
   const body = els.pickerBody;
   body.style.maxHeight = '';
@@ -4477,9 +4549,10 @@ function peekPicker() {
     const y = (r.top - top) / scale + body.scrollTop;
     return { y, h: r.height / scale };
   });
-  if (tiles.some((t) => t.y < seen - t.h * 0.3 && t.y + t.h > seen + t.h * 0.3)) return;   // one is cut well: fine
-  const last = tiles.filter((t) => t.y < seen - 24).pop();
-  if (last) body.style.maxHeight = `${Math.round(last.y + last.h / 2)}px`;
+  // (the lowest place a tile can be cut, the bottom edge at most)
+  const cut = Math.max(-Infinity, ...tiles.filter((t) => t.y + t.h * 0.3 <= seen).map((t) => Math.min(seen, t.y + t.h * 0.7)));
+  if (cut >= seen - 1 || cut < seen - window.innerHeight * PEEK_MOST) return;   // one is cut well already, or it would take too much
+  body.style.maxHeight = `${Math.round(cut)}px`;
 }
 function closePicker() {
   if (els.picker.close) els.picker.close(); else els.picker.removeAttribute('open');
@@ -4974,8 +5047,8 @@ function renderHeader() {
   document.body.classList.toggle('piano', Boolean(inst.piano));   // (styles.css hides what a piano has no use for)
   els.neck.closest('.neck-panel').setAttribute('aria-label', inst.piano ? 'Piano' : 'Fretboard');
   const tuned = tuningName(inst);
-  els.instrumentPicker.innerHTML = `<span class="inst-name">${esc(inst.name)}</span>` +
-    (tuned ? `<span class="inst-tuning">${esc(tuned)}</span>` : '');
+  els.instrumentPicker.innerHTML = `<span class="inst-label"><span class="inst-name">${esc(inst.name)}</span>` +
+    (tuned ? ` <span class="inst-tuning">${esc(tuned)}</span>` : '') + '</span>';   // (the space: phones, where they wrap)
   els.instrumentPicker.setAttribute('aria-label', `Instrument: ${inst.name}${tuned ? `, ${tuned}` : ''}`);
   const c = capo();
   els.tuningSelect.textContent = tuned || 'Standard tuning';
@@ -5812,9 +5885,10 @@ function renderChordPanel(ch, sc) {
   // and its other one; no type yet, both)
   const named = scaleRootName(state.chord.root);
   els.chordRoot.textContent = named ? noteText(named) : rootLabel(state.chord.root, ch && ch.spell.root);
-  // The switch: the chord's root under its other name (not one the scale names)
+  // The switch: the chord's root under its other name; always there (the
+  // panel stays put), off where there is none to pick: no chord, D, G and
+  // A, or a root the scale names
   const other = ch && !named && otherRoot(ch.root, ch.spell.root);
-  els.tglChordAlt.hidden = Boolean(named);   // (the scale names it: no choice)
   els.tglChordAlt.disabled = !other;
   els.tglChordAlt.setAttribute('aria-pressed', String(Boolean(other && Number.isInteger(state.chord.letter))));
   fitWords(els.chordType, ch ? [...new Set([ch.def.name, shortWords(ch.def.name)])] : ['None'], 12);   // ("Half-dim. 7th" when the whole name does not fit)
@@ -5869,9 +5943,10 @@ function renderChordPanel(ch, sc) {
   // Its formula, then its notes: each once, from the root up, as spelled for
   // the chord, the ones a shape may leave out in brackets, as the formula and
   // the Chord type menu (the shape's notes, bass to top, with any doubled,
-  // are below). On two lines, the break comes after the comma.
+  // are below), after a bar; on two lines, the notes on the second, no bar
+  // (see .np-parts)
   const spelled = ch.spell.notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
-  els.chordMeta.innerHTML = `<span class="np-tail">Formula ${esc(formula)},</span> <span class="np-tail">${esc(spelled)}</span>`;   // (each part whole on its line while it fits one)
+  els.chordMeta.innerHTML = `<span class="np-parts"><span class="np-tail">Formula: ${esc(formula)}</span><span class="np-tail np-then">${esc(spelled)}</span></span>`;
   // Its inversion, on its own line (the shape's: with "Any bass note" too)
   els.chordPosition.textContent = INVERSION_NAMES[ch.bassIndex];
   // Phones: where the shape is and its frets, as the dock writes them ("Open:
@@ -5980,6 +6055,15 @@ function keepChipVisible(list = els.shapeList) {
   else if (right > list.scrollLeft + list.clientWidth) list.scrollLeft = right - list.clientWidth + 8;
 }
 
+/* Phones: switches two a row; an odd one out, the last, takes the whole
+   row rather than leave a gap (which ones show changes: no chord, the
+   piano's fewer) */
+function fitSwitches() {
+  for (const row of document.querySelectorAll('.switch-row, .settings')) {
+    const shown = [...row.querySelectorAll(':scope > .pill-toggle')].filter((el) => getComputedStyle(el).display !== 'none');
+    shown.forEach((el, i) => el.classList.toggle('whole', i === shown.length - 1 && shown.length % 2 === 1));
+  }
+}
 function renderScalePanel(sc, ch) {
   // The root as the scale writes it, its other name in brackets ("E♭ (D♯)");
   // no type yet, both names as the menu lists them ("C♯ / D♭")
@@ -6013,7 +6097,7 @@ function renderScalePanel(sc, ch) {
   els.scaleSymbol.classList.add('on');
   fitText(els.scaleSymbol);
   els.scaleName.textContent = `${sc.rootName} ${scaleTitle(sc.def)}`;
-  els.scaleMeta.textContent = `Formula ${degrees.join(' ')}`;
+  els.scaleMeta.textContent = `Formula: ${degrees.join(' ')}`;   // (as the chord's)
   const relatives = relativeScales(sc);
   // ("♪ = A natural minor": the same notes, as the chord's "= CM, Cmaj"; ♪ and = kept together, never alone at a line's end)
   els.scaleAlt.innerHTML = relatives.length ? `♪\u00a0=\u00a0<span class="np-tail">${relatives.map((r) => `<span class="np-item">${esc(r)}</span>`).join(', ')}</span>` : '';
@@ -6231,11 +6315,12 @@ function init() {
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
     'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
+    'resetAll', 'resetAsk', 'resetWhat', 'resetAskClose', 'resetAskCancel', 'resetAskGo',
     'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecentCount', 'listClearRecentNames', 'listClearRecentGo', 'listClearCancel', 'listClearGo',
     'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
-    'namer', 'namerOpen', 'namerMute', 'namerAlt', 'namerClear', 'namerPrev', 'namerNext', 'namerSymbol', 'namerText', 'namerCaption', 'namerPlay', 'namerCancel', 'namerSelect',
+    'namer', 'namerOpen', 'namerMute', 'namerUp', 'namerDown', 'namerAlt', 'namerClear', 'namerPrev', 'namerNext', 'namerSymbol', 'namerText', 'namerCaption', 'namerPlay', 'namerCancel', 'namerSelect',
     'quickBar', 'quickInner', 'quickGroupBar', 'quickGroupPrev', 'quickGroupNext', 'quickGroupInfo', 'quickGroupSymbol', 'quickGroupTab', 'quickGroupPlay']) {
     els[id] = document.getElementById(id);
   }
@@ -6358,6 +6443,8 @@ function init() {
   els.namerSelect.addEventListener('click', () => closeNamer(true));
   els.namerCancel.addEventListener('click', () => closeNamer(false));
   els.namerClear.addEventListener('click', namerClear);
+  els.namerUp.addEventListener('click', () => namerMove(-1));
+  els.namerDown.addEventListener('click', () => namerMove(1));
   els.namerPrev.addEventListener('click', () => namerStep(-1));
   els.namerNext.addEventListener('click', () => namerStep(1));
   els.namerMute.addEventListener('click', () => { state.muteTaps = !state.muteTaps; render(); });
@@ -6414,6 +6501,11 @@ function init() {
   }
   els.dockRecentClear.addEventListener('click', askClearRecent);
   els.recentClear.addEventListener('click', askClearRecent);
+  els.resetAll.addEventListener('click', askReset);
+  els.resetAskGo.addEventListener('click', resetAll);
+  els.resetAskCancel.addEventListener('click', closeReset);
+  els.resetAskClose.addEventListener('click', closeReset);
+  els.resetAsk.addEventListener('click', (e) => { if (e.target === els.resetAsk) closeReset(); });
   els.listClearGo.addEventListener('click', clearRecent);
   els.listClearRecentGo.addEventListener('click', clearRecentOnly);
   els.listClearCancel.addEventListener('click', closeClearRecent);
@@ -6585,7 +6677,7 @@ function init() {
     const spell = chordSpelling(state.chord.root, def, state.chord.letter);
     openPicker({
       title: 'Inversion', value: inversionFor(def),
-      groups: [{ label: 'Bass note, the lowest one played', items: [
+      groups: [{ items: [   // (one section: no heading)
         ...chordTones(state.chord.root, def).map((t, i) => ({
           value: String(i),
           label: INVERSION_NAMES[i],

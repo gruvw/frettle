@@ -98,6 +98,10 @@
            moves it to the header on phones) -->
       <h2 id="instWideSlot" class="neck-title">
         <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
+        <!-- Reset: beside the instrument menu (script.js moves both; on
+             phones it sits on the left, the menu centred) -->
+        <button type="button" id="resetAll" class="btn icon reset-btn" aria-haspopup="dialog" aria-label="Reset"
+                title="Reset: no chord, no scale, no capo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8.3"/><path d="M3 3.5v4.8h4.8"/></svg></button>
       </h2>
       <!-- Neck settings: here on wide screens, in the "Setup" tab of the dock
            on phones (script.js moves them). They start here, so the page is
@@ -162,13 +166,13 @@
                  screens, under the menus on phones (script.js moves them).
                  They start here: on phones the panel is closed at first. -->
             <div class="switch-row">
-              <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
-                      title="Also mark every other place the chord's notes appear on the neck">
-                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
-              </button>
               <button type="button" id="tglChordAlt" class="pill-toggle" aria-pressed="false"
                       title="Write the chord's root with its other name (C♯ for D♭)">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Alternative root</span>
+              </button>
+              <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
+                      title="Also mark every other place the chord's notes appear on the neck">
+                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
               </button>
               <button type="button" id="namerOpen" class="pill-toggle namer-open"
                       title="Place notes on the neck and see which chord they make">
@@ -232,6 +236,10 @@
             <h2 class="theory-title"><button type="button" class="panel-fold wide-only" aria-expanded="true" aria-controls="panelScale"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><i class="swatch swatch-scale" aria-hidden="true"></i><span class="tx">Scale</span><span class="fold-value" hidden></span></h2>
             <span id="groupCount" class="status group-count" hidden></span>
             <div class="switch-row">
+              <button type="button" id="tglScaleAlt" class="pill-toggle" aria-pressed="false"
+                      title="Write the scale's root with its other name (C♯ for D♭)">
+                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Alternative root</span>
+              </button>
               <button type="button" id="tglScaleOnly" class="pill-toggle" aria-pressed="false"
                       title="Hide the notes that are not in the scale">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Only scale notes</span>
@@ -239,10 +247,6 @@
               <button type="button" id="tglScaleGroups" class="pill-toggle" aria-pressed="false"
                       title="Outline the scale in hand-sized groups, a few notes per string, and step from one to the next">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Groups</span>
-              </button>
-              <button type="button" id="tglScaleAlt" class="pill-toggle" aria-pressed="false"
-                      title="Write the scale's root with its other name (C♯ for D♭)">
-                <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Alternative root</span>
               </button>
             </div>
           </div>
@@ -318,6 +322,10 @@
           <span class="namer-title"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg><span class="tx">Name a chord</span></span>
           <button type="button" id="namerMute" class="btn small namer-mute" aria-pressed="false" aria-label="Mute the notes placed"
                   title="Mute the notes placed (Play still sounds)"><svg class="ico sound-on" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg><svg class="ico sound-off" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg><span class="tx">Mute taps</span></button>
+          <button type="button" id="namerDown" class="btn small namer-move" aria-label="Move the notes one fret toward the body"
+                  title="Move the notes one fret toward the body"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></button>
+          <button type="button" id="namerUp" class="btn small namer-move" aria-label="Move the notes one fret toward the nut"
+                  title="Move the notes one fret toward the nut"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
           <button type="button" id="namerAlt" class="btn small namer-mute" aria-pressed="false" aria-label="Alternative root"
                   title="Write the root with its other name (C♯ for D♭)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M14 5l3 3-3 3M20 16H7M10 13l-3 3 3 3"/></svg><span class="tx">Alternative root</span></button>
           <button type="button" id="namerClear" class="btn small" title="Lift every note"><span class="tx">Clear</span></button>
@@ -498,6 +506,22 @@
   </dialog>
 
   <!-- Clearing the chords, when some are saved: asked first -->
+  <dialog id="resetAsk" class="picker share" aria-labelledby="resetAskTitle">
+    <div class="picker-head">
+      <h2 id="resetAskTitle">Reset</h2>
+      <button type="button" id="resetAskClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="picker-body">
+      <div id="resetWhat" class="reset-what"></div>
+    </div>
+    <div class="about-links share-actions">
+      <button type="button" id="resetAskCancel" class="btn"><span class="tx">Cancel</span></button>
+      <button type="button" id="resetAskGo" class="btn danger"><span class="tx">Reset</span></button>
+    </div>
+  </dialog>
+
   <dialog id="listClear" class="picker share" aria-labelledby="listClearTitle">
     <div class="picker-head">
       <h2 id="listClearTitle">Clear chords</h2>
