@@ -2331,11 +2331,12 @@ function updateChord(patch) {
   if (fresh) resetInversion();
   Object.assign(state.chord, patch, { on: true });
   state.loose = false;
-  // Its root's name: a new root, the usual one; a chord with a chip
-  // already, the one its chip has (see trackChord)
+  // Its root's name: another root, the usual one; another type, the one
+  // picked (Alternative root) while the type does not write it anyway (see
+  // settleLetters): as the menus show it (a chip already there for it takes
+  // that, see trackChord)
   if (newRoot) state.chord.letter = null;
   const entry = menuChip();
-  if (entry) state.chord.letter = entry.letter ?? null;
   state.shape = menuShape(entry);
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
   render();
@@ -2431,8 +2432,11 @@ const drawnKey = (root, type, frets) => `${mod12(root)}|${type}|${frets}`;
 function drawnInUse() {
   const used = new Set();
   for (const r of [...state.list, ...state.recent]) for (const text of Object.values(r.shapes || {})) used.add(drawnKey(r.root, r.type, text));
+  // The chord on screen's: all of them, not only the one shown, while its
+  // shapes are stepped through (dropping one would shift the others under
+  // the shape's number: the next strum, another shape)
   const ch = state.chord.on ? currentChord() : null;
-  if (ch && ch.shape && ch.shape.drawn) used.add(drawnKey(ch.root, ch.def.id, fretsText(ch.shape.frets)));
+  if (ch) for (const sh of ch.shapes) if (sh.drawn) used.add(drawnKey(ch.root, ch.def.id, fretsText(sh.frets)));
   return used;
 }
 let drawnUsed = null;   // the custom shapes this tab used at its last save (null: none yet)
@@ -2656,8 +2660,8 @@ function trackChord() {
     if (!shownChord.entry && !state.loose) {
       addRecent(shownChord.entry = newEntry(state.chord.root, state.chord.type, bass));
       rememberShape(shownChord.entry);
-      keepLetter(shownChord.entry);
     }
+    keepLetter(shownChord.entry);   // its name as the chord's (Flats changed, a scale: see settleLetters)
     return;
   }
   const open = how === 'type' && openEntry && state.recent.includes(openEntry) ? openEntry : null;
@@ -2703,6 +2707,11 @@ function settleLetters() {
   const keep = (letter, root, auto) => (Number.isInteger(letter) && rootAs(root, letter) && letter !== auto.letter ? letter : null);
   state.scale.letter = state.scale.on ? keep(state.scale.letter, state.scale.root, spellScale(state.scale.root, findScale(state.scale.type)).root) : null;
   state.chord.letter = state.chord.on ? keep(state.chord.letter, state.chord.root, spellChord(state.chord.root, findChord(state.chord.type)).root) : null;
+  // Name a chord's, as the chord's (Flats on: G♭ the usual name, picked or not)
+  if (naming && naming.letter !== null) {
+    const r = namerReadings()[naming.pick];
+    if (!r || naming.letterRoot !== mod12(r.root) || keep(naming.letter, r.root, ownChordSpelling(r.root, r.def).root) === null) naming.letter = null;
+  }
 }
 
 function keepChord() { openEntry = null; }   // strummed, cycled, its notes played: this chip is final
@@ -3267,10 +3276,10 @@ function pluckSamples(midi, sr) {
 function pianoSamples(midi, sr) {
   const f0 = 440 * 2 ** ((midi - 69) / 12);
   const x = Math.min(1, Math.max(0, (midi - 21) / 87));   // 0 at the bottom (A0), 1 at the top (C8)
-  const len = Math.floor(sr * (2.6 - 1.4 * x));   // (seconds)
+  const len = Math.floor(sr * (midi < 48 ? 1.55 : 1.2));   // as long as a plucked note (pluckSamples)
   const data = new Float32Array(len);
   const stiff = 0.00008 * 2 ** (3.6 * x);         // how sharp the harmonics run
-  const ring = 0.35 + 3 * (1 - x) ** 1.7;         // the fundamental's slow fade (seconds)
+  const ring = 0.2 + 15 * (1 - x) ** 3.2;         // the fundamental's slow fade (seconds): as long as a plucked note rings
   const felt = 900 + 3200 * x;                    // where the harmonics start to give out (Hz)
   const cents = midi < 30 ? [0] : [-0.6, 0.7];    // the strings
   let seed = midi * 7919 + 13;                    // (the same sound every time)
@@ -3317,8 +3326,9 @@ function pianoSamples(midi, sr) {
   let power = 0;
   for (let i = 0; i < early; i++) power += data[i] * data[i];
   // (as loud to the ear as a plucked note at the same pitch, measured
-  // through the app's sound path: the low notes need the most help)
-  const level = 10 ** (Math.min(5.2, Math.max(0.4, 5.2 - 0.13 * (midi - 40))) / 20);
+  // through the app's sound path: the low notes need the most help, the
+  // high ones less than none; above the highest fret, as loud as it)
+  const level = 10 ** (Math.min(4.5, Math.max(-3.5, 5.6 - 0.19 * (midi - 40))) / 20);
   const gain = (0.115 * (1 - 0.3 * x) * level) / (Math.sqrt(power / early) || 1);
   const rise = sr * 0.002;
   const fade = sr * 0.4;
@@ -3626,14 +3636,31 @@ function openNamer() {
   if (naming) return;
   const ch = currentChord();
   naming = { frets: ch && ch.shape ? ch.shape.frets.slice() : instrument().strings.map(() => -1), pick: 0, root: null, letter: null, letterRoot: null };
-  // (the chord on screen's name: its root's other one, if picked so)
-  const first = namerReadings()[0];
-  if (ch && first && mod12(first.root) === mod12(ch.root) && Number.isInteger(state.chord.letter)) Object.assign(naming, { letter: state.chord.letter, letterRoot: mod12(ch.root) });
+  // Its notes named as the chord on screen is, as if its root were picked
+  // with the arrows (D♭maj7sus4(♭9)/E𝄫 stays that, not the likeliest name
+  // for those notes): its type with its bass, else its type, else its root
+  // (its root's other name too, if picked so)
+  if (ch && ch.shape) {
+    const readings = namerReadings();
+    const same = (r) => mod12(r.root) === mod12(ch.root);
+    const at = [(r) => same(r) && r.def.id === ch.def.id && r.bassIndex === ch.bassIndex, (r) => same(r) && r.def.id === ch.def.id, same]
+      .map((test) => readings.findIndex(test)).find((i) => i >= 0);
+    if (at !== undefined) {
+      Object.assign(naming, { pick: at, root: readings[at].root });
+      if (Number.isInteger(state.chord.letter)) Object.assign(naming, { letter: state.chord.letter, letterRoot: mod12(ch.root) });
+    }
+  }
   stopGroup();
   stopScale();
   ui.tab = null;   // (phones: the sheet closes)
   document.body.classList.add('naming');
   render();
+  fitNamer();   // (its room, as it shows)
+  // The neck in view, to place the notes: opened from the chord panel, under
+  // it, the page shorter now (that panel hidden), the neck can be above the
+  // window; mostly out of view, it comes back, as when the layout changes
+  const box = els.neck.closest('.neck-scroll').getBoundingClientRect();
+  if (Math.min(box.bottom, window.innerHeight) - Math.max(box.top, 0) < Math.min(box.height, window.innerHeight) * 0.6) refocus();
   els.namer.focus({ preventScroll: true });   // the keyboard carries on in the bar (its button is hidden now)
 }
 function closeNamer(select) {
@@ -3716,6 +3743,7 @@ function namerMove(step) {
   if (naming.root !== null) naming.root = mod12(naming.root + step);   // (the root picked with the arrows, moved with them)
   namerRepick();
   render();
+  if (!focusInView()) revealFocus();   // the neck follows the notes past the edge of the view
 }
 function namerStep(step) {
   const readings = namerReadings();
@@ -4754,10 +4782,30 @@ function setupInfoFit() {
       if (infoWidths.get(target) === target.clientWidth) continue;   // (a height change: nothing to fit)
       infoWidths.set(target, target.clientWidth);
       if (target === els.chordTones) fitNotesRow();
+      else if (target === els.namer) fitNamer();
       else fitInfo(target);
     }
   });
-  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement, els.chordTones]) watch.observe(info);
+  for (const info of [els.dockShape, els.quickGroupInfo, els.namerSymbol.parentElement, els.chordTones, els.namer]) watch.observe(info);
+}
+/* Name a chord's bar (wide screens), as the room it has goes: its title
+   row's buttons with their words beside Cancel and Select; with their
+   icons alone (.tight); Cancel and Select narrower too (.snug); then
+   those two on a row of their own, at the bottom, as on phones
+   (.stacked). Never a button over the title, which keeps its room. */
+const NAMER_FITS = ['tight', 'snug', 'stacked'];
+function fitNamer() {
+  const bar = els.namer;
+  if (bar.hidden || !isWide()) { bar.classList.remove(...NAMER_FITS); return; }
+  const head = bar.querySelector('.namer-head');
+  const title = head.querySelector('.namer-title');
+  const tight = () => head.scrollWidth > head.clientWidth + 1 || title.scrollWidth > title.clientWidth + 1
+    || title.getBoundingClientRect().right + 16 > els.namerMute.getBoundingClientRect().left;   // (16px at least between them)
+  bar.classList.remove(...NAMER_FITS);
+  for (const fit of NAMER_FITS) {
+    if (!tight()) break;
+    bar.classList.add(fit);
+  }
 }
 
 /* The steppers: a chord's shapes or a scale's groups, one at a time, with
@@ -5732,6 +5780,7 @@ function renderPiano(ch, sc) {
   els.neck.style.setProperty('--whites', white);
   els.neck.innerHTML = html.join('');
 }
+
 
 /* The strip: each string's first cell (its open note at the nut, or at the
    capo, a banjo's drone at its start or its spike), as on the neck, with
