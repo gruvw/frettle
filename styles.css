@@ -961,19 +961,26 @@ button, a { scroll-margin: 6px; }
    the chord's notes stay as they are. A string the shape does not play:
    its note dimmer (its fill, text and edge at 70%, as the others' 0.7),
    its pink × as it is */
+@property --undim { syntax: '<percentage>'; inherits: false; initial-value: 70%; }   /* (a string not played: its note's strength, animated as it sounds) */
 .note.ungrouped { opacity: 0.7; }
 .note.mute.named.ungrouped {
   opacity: 1;
-  background: color-mix(in srgb, color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)) 70%, transparent);
-  color: color-mix(in srgb, color-mix(in srgb, var(--text) 62%, var(--bg)) 70%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)) var(--undim), transparent);
+  color: color-mix(in srgb, color-mix(in srgb, var(--text) 62%, var(--bg)) var(--undim), transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) var(--undim), transparent);
 }
 .note.mute.named.scale.ungrouped {
-  background: color-mix(in srgb, var(--scale) 70%, transparent);
-  color: color-mix(in srgb, var(--scale-text) 70%, transparent);
+  background: color-mix(in srgb, var(--scale) var(--undim), transparent);
+  color: color-mix(in srgb, var(--scale-text) var(--undim), transparent);
   box-shadow: none;
-  outline-color: color-mix(in srgb, var(--scale) 70%, transparent);
+  outline-color: color-mix(in srgb, var(--scale) var(--undim), transparent);
 }
+/* Tapped, or played: at full strength while it sounds (as long as a note
+   peeks, see .peek), then back to dim */
+.note.ungrouped.ping { animation: ping-pop 450ms ease-out, undim 1400ms ease-out; }
+.note.mute.named.ungrouped.ping { animation: ping-pop 450ms ease-out, undim-mute 1400ms ease-out; }
+@keyframes undim { 0%, 70% { opacity: 1; } 100% { opacity: 0.7; } }
+@keyframes undim-mute { 0%, 70% { --undim: 100%; } 100% { --undim: 70%; } }
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
   0% { opacity: 1; transform: scale(1.18); }
