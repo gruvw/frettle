@@ -44,15 +44,15 @@ const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A
 const PIANO_LOW = 21;
 const PIANO_KEYS = 88;
 const INSTRUMENTS = [
-  { id: 'guitar', family: 'Guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 22 },
+  { id: 'guitar', family: 'Guitar', name: 'Guitar', short: 'Guitar', strings: [40, 45, 50, 55, 59, 64], frets: 24 },
   { id: 'guitar7', family: 'Guitar', name: '7-string Guitar', short: '7-string', strings: [35, 40, 45, 50, 55, 59, 64], frets: 24 },
-  { id: 'bass', family: 'Bass', name: 'Bass', short: 'Bass', strings: [28, 33, 38, 43], frets: 20 },
+  { id: 'bass', family: 'Bass', name: 'Bass', short: 'Bass', strings: [28, 33, 38, 43], frets: 24 },
   { id: 'bass5', family: 'Bass', name: '5-string Bass', short: '5-string', strings: [23, 28, 33, 38, 43], frets: 24 },
   { id: 'ukulele', family: 'Ukulele', name: 'Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18, smallFrets: true },
   { id: 'baritone', family: 'Ukulele', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18, smallFrets: true },
   { id: 'piano', family: 'Piano', name: 'Piano', short: 'Piano', strings: [], frets: 0, piano: true },
-  { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 20, span: 5, smallFrets: true, fifths: true },
-  { id: 'mandola', family: 'Mandolin', name: 'Mandola', short: 'Mandola', strings: [48, 55, 62, 69], frets: 20, span: 5, smallFrets: true, fifths: true },
+  { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 24, span: 5, smallFrets: true, fifths: true },
+  { id: 'mandola', family: 'Mandolin', name: 'Mandola', short: 'Mandola', strings: [48, 55, 62, 69], frets: 24, span: 5, smallFrets: true, fifths: true },
   { id: 'banjo', family: 'Banjo', name: 'Banjo', short: 'Banjo', strings: [67, 50, 55, 59, 62], starts: [5, 0, 0, 0, 0], frets: 22,
     dots: { single: [3, 5, 7, 10, 15, 17, 19, 22], double: [12] } },
 ];
@@ -79,6 +79,10 @@ const TUNINGS = {
     { id: 'open-d', name: 'Open D', strings: [38, 45, 50, 54, 57, 62] },
     { id: 'open-e', name: 'Open E', strings: [40, 47, 52, 56, 59, 64] },
     { id: 'open-c', name: 'Open C', strings: [36, 43, 48, 55, 60, 64] },
+  ],
+  mandola: [
+    { id: 'standard', name: 'Standard', strings: [48, 55, 62, 69] },
+    { id: 'octave', name: 'Octave', strings: [43, 50, 57, 64] },   // the octave mandola, G2 D3 A3 E4: a mandolin's notes, an octave down
   ],
   ukulele: [
     { id: 'standard', name: 'Standard (high G)', strings: [67, 60, 64, 69] },
@@ -5534,7 +5538,7 @@ function renderNeck(ch, sc) {
     labelAt = (s) => `grid-row:1;grid-column:${s + 2}`;
     capoAt = `grid-row:${c + 2};grid-column:${short + 2} / span ${n - short}`;
   } else {
-    els.neck.style.gridTemplateColumns = `var(--label-w) var(--open-w) repeat(${N}, minmax(var(--cell-w), 1fr))`;
+    els.neck.style.gridTemplateColumns = `var(--label-w) var(--open-w) repeat(${N}, minmax(var(--cell-min, var(--cell-w)), 1fr))`;   // (--cell-min: see fitScroll)
     cellAt = (s, f) => `grid-row:${n - s + 1};grid-column:${f + 2}`;
     rulerAt = (f) => `grid-row:1;grid-column:${f + 2}`;
     labelAt = (s) => `grid-row:${n - s + 1};grid-column:1`;
@@ -5577,6 +5581,10 @@ function renderNeck(ch, sc) {
   }
   ui.groups = groups;
   ui.group = pickGroup(groups);
+  // The group shown: its cells (string:fret); every other note but the
+  // chord's a little dimmer
+  const grouped = new Set();
+  for (const { s, a, b } of groups[ui.group] ? groups[ui.group].bars : []) for (let f = a; f <= b; f++) grouped.add(`${s}:${f}`);
 
   // One octave number per shaded band, on its first cell you can play: the
   // lowest-listed string in the band, at its lowest fret not behind the capo
@@ -5691,6 +5699,10 @@ function renderNeck(ch, sc) {
         // spike): the strings' notes are always shown
         cls += onlyScale && f !== nut(s) ? ' plain out' : sc ? ' plain off' : ' plain';
       }
+      // (the chord's own notes never; a note not in the scale is never one of
+      // the group's, even within its outline; a string the shape does not
+      // play: its note, not its ×, see .ungrouped)
+      if (grouped.size && !/ (chord|ghost)\b/.test(cls) && (cls.includes(' scale') ? !grouped.has(key) : cls.includes(' off') || cls.includes(' named'))) cls += ' ungrouped';
       const text = noteText(n);
       let title = `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}`;
       if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
@@ -5701,7 +5713,7 @@ function renderNeck(ch, sc) {
       }
       const octave = octaveOf(s, f);
       const cellCls = `cell ${f === 0 ? 'open' : 'fret'}${mark ? ' mark' : ''}${octave % 2 ? ' o-alt' : ''}` +
-        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}`;
+        `${f < nut(s) ? ' behind' : ''}${c && f === nut(s) ? ' capo' : ''}${start && f === start ? ' string-start' : ''}${f === N ? ' end' : ''}`;
       const inner = cls.includes(' mute') && !cls.includes(' named') ? MUTE_ICON : tx(text);
       if (cls.includes(' named')) badge = MUTE_BADGE;
       const octTag = octaveLabels.has(key) ? `<span class="oct" title="Octave ${octave}">${tx(String(octave))}</span>` : '';
@@ -5735,6 +5747,7 @@ function renderNeck(ch, sc) {
   html.push(stripHtml(vertical, n, c, short, starts));
   els.neck.innerHTML = html.join('');
   drawGroups();
+  fitScroll();
   placeStrip();
 }
 
@@ -5799,6 +5812,36 @@ function renderPiano(ch, sc) {
   }
   els.neck.style.setProperty('--whites', white);
   els.neck.innerHTML = html.join('');
+  fitScroll();
+}
+
+/* Wide screens: a neck (or keyboard) only a little wider than its panel
+   would scroll a few pixels, which looks like a mistake. It is made wider
+   then, its frets (or white keys) a little wider, the notes as they are,
+   to scroll at least SCROLL_MIN: a scroll that shows something. Measured
+   at its own width first (each fret at least --cell-w, each white key
+   36px), from the frets' (keys') widths as they are, whatever makes it
+   scroll. On every draw and whenever the neck or its panel changes size. */
+const SCROLL_MIN = 102;   // px: two frets (2 × --cell-w)
+function fitScroll() {
+  const neck = els.neck;
+  const scroller = neck.parentElement;
+  neck.style.removeProperty('--cell-min');
+  neck.style.removeProperty('--wk-min');
+  if (!neck.classList.contains('horizontal')) return;
+  const over = scroller.scrollWidth - scroller.clientWidth;
+  if (over <= 0 || over >= SCROLL_MIN) return;
+  if (neck.classList.contains('piano')) {
+    const whites = neck.querySelectorAll('.key.white');
+    const wk = whites[0].getBoundingClientRect().width;
+    neck.style.setProperty('--wk-min', `${wk + (SCROLL_MIN - over) / whites.length}px`);
+  } else {
+    const cells = neck.querySelectorAll('.cell.fret:not(.strip-cell)');
+    const last = cells[cells.length - 1];   // (the last fret's: its number, the frets' count; 1fr each, so all as wide)
+    if (!last) return;
+    const cell = last.getBoundingClientRect().width;
+    neck.style.setProperty('--cell-min', `${cell + (SCROLL_MIN - over) / Number(last.dataset.f)}px`);
+  }
 }
 
 
@@ -5872,8 +5915,8 @@ function drawGroups() {
   if (!layer) return;
   const group = (ui.groups || [])[ui.group];
   const box = els.neck.getBoundingClientRect();
-  layer.setAttribute('width', box.width);
-  layer.setAttribute('height', box.height);
+  // (as big as the neck by its style, never a fraction of a pixel past it: no
+  // scroll of its own, see fitScroll)
   layer.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
   if (!group) { layer.innerHTML = ''; return; }
 
@@ -6621,7 +6664,8 @@ function init() {
   if (wideMedia.addEventListener) wideMedia.addEventListener('change', relayout);
   else wideMedia.addListener(relayout);
   if (window.ResizeObserver) {
-    new ResizeObserver(() => { drawGroups(); queueStrip(); }).observe(els.neck);   // keep group outlines on their cells
+    new ResizeObserver(() => { drawGroups(); fitScroll(); queueStrip(); }).observe(els.neck);   // keep group outlines on their cells
+    new ResizeObserver(() => fitScroll()).observe(els.neck.parentElement);   // (the panel narrower or wider: see fitScroll)
   }
   // The strip follows the page (phones) and the neck's own scroll (wide screens)
   window.addEventListener('scroll', queueStrip, { passive: true });

@@ -70,6 +70,7 @@
   --r-lg: 12px;
   --r-xl: 18px;
   --r-pill: 999px;
+  --r-root: 4px;         /* a root's note: a rounded square, every other note a round pill */
   --control-h: 42px;     /* touch-sized on phones */
   --root-w: 84px;        /* the Root menus */
   --chip-h: 32px;
@@ -81,7 +82,7 @@
   --label-w: 28px;       /* fret numbers column */
   --row-h: 42px;         /* one fret: room for a root's ring inside a group outline */
   --ruler-row: 24px;     /* string numbers row */
-  --cell-w: 46px;        /* horizontal neck only */
+  --cell-w: 51px;        /* a fret's least width, horizontal neck only (see fitScroll) */
   --open-w: 54px;
   --scroll-gap: 10px;    /* space between scrolling content and its scrollbar */
   --fret-wire: color-mix(in srgb, var(--pk-grey) 50%, transparent);
@@ -807,6 +808,7 @@ button, a { scroll-margin: 6px; }
 /* Vertical: strings go down, fret wires and the nut run across */
 .neck.vertical .cell::before { top: 0; bottom: 0; left: 50%; width: var(--sw, 1px); transform: translateX(-50%); }
 .neck.vertical .cell.fret:not(.string-start)::before { bottom: -2px; }   /* over its fret wire: strings in front of the frets */
+.neck.vertical .cell.fret.end:not(.string-start)::before { bottom: 0; }   /* (the last fret: ending at its wire, as across) */
 .neck.vertical .cell.fret { border-bottom: 2px solid var(--fret-wire); }
 .neck.vertical .cell.open { border-bottom: 5px solid var(--nut); }
 .neck.vertical .ruler { justify-content: flex-end; padding-inline-end: 8px; }
@@ -816,6 +818,7 @@ button, a { scroll-margin: 6px; }
 /* Horizontal: strings go across, fret wires and the nut run down */
 .neck.horizontal .cell::before { left: 0; right: 0; top: 50%; height: var(--sw, 1px); transform: translateY(-50%); }
 .neck.horizontal .cell.fret:not(.string-start)::before { inset-inline-end: -2px; }   /* (as across) */
+.neck.horizontal .cell.fret.end:not(.string-start)::before { inset-inline-end: 0; }   /* (the last fret: the string ends at its wire, not past the neck's end, which would scroll it a pixel or two) */
 .neck.horizontal .cell.fret { border-inline-end: 2px solid var(--fret-wire); }
 .neck.horizontal .cell.open { border-inline-end: 5px solid var(--nut); }
 .neck.horizontal .ruler { align-self: start; height: 24px; }
@@ -887,7 +890,8 @@ button, a { scroll-margin: 6px; }
 
 /* Note pills. Every note is shown at full strength. Scale notes are teal,
    chord-shape notes pink with their interval, other chord tones (optional)
-   pink outlines. A ring around a pill always means "root". */
+   pink outlines. A rounded square with a ring around it always means
+   "root" (on the neck, the piano, the chord's notes and the scale's). */
 .note {
   position: relative;
   z-index: 2;
@@ -905,10 +909,11 @@ button, a { scroll-margin: 6px; }
   white-space: nowrap;
 }
 .note.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }
-.note.scale-root { outline: 2px solid var(--scale); outline-offset: 2px; }
+.note.scale-root { border-radius: var(--r-root); outline: 2px solid var(--scale); outline-offset: 2px; }
 .note.ghost { background: var(--bg); color: var(--chord); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chord) 55%, transparent); }
 .note.chord { background: var(--chord); color: var(--chord-text); box-shadow: none; font-weight: 800; }
-.note.chord.root { outline: 2px solid var(--chord); outline-offset: 2px; }
+.note.chord.root { border-radius: var(--r-root); outline: 2px solid var(--chord); outline-offset: 2px; }
+.note.ghost.root { border-radius: var(--r-root); }   /* (another chord tone: square too, without the ring of the shape's own) */
 /* Chord notes show their name; the interval (R, 3, 5, ♭7…) sits in a small
    badge on the pill's top-right corner, held by its left end: a longer one
    (♭♭7, ♯11) grows away from the note rather than over it */
@@ -951,6 +956,24 @@ button, a { scroll-margin: 6px; }
 .note.mute.named.scale { background: var(--scale); color: var(--scale-text); box-shadow: none; }   /* (a string not played, its open note in the scale: a scale note, with its ×) */
 .note.mute.named.ghost { background: var(--bg); color: var(--chord); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chord) 55%, transparent); }   /* (... a chord tone, All chord tones on: as the others, see .note.ghost) */
 .note.out { visibility: hidden; }
+/* With a scale group shown: every note not in it a little dimmer (the
+   scale's past it, and those not in the scale), so the group stands out;
+   the chord's notes stay as they are. A string the shape does not play:
+   its note dimmer (its fill, text and edge at 70%, as the others' 0.7),
+   its pink × as it is */
+.note.ungrouped { opacity: 0.7; }
+.note.mute.named.ungrouped {
+  opacity: 1;
+  background: color-mix(in srgb, color-mix(in srgb, var(--kbd-bg) 65%, var(--bg)) 70%, transparent);
+  color: color-mix(in srgb, color-mix(in srgb, var(--text) 62%, var(--bg)) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+.note.mute.named.scale.ungrouped {
+  background: color-mix(in srgb, var(--scale) 70%, transparent);
+  color: color-mix(in srgb, var(--scale-text) 70%, transparent);
+  box-shadow: none;
+  outline-color: color-mix(in srgb, var(--scale) 70%, transparent);
+}
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
   0% { opacity: 1; transform: scale(1.18); }
@@ -1003,7 +1026,7 @@ button, a { scroll-margin: 6px; }
 .oct-label.mid { color: var(--text); }   /* middle C's octave */
 /* Wide screens: the keys across */
 .neck.piano.horizontal {
-  --wk: max(36px, calc(100cqw / var(--whites)));   /* a white key's width: 36px (room for two neighbours' notes, a root's ring round one), more only where the panel is wider than the 52 keys need */
+  --wk: max(var(--wk-min, 36px), calc(100cqw / var(--whites)));   /* a white key's width: 36px (room for two neighbours' notes, a root's ring round one), more only where the panel is wider than the 52 keys need (or a little more to scroll more than a few pixels: --wk-min, see fitScroll) */
   --bk: calc(var(--wk) * 0.6);
   --kl: 170px;  /* a white key's length */
   width: calc(var(--whites) * var(--wk));
@@ -1125,6 +1148,8 @@ body.piano #tglScaleGroups { display: none; }
   position: absolute;
   left: 0;
   top: 0;
+  width: 100%;    /* the neck's size (its viewBox: the same, in pixels, see drawGroups) */
+  height: 100%;
   z-index: 1;
   overflow: visible;
   pointer-events: none;
@@ -1263,7 +1288,7 @@ body.piano #tglScaleGroups { display: none; }
 }
 .np-loc { grid-column: 1 / -1; align-self: end; }
 .np-note.root { border-color: var(--chord); box-shadow: inset 0 0 0 1px var(--chord); }
-.np-note.root .np-deg { outline: 2px solid var(--chord); outline-offset: 2px; }
+.np-note.root .np-deg { border-radius: var(--r-root); outline: 2px solid var(--chord); outline-offset: 2px; }
 .np-note.off-key .np-deg { background: var(--warn); color: var(--pk-black); }
 .np-note.root.off-key .np-deg { outline-color: var(--warn); }
 
@@ -1345,18 +1370,19 @@ body.piano #tglScaleGroups { display: none; }
   font: 700 var(--fs-sm)/1 var(--font);
   cursor: pointer;
 }
-.scale-note.root { outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
+.scale-note.root { border-radius: var(--r-root); outline: 2px solid var(--scale); outline-offset: 2px; margin-right: 2px; }
 /* The root keeps its own teal ring when it has the focus: the focus ring is
-   drawn around it, as one more ring */
+   drawn around it, as one more ring (as square: its corners as rounded as
+   the ring's, 8px out) */
 .scale-note.root:focus-visible::before {
   content: "";
   position: absolute;
   inset: -8px;
   border: 2px solid var(--accent);
-  border-radius: var(--r-pill);
+  border-radius: calc(var(--r-root) + 8px);
   pointer-events: none;
 }
-.scale-note.octave { background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }
+.scale-note.octave { border-radius: var(--r-root); background: transparent; color: var(--scale); box-shadow: inset 0 0 0 2px var(--scale); }   /* (the root again: square too) */
 /* Each note's interval, a badge on its corner like the chord's on the neck */
 .scale-deg {
   position: absolute;
