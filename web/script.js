@@ -2093,7 +2093,7 @@ function linkSummary({ neck = true, chord = true, scale = true, recent = false }
   const inst = instrument();
   const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
   const on = neck ? ` on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}` : '';
-  return `${[what, list].filter(Boolean).join(', ') || 'The neck'}${(what || list) && on ? ',' : ''}${on}`;
+  return `${[what, list].filter(Boolean).join(', ') || (inst.piano ? 'The keys' : 'The neck')}${(what || list) && on ? ',' : ''}${on}`;
 }
 const listNames = () => state.list.map(entrySymbol);
 
@@ -6195,7 +6195,7 @@ function renderScalePanel(sc, ch) {
     els.scaleSymbol.textContent = '';
     els.scaleSymbol.classList.remove('on');
     els.scaleName.textContent = 'No scale selected';
-    els.scaleMeta.textContent = 'Pick a scale type to see its notes on the neck.';
+    els.scaleMeta.textContent = 'Pick a scale type to see its notes.';
     els.scaleAlt.textContent = '';
     els.scaleNotes.innerHTML = '<li class="empty-text" style="grid-row:1">The notes of the scale appear here.</li>';
     els.scaleTriads.innerHTML = '<span class="empty-text">The triads that fit the scale appear here.</span>';

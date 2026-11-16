@@ -86,7 +86,7 @@
   </aside>
   <header class="top">
     <h1>Frettle <span class="h1-sub">Chord &amp; scale visualizer</span></h1>
-    <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is on the neck" aria-label="Share" aria-haspopup="dialog"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
+    <button type="button" id="shareOpen" class="btn icon share-btn" title="Share a link to what is shown" aria-label="Share" aria-haspopup="dialog"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg><span class="btn-label">Share</span></button>
     <button type="button" id="aboutOpen" class="btn about-btn" aria-haspopup="dialog"><span class="tx">About</span></button>
     <!-- Phones: the instrument menu sits here, centred above the neck -->
     <div id="instNarrowSlot" class="inst-slot"></div>
@@ -117,7 +117,7 @@
             <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Octaves</span>
           </button>
           <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
-                  title="Use flats when either name would do (D♭, not C♯): the neck's notes when no scale or chord decides, and a root that makes as easy a key both ways (G♭ major, not F♯)">
+                  title="Use flats when either name would do (D♭, not C♯): the notes shown when no scale or chord decides, and a root that makes as easy a key both ways (G♭ major, not F♯)">
             <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Flats</span>
           </button>
           <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false"
@@ -171,11 +171,11 @@
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Alternative root</span>
               </button>
               <button type="button" id="tglAllTones" class="pill-toggle" aria-pressed="false"
-                      title="Also mark every other place the chord's notes appear on the neck">
+                      title="Also mark every other place the chord's notes appear">
                 <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">All chord tones</span>
               </button>
               <button type="button" id="namerOpen" class="pill-toggle namer-open"
-                      title="Place notes on the neck and see which chord they make">
+                      title="Place notes and see which chord they make">
                 <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg><span class="pill-label">Name a chord</span>
               </button>
             </div>
@@ -221,7 +221,7 @@
           <div class="line shapes-line">
             <span class="label">Shapes</span>
             <button type="button" id="shapePrev" class="btn small" title="Previous shape (←)" aria-label="Previous shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg></button>
-            <ol id="shapeList" class="chip-list" aria-label="Chord shapes, from the nut up the neck"></ol>
+            <ol id="shapeList" class="chip-list" aria-label="Chord shapes"></ol>
             <button type="button" id="shapeNext" class="btn small" title="Next shape (→)" aria-label="Next shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
           </div>
           <div id="recentLine" class="line recent-line" hidden>
