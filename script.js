@@ -3737,9 +3737,15 @@ function namerTap(cell) {
   if (sound) flashCell(s, f);
 }
 /* The notes placed moved together, one fret along the neck (the piano: one
-   key): up (-1) toward the nut, down (+1) toward the body, the same shape a
-   semitone lower or higher. Not past an open string (up) or the neck's
-   last fret (down), nor the keyboard's ends: null, no move. */
+   key): -1 toward the nut, +1 toward the body, the same shape a semitone
+   lower or higher. Not past an open string or the neck's last fret, nor
+   the keyboard's ends: null, no move. Its buttons (namerUpStep): as drawn
+   on screen where it runs top to bottom (phones: a neck from its nut, the
+   piano from its lowest key), up toward the top; on a piano drawn across
+   (wide screens), up a key higher and down a key lower, by ear. On a neck
+   across, as on phones: up toward the nut, down toward the body. */
+const pianoAcross = () => instrument().piano && !els.neck.classList.contains('vertical');
+const namerUpStep = () => (pianoAcross() ? 1 : -1);
 function namerMoved(step) {
   const inst = instrument();
   if (inst.piano) {
@@ -3804,9 +3810,10 @@ function renderNamer() {
   // and A (one name), and for a root the scale shown names
   // The moves: off where the notes cannot go further (or there are none)
   const what = instrument().piano ? 'key' : 'fret';
-  els.namerUp.disabled = !namerMoved(-1);
-  els.namerDown.disabled = !namerMoved(1);
-  for (const [el, words] of [[els.namerUp, instrument().piano ? 'lower' : 'toward the nut'], [els.namerDown, instrument().piano ? 'higher' : 'toward the body']]) {
+  els.namerUp.disabled = !namerMoved(namerUpStep());
+  els.namerDown.disabled = !namerMoved(-namerUpStep());
+  const piano = instrument().piano;
+  for (const [el, words] of [[els.namerUp, !piano ? 'toward the nut' : pianoAcross() ? 'higher' : 'lower'], [els.namerDown, !piano ? 'toward the body' : pianoAcross() ? 'lower' : 'higher']]) {
     const text = `Move the notes one ${what} ${words}`;
     el.title = text;
     el.setAttribute('aria-label', text);
@@ -6573,8 +6580,8 @@ function init() {
   els.namerSelect.addEventListener('click', () => closeNamer(true));
   els.namerCancel.addEventListener('click', () => closeNamer(false));
   els.namerClear.addEventListener('click', namerClear);
-  els.namerUp.addEventListener('click', () => namerMove(-1));
-  els.namerDown.addEventListener('click', () => namerMove(1));
+  els.namerUp.addEventListener('click', () => namerMove(namerUpStep()));
+  els.namerDown.addEventListener('click', () => namerMove(-namerUpStep()));
   els.namerPrev.addEventListener('click', () => namerStep(-1));
   els.namerNext.addEventListener('click', () => namerStep(1));
   els.namerMute.addEventListener('click', () => { state.muteTaps = !state.muteTaps; render(); });
