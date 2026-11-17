@@ -3439,17 +3439,20 @@ function playNote(midi, delay = 0, level = 0.55) {
   return src;
 }
 
-/* Light up a note while it sounds: on the neck, or any pill (ping). */
+/* Light up a note while it sounds: on the neck, or any pill (ping). The
+   class goes once its animations are over (the pop, the ring, a hidden
+   note's fade, a dimmed one's), or cut short (hidden meanwhile): one left
+   on would play them again whenever the pill is shown again (a sheet
+   reopened, a panel moved), long after the note sounded. */
 function ping(el) {
   if (!el) return;
   const cls = el.classList.contains('out') ? 'peek' : 'ping';   // a hidden note shows for a moment
   el.classList.remove(cls);
   void el.offsetWidth;   // restart the animation
   el.classList.add(cls);
-  if (cls === 'peek') {   // hidden again once its fade is over (not when the ring's ends)
-    const done = (e) => { if (e.animationName === 'peek') { el.classList.remove('peek'); el.removeEventListener('animationend', done); } };
-    el.addEventListener('animationend', done);
-  }
+  const turn = (el.pingTurn = (el.pingTurn || 0) + 1);   // (pinged again meanwhile: that one's to clear)
+  const running = el.getAnimations ? el.getAnimations({ subtree: true }) : [];
+  Promise.allSettled(running.map((anim) => anim.finished)).then(() => { if (el.pingTurn === turn) el.classList.remove(cls); });
 }
 function flashCell(s, f, delay = 0) {
   setTimeout(() => els.neck.querySelectorAll(`.cell[data-s="${s}"][data-f="${f}"] .note`).forEach(ping), delay * 1000);   // (and its copy in the strip)
@@ -4319,8 +4322,8 @@ function placeSettings() {
   if (els.instrumentPicker.parentElement !== instSlot) instSlot.appendChild(els.instrumentPicker);
   if (els.resetAll.parentElement !== instSlot) instSlot.appendChild(els.resetAll);   // (beside it: after it on wide screens, on the left on phones, see .reset-btn)
   // Chord and scale switches: at the end of the panel's title row on wide screens,
-  // under the menus on phones (Name a chord there at the end of the title
-  // row, a button, not a switch). Play the scale: before Deselect on wide
+  // under the menus on phones (Name a chord and Groups there at the end of
+  // the title row: each sheet's own extra, the others two side by side). Play the scale: before Deselect on wide
   // screens (as Strum is for chords), on the Notes line on phones.
   const put = (el, parent, before = null) => { if (el.parentElement !== parent || el.nextElementSibling !== before) parent.insertBefore(el, before); };
   // The phone dock's chord list and shape bar: in the quick bar under the
@@ -4329,6 +4332,7 @@ function placeSettings() {
     put(els.chordSwitches, els.chordHead);
     put(els.namerOpen, els.chordSwitches);
     put(els.scaleSwitches, els.scaleHead);
+    put(els.tglScaleGroups, els.scaleSwitches);
     put(els.scalePlay, els.scaleBar, els.scaleClear);
     put(els.dockRecent, els.quickInner, els.quickGroupBar);
     put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
@@ -4336,7 +4340,8 @@ function placeSettings() {
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.namerOpen, els.chordHead);
-    els.namerOpen.classList.remove('whole');   // (out of the switches' grid, see fitSwitches)
+    put(els.tglScaleGroups, els.scaleHead);
+    for (const el of [els.namerOpen, els.tglScaleGroups]) el.classList.remove('whole');   // (out of the switches' grid, see fitSwitches)
     put(els.scaleSwitches, els.scaleBar, els.scaleClear);
     put(els.scalePlay, els.notesLine);
     put(els.dockRecent, els.dockBar, els.dockTabs);
