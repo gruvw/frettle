@@ -1,7 +1,7 @@
 /* Chord shapes: on every instrument and tuning (and a capo), for every chord of
    the menu on every root and in every inversion, each shape the finder
    offers fits the neck, plays only the chord's notes and has the chosen
-   note in the bass. On the piano, every shape also plays every note. */
+   note in the bass. On the keyboards (the piano, the Uniso), every shape also plays every note. */
 const test = require('node:test');
 const assert = require('node:assert');
 const { INSTRUMENTS, TUNINGS, ALL_CHORDS, chordTones, findShapes, pianoShapes, startFret, shapePitch, PIANO_LOW, PIANO_KEYS } = require('../web/script.js');
@@ -43,18 +43,19 @@ for (const base of INSTRUMENTS.filter((i) => !i.piano)) {
   });
 }
 
-test('Piano shapes', () => {
+for (const inst of INSTRUMENTS.filter((i) => i.piano)) test(`${inst.name} shapes`, () => {   // (the piano, the Uniso)
   const bad = [];
+  if (inst.id === 'piano' && (inst.low !== PIANO_LOW || inst.keys !== PIANO_KEYS)) bad.push('the piano: not 88 keys from A0');
   for (const def of ALL_CHORDS) {
     for (let root = 0; root < 12; root++) {
       const tones = chordTones(root, def);
       for (const inversion of inversions(def)) {
-        const shapes = pianoShapes(root, def, inversion);
+        const shapes = pianoShapes(root, def, inversion, inst);
         if (!shapes.length) bad.push(`${def.id} on ${root}, inversion ${inversion}: no shapes`);
         for (const { frets: keys } of shapes) {
           const at = `${def.id} on ${root}, inversion ${inversion}: keys ${keys.join(' ')}`;
-          const midis = keys.map((k) => PIANO_LOW + k);
-          if (!keys.every((k, i) => Number.isInteger(k) && k >= 0 && k < PIANO_KEYS && (!i || k > keys[i - 1]))) bad.push(`${at}: not keys of the keyboard, low to high`);
+          const midis = keys.map((k) => inst.low + k);
+          if (!keys.every((k, i) => Number.isInteger(k) && k >= 0 && k < inst.keys && (!i || k > keys[i - 1]))) bad.push(`${at}: not keys of the keyboard, low to high`);
           const played = new Set(midis.map(mod12));
           if (played.size !== tones.length || tones.some((t) => !played.has(t.pc))) bad.push(`${at}: not every note of the chord, or another`);
           if (inversion !== 'any' && mod12(midis[0]) !== tones[Number(inversion)].pc) bad.push(`${at}: wrong bass`);
