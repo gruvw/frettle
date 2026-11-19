@@ -2090,18 +2090,23 @@ function clearLink() {
   try { history.replaceState(history.state, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`); } catch { /* the link stays */ }
 }
 
-/* A line for the share sheet: "Am7 over A minor pentatonic, on guitar
-   (capo 2)", with the recent chords if shared: "..., chords C, G, Am and F" */
+/* The text for the share sheet (and Copy text): the setup, then what is
+   on it, the chord list on a line of its own:
+     Guitar (Drop D, capo 2) E♭dim over A♭ major scale
+     Chords: C, C/E, B, E♭7sus4
+   ("Guitar A♭ major scale", "Guitar E♭dim chord"); no chord or scale, the
+   list after the setup: "Guitar: C, C/E, B", or alone: "C, C/E, B" */
 function linkSummary({ neck = true, chord = true, scale = true, recent = false } = {}) {
+  const inst = instrument();
   const ch = chord ? currentChord() : null;
   const sc = scale ? currentScale() : null;
-  const what = [ch && ch.symbol, sc && `${sc.rootName} ${scaleTitle(sc.def)}`].filter(Boolean).join(' over ');
-  const chords = recent ? listNames() : [];
-  const list = chords.length > 1 ? `chords ${chords.slice(0, -1).join(', ')} and ${chords[chords.length - 1]}` : chords.length ? `chord list ${chords[0]}` : '';
-  const inst = instrument();
-  const setup = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
-  const on = neck ? ` on ${inst.name.toLowerCase()}${setup ? ` (${setup})` : ''}` : '';
-  return `${[what, list].filter(Boolean).join(', ') || (inst.piano ? 'The keys' : 'The neck')}${(what || list) && on ? ',' : ''}${on}`;
+  const tuned = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
+  const setup = neck ? `${inst.name}${tuned ? ` (${tuned})` : ''}` : '';
+  const scaleText = sc && `${sc.rootName} ${scaleTitle(sc.def)}${/ scale$/.test(scaleTitle(sc.def)) ? '' : ' scale'}`;   // (not "whole tone scale scale")
+  const what = ch && sc ? `${ch.symbol} over ${scaleText}` : sc ? scaleText : ch ? `${ch.symbol} chord` : '';
+  const chords = (recent ? listNames() : []).join(', ');
+  if (!what) return setup && chords ? `${setup}: ${chords}` : setup || chords;
+  return [[setup, what].filter(Boolean).join(' '), chords && `Chords: ${chords}`].filter(Boolean).join('\n');
 }
 const listNames = () => state.list.map(entrySymbol);
 
@@ -2120,6 +2125,8 @@ function openShare() {
 }
 function closeShare() {
   clearTimeout(shareTimer);
+  clearTimeout(textTimer);
+  resetShareText();
   if (els.share.close) els.share.close(); else els.share.removeAttribute('open');
 }
 // "Guitar (Drop D, capo 2)", "Ukulele (standard tuning, no capo)"
@@ -2158,6 +2165,7 @@ function renderShare() {
   const opts = shareChoice();
   els.shareGo.disabled = !Object.values(opts).some(Boolean);
   els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}${tx('Share link')}` : tx('Copy link');
+  els.shareText.disabled = els.shareGo.disabled;
 }
 function shareChoice() {
   return {
@@ -2174,18 +2182,44 @@ async function shareLink() {
     try { await navigator.share({ title: 'Frettle', text: linkSummary(opts), url }); closeShare(); } catch { /* closed */ }
     return;
   }
-  let copied = false;
-  try { await navigator.clipboard.writeText(url); copied = true; } catch {
+  shareDone(await copyText(url));
+}
+async function copyText(value) {   // true if copied
+  try { await navigator.clipboard.writeText(value); return true; } catch {
     const field = document.createElement('textarea');   // older browsers
-    field.value = url;
+    field.value = value;
     field.setAttribute('readonly', '');
     field.style.cssText = 'position:fixed;opacity:0';
     els.share.append(field);   // inside the popup: the page behind it cannot take focus
     field.select();
+    let copied = false;
     try { copied = document.execCommand('copy'); } catch { /* not allowed */ }
     field.remove();
+    return copied;
   }
-  shareDone(copied);
+}
+
+/* Copy text: the share sheet's text alone (see linkSummary), no link. The
+   popup stays open, its icon a tick for
+   a moment (not copied: a warning sign; in its icon, not the main button's
+   words, so the row keeps its width) */
+const COPY_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>';
+const WARN_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>';
+let textTimer = 0;
+let textStatusTimer = 0;
+async function shareTextOnly() {
+  const copied = await copyText(linkSummary(shareChoice()));
+  els.shareStatus.textContent = copied ? 'Text copied' : 'Could not copy the text';
+  clearTimeout(textStatusTimer);
+  textStatusTimer = setTimeout(() => { els.shareStatus.textContent = ''; }, 2000);
+  clearTimeout(textTimer);
+  els.shareText.querySelector('.ico').outerHTML = copied ? DONE_ICON : WARN_ICON;
+  els.shareText.classList.toggle('failed', !copied);
+  textTimer = setTimeout(resetShareText, copied ? 1600 : 2000);
+}
+function resetShareText() {   // (its icon only: "Text" stays)
+  els.shareText.querySelector('.ico').outerHTML = COPY_ICON;
+  els.shareText.classList.remove('failed');
 }
 
 /* Copied: the popup closes, and the Share button says so for a moment
@@ -5821,7 +5855,9 @@ function renderPiano(ch, sc) {
   els.neck.setAttribute('aria-label', `${inst.name} keys`);
   els.neck.parentElement.classList.remove('lefty');   // (a piano is not mirrored)
   // Its scale groups (Groups on): an octave each, picked as a neck's (see
-  // pickGroup); the notes past the one picked dimmer, as on a neck
+  // pickGroup); the one picked marked by a bar over its keys' far ends,
+  // over its keys only, not a black key just past either end (.group-bar),
+  // no note dimmer
   if (ui.groupInst !== state.instrument) {
     ui.groupInst = state.instrument;
     ui.groupAt = null;
@@ -5837,6 +5873,8 @@ function renderPiano(ch, sc) {
   const html = [];
   let white = 0;
   let pending = '';
+  let barFrom = '';
+  let barTo = '';
   for (let k = 0; k < inst.keys; k++) {
     const midi = inst.low + k;
     const pc = mod12(midi);
@@ -5856,8 +5894,12 @@ function renderPiano(ch, sc) {
     } else {
       cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';
     }
-    // (as a neck's: a note not in the scale never one of the group's; the chord's never dimmer)
-    if (range && ((cls.includes(' scale') && (k < range[0] || k > range[1])) || cls.includes(' off'))) cls += ' ungrouped';
+    // (the group's bar: from where its first key starts to where its last
+    // ends, at their far ends: a black key's sides; a white key's far end
+    // stops at the black key beside it, which is not in the group)
+    const blackBeside = (d) => k + d >= 0 && k + d < inst.keys && isBlack(mod12(midi + d));
+    if (range && k === range[0]) barFrom = black ? `calc(${white} * var(--wk) - var(--bk) / 2)` : `calc(${white} * var(--wk)${blackBeside(-1) ? ' + var(--bk) / 2' : ''})`;
+    if (range && k === range[1]) barTo = black ? `calc(${white} * var(--wk) + var(--bk) / 2)` : `calc(${white + 1} * var(--wk)${blackBeside(1) ? ' - var(--bk) / 2' : ''})`;
     let title = `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, key ${k + 1}`;
     if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
     const badge = deg ? `<span class="deg-badge" aria-hidden="true">${tx(fmtDeg(deg))}</span>` : '';
@@ -5873,6 +5915,7 @@ function renderPiano(ch, sc) {
       white++;
     }
   }
+  if (range) html.push(`<span class="group-bar" style="--from:${barFrom};--to:${barTo}" aria-hidden="true"></span>`);
   els.neck.style.setProperty('--whites', white);
   els.neck.innerHTML = html.join('');
   fitScroll();
@@ -5987,19 +6030,33 @@ function drawGroups() {
   // Work in (u, v): u runs along the strings (towards the body), v across them.
   // Along u, a cell is measured without its fret wire or nut (a border) and
   // the capo's padding: the note sits in the middle of what is left, so a
-  // group gets the same room before its first note as after its last.
+  // group gets the same room before its first note as after its last. The
+  // capo's cell has no room left before its notes (lifted off the capo bar):
+  // there the line goes past the wire (or nut) behind the capo, as far from
+  // it as the line keeps from a wire everywhere else, the wire inside.
+  const cellEl = (s, f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell)`);
   const cellBox = (s, f) => {
-    const cell = els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell)`);
+    const cell = cellEl(s, f);
     const r = cell.getBoundingClientRect();
     const cs = getComputedStyle(cell);
     const px = (prop) => parseFloat(cs[prop]) || 0;
-    return vertical
+    const b = vertical
       ? { u0: r.top - box.top + px('borderTopWidth') + px('paddingTop'),
         u1: r.bottom - box.top - px('borderBottomWidth') - px('paddingBottom'),
         v0: r.left - box.left, v1: r.right - box.left }
       : { u0: r.left - box.left + px('borderLeftWidth') + px('paddingLeft'),
         u1: r.right - box.left - px('borderRightWidth') - px('paddingRight'),
         v0: r.top - box.top, v1: r.bottom - box.top };
+    const behind = cell.classList.contains('capo') && cellEl(s, f - 1);
+    if (behind) {
+      const p = behind.getBoundingClientRect();
+      const ps = getComputedStyle(behind);
+      const past = 2 * GROUP_INSET;   // (the line: GROUP_INSET in from a box's edge; as far again past the wire)
+      if (vertical) b.u0 = p.bottom - box.top - parseFloat(ps.borderBottomWidth) - past;
+      else if (p.left < r.left) b.u0 = p.right - box.left - parseFloat(ps.borderRightWidth) - past;
+      else b.u1 = p.left - box.left + parseFloat(ps.borderLeftWidth) + past;   // (mirrored: the frets run leftwards)
+    }
+    return b;
   };
   layer.innerHTML = [group].map((g) => {   // one group at a time: the one picked
     const bars = g.bars.map(({ s, a, b, da = a, db = b }) => {   // (its outline: past its notes where a string shares no fret with the next)
@@ -6494,7 +6551,7 @@ function init() {
     'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
     'resetAll', 'resetAsk', 'resetWhat', 'resetAskClose', 'resetAskCancel', 'resetAskGo',
     'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecentCount', 'listClearRecentNames', 'listClearRecentGo', 'listClearCancel', 'listClearGo',
-    'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo',
+    'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo', 'shareText',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
     'namer', 'namerOpen', 'namerMute', 'namerUp', 'namerDown', 'namerAlt', 'namerClear', 'namerPrev', 'namerNext', 'namerSymbol', 'namerText', 'namerCaption', 'namerPlay', 'namerCancel', 'namerSelect',
@@ -6844,6 +6901,7 @@ function init() {
     btn.addEventListener('click', () => { state.share[key] = !state.share[key]; saveState(); renderShare(); });
   }
   els.shareGo.addEventListener('click', shareLink);
+  els.shareText.addEventListener('click', shareTextOnly);
   // Open link popup
   for (const [btn, key] of [[els.linkNeck, 'neck'], [els.linkChord, 'chord'], [els.linkScale, 'scale'], [els.linkList, 'recent']]) {
     btn.addEventListener('click', () => { pendingLink.parts[key] = !pendingLink.parts[key]; renderLinkPopup(); });

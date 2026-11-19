@@ -315,17 +315,22 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 }
 
 /* Share and Load link popups: a little wider than the menus, Cancel and
-   the main button side by side */
+   the main button side by side (in Share, Copy text before them: a
+   .side-action, as the tuning popup's Save) */
 .picker.share { width: min(440px, calc(100vw - 24px)); }
 .about-links.share-actions { flex-direction: row; justify-content: center; gap: var(--sp-3); }
-.share-actions .btn { min-width: 120px; }
+.share-actions .btn:not(.icon) { flex: 0 1 120px; }   /* 120px wide, narrower if there is no room (never than its words) */
+#shareText.failed { color: var(--warn); }
 .about-links[hidden] { display: none; }
 
-/* Tuning popup: Save (a bookmark on phones, with its word on wide
-   screens), and the field for its name that takes the buttons' place */
-.share-actions .btn.tune-save { min-width: 0; }
+/* Tuning popup: Save (a .side-action: a bookmark on phones, with its word
+   on wide screens), and the field for its name that takes the buttons' place */
 .about-links.tune-naming { flex-direction: column; align-items: stretch; gap: var(--sp-3); }   /* the field on its own line, the buttons under it (all screens) */
 .tune-naming .share-actions { display: flex; justify-content: center; gap: var(--sp-3); }
+@media (max-width: 359px) {   /* the narrowest phones: action rows a little tighter */
+  .about-links.share-actions, .tune-naming .share-actions { column-gap: var(--sp-2); }
+  .share-actions .btn:not(.icon) { padding-inline: 10px; }
+}
 .text-input {
   width: 100%;
   height: var(--control-h);
@@ -977,6 +982,10 @@ button, a { scroll-margin: 6px; }
 /* Tapped, or played: at full strength while it sounds (as long as a note
    peeks, see .peek), then back to dim */
 .note.ungrouped.ping { animation: ping-pop 450ms ease-out, undim 1400ms ease-out; }
+/* Phones, naming a chord: the group's outline hidden (see body.naming), so
+   no note dimmer either */
+body.naming .neck.vertical .note.ungrouped { --undim: 100%; }
+body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease-out; }
 @keyframes undim { 0%, 70% { --undim: 100%; } 100% { --undim: 70%; } }
 .note.out.peek { visibility: visible; animation: peek 1400ms ease-out forwards; }   /* shown a moment, then a short fade */
 @keyframes peek {
@@ -1124,6 +1133,14 @@ button, a { scroll-margin: 6px; }
 .neck.piano.whole-tone.vertical .oct-label { top: calc(var(--i) * var(--wk) + var(--bk) / 2); height: calc(var(--wk) - var(--bk)); }
 .neck.piano.whole-tone.vertical .oct-label.first { top: calc(var(--i) * var(--wk)); height: calc(var(--wk) - var(--bk) / 2); }
 .neck.piano.whole-tone.vertical .oct-label.last { height: calc(var(--wk) - var(--bk) / 2); }
+/* A keyboard's scale group (an octave): a bar in the scale's colour over
+   its keys' far ends, over the group's keys only, not a black key just
+   past either end (--from, --to: set by script.js), clear of the octave
+   numbers and the
+   notes; taps go to the keys under it */
+.group-bar { position: absolute; z-index: 1; background: var(--scale); pointer-events: none; }
+.neck.piano.horizontal .group-bar { top: var(--ruler-row); height: 5px; left: var(--from); width: calc(var(--to) - var(--from)); border-radius: 0 0 2px 2px; }
+.neck.piano.vertical .group-bar { right: var(--oct-w); width: 5px; top: var(--from); height: calc(var(--to) - var(--from)); border-radius: 2px 0 0 2px; }
 /* A keyboard has no tuning, capo, mirror image or octave shading: their
    controls go (its octave numbers always show; its groups, an octave each:
    see keyboardGroups) */
@@ -1725,7 +1742,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 .namer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); padding: var(--sp-2) 0; }
 .namer-actions .btn { height: var(--chip-h); }
 body.naming .dock-recent, body.naming .dock-shape, body.naming .tabs, body.naming .sheet,
-body.naming .share-btn, body.naming .neck.vertical .group-layer { display: none; }
+body.naming .share-btn, body.naming .neck.vertical .group-layer, body.naming .neck.vertical .group-bar { display: none; }
 body.naming .inst-btn { border-color: transparent; background: transparent; cursor: default; }
 body.naming .inst-btn::after { display: none; }   /* no arrow: not a menu meanwhile */
 body.naming .neck-panel { border-color: var(--accent); }
@@ -2112,7 +2129,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn.deselect { width: auto; padding: 0 14px; }
   .btn-label { display: inline; }
   .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }
-  .btn.tune-save { width: auto; padding: 0 14px; }   /* the bookmark and "Save" */
+  .btn.side-action { width: auto; padding: 0 14px; }   /* the bookmark and "Save", the copy icon and "Text" */
   /* A long tuning name (a saved one) is cut short in the neck's header */
   #tuningSelect { max-width: 220px; }
   .neck-title .inst-tuning { max-width: 220px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */

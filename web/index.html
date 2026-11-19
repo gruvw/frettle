@@ -418,6 +418,8 @@
       </button>
     </div>
     <div class="about-links share-actions">
+      <!-- Copy text: the text alone, no link (an icon on phones) -->
+      <button type="button" id="shareText" class="btn icon side-action" aria-label="Copy text" title="Copy the text without the link"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg><span class="btn-label">Text</span></button>
       <button type="button" id="shareCancel" class="btn"><span class="tx">Cancel</span></button>
       <button type="button" id="shareGo" class="btn primary"><span class="tx">Copy link</span></button>
     </div>
@@ -474,7 +476,7 @@
     </div>
     <div id="tuneActions" class="about-links share-actions">
       <!-- Save: keep the tuning under a name, in the tuning menu (a bookmark on phones) -->
-      <button type="button" id="tuneSave" class="btn icon tune-save" aria-label="Save" title="Save this tuning under a name"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg><span class="btn-label">Save</span></button>
+      <button type="button" id="tuneSave" class="btn icon side-action" aria-label="Save" title="Save this tuning under a name"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg><span class="btn-label">Save</span></button>
       <button type="button" id="tuneCancel" class="btn"><span class="tx">Cancel</span></button>
       <button type="button" id="tuneDone" class="btn primary"><span class="tx">Select</span></button>
     </div>
