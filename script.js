@@ -37,10 +37,14 @@ const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A
    short neck, where the fingers stretch further (see stretchOk); `fifths`:
    tuned in fifths, which changes scale groups; `dots`: inlay frets, if not a
    guitar's.
-   The piano has keys, not strings (`piano`): its 88 keys from A0 (MIDI 21)
-   to C8 (108). No tuning, capo or groups; a chord's shapes are its notes
-   close together, one place on the keyboard after another (pianoShapes),
-   written as key numbers counted from its lowest key (0 to 87). */
+   A keyboard has keys, not strings (`piano`): `keys` of them from MIDI `low`
+   up. The piano: 88, from A0 (21) to C8 (108), white keys and black as a
+   piano's (7 and 5 an octave); the Uniso: 97, from C0 (12) to C8, a 6-6
+   whole-tone keyboard (`wholeTone`: 6 white keys an octave, C D E F♯ G♯
+   A♯, and 6 black keys, C♯ D♯ F G A B, one between each two whites). No
+   tuning, capo or groups; a chord's shapes are its notes close together,
+   one place on the keyboard after another (pianoShapes), written as key
+   numbers counted from its lowest key (the piano's 0 to 87). */
 const PIANO_LOW = 21;
 const PIANO_KEYS = 88;
 const INSTRUMENTS = [
@@ -50,7 +54,8 @@ const INSTRUMENTS = [
   { id: 'bass5', family: 'Bass', name: '5-string Bass', short: '5-string', strings: [23, 28, 33, 38, 43], frets: 24 },
   { id: 'ukulele', family: 'Ukulele', name: 'Ukulele', short: 'Ukulele', strings: [67, 60, 64, 69], frets: 18, smallFrets: true },
   { id: 'baritone', family: 'Ukulele', name: 'Baritone Ukulele', short: 'Baritone', strings: [50, 55, 59, 64], frets: 18, smallFrets: true },
-  { id: 'piano', family: 'Piano', name: 'Piano', short: 'Piano', strings: [], frets: 0, piano: true },
+  { id: 'piano', family: 'Keyboard', name: 'Piano', short: 'Piano', strings: [], frets: 0, piano: true, low: PIANO_LOW, keys: PIANO_KEYS },
+  { id: 'uniso', family: 'Keyboard', name: 'Uniso', short: 'Uniso', strings: [], frets: 0, piano: true, low: 12, keys: 97, wholeTone: true },
   { id: 'mandolin', family: 'Mandolin', name: 'Mandolin', short: 'Mandolin', strings: [55, 62, 69, 76], frets: 24, span: 5, smallFrets: true, fifths: true },
   { id: 'mandola', family: 'Mandolin', name: 'Mandola', short: 'Mandola', strings: [48, 55, 62, 69], frets: 24, span: 5, smallFrets: true, fifths: true },
   { id: 'banjo', family: 'Banjo', name: 'Banjo', short: 'Banjo', strings: [67, 50, 55, 59, 62], starts: [5, 0, 0, 0, 0], frets: 22,
@@ -142,7 +147,7 @@ function tunedInstrument(id, tuningId = 'standard') {
    Ukulele chords (re-entrant G), baritone, mandolin, mandola and banjo chords
    often have another note lowest (the banjo's open G chord has D in the bass). */
 const DEFAULT_INVERSION = {
-  guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any', mandola: 'any', banjo: 'any', piano: '0' };
+  guitar: '0', guitar7: '0', bass: '0', bass5: '0', ukulele: 'any', baritone: 'any', mandolin: 'any', mandola: 'any', banjo: 'any', piano: '0', uniso: '0' };
 const MAX_CAPO = 12;
 const SINGLE_DOTS = [3, 5, 7, 9, 15, 17, 19, 21];
 const DOUBLE_DOTS = [12, 24];
@@ -850,8 +855,10 @@ const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape
    E4; "any bass note": in root position), then the others up the keyboard, then on from its bottom: the arrows
    move up an octave at a time and come round. An octave alone (one note)
    is played as two, the octave apart.
-   Returns [{ frets: keys from A0 (0) up, pos: the lowest, piano: true }]. */
-function pianoShapes(rootPc, def, inversion) {
+   Returns [{ frets: keys from its lowest (0) up, pos: the lowest, piano:
+   true }], on the keyboard `inst` (the piano by default). */
+function pianoShapes(rootPc, def, inversion, inst = findInstrument('piano')) {
+  const { low: LOW, keys: KEYS } = inst;
   const steps = def.span ? [0, def.span] : def.steps;
   const basses = def.span ? [0].filter(() => inversion === 'any' || !Number(inversion))   // (an interval of a set span: its root in the bass)
     : inversion === 'any' ? def.steps.map((_, i) => i) : [Number(inversion) || 0].filter((i) => i < def.steps.length);
@@ -860,22 +867,23 @@ function pianoShapes(rootPc, def, inversion) {
     const bass = steps[b];
     const up = steps.map((st) => { let x = st; while (x < bass || (x === bass && st !== bass)) x += 12; return x - bass; });
     const offsets = [...new Set(up)].sort((x, y) => x - y);   // (the bass first: 0)
-    for (let low = PIANO_LOW + mod12(rootPc + bass - PIANO_LOW); low + offsets[offsets.length - 1] < PIANO_LOW + PIANO_KEYS; low += 12) {
-      shapes.push({ frets: offsets.map((o) => low + o - PIANO_LOW), pos: low - PIANO_LOW, piano: true });
+    for (let low = LOW + mod12(rootPc + bass - LOW); low + offsets[offsets.length - 1] < LOW + KEYS; low += 12) {
+      shapes.push({ frets: offsets.map((o) => low + o - LOW), pos: low - LOW, piano: true });
     }
   }
   return shapes.sort((x, y) => x.pos - y.pos || keysMid(x) - keysMid(y));   // low to high
 }
-const keysMid = (sh) => sh.frets.reduce((sum, k) => sum + k, 0) / sh.frets.length + PIANO_LOW;   // a piano shape's middle (MIDI)
+const keysMid = (sh, low = 0) => sh.frets.reduce((sum, k) => sum + k, 0) / sh.frets.length + low;   // a keyboard shape's middle (MIDI, from its lowest key `low`)
 /* The shape a chord starts on (its first shape, a fresh chord or "back to
    the first"): the finder's first on a neck; on the piano, where they go
    low to high, the one around middle C (with "Any bass note", in root
    position) */
 function homeShape(shapes, root, inversion) {
   if (!shapes.length || !shapes[0].piano) return 0;
-  const found = shapes.filter((sh) => !sh.drawn && (inversion !== 'any' || mod12(sh.frets[0] + PIANO_LOW) === mod12(root)));
+  const { low } = instrument();
+  const found = shapes.filter((sh) => !sh.drawn && (inversion !== 'any' || mod12(sh.frets[0] + low) === mod12(root)));
   if (!found.length) return 0;
-  const home = found.reduce((best, sh) => (Math.abs(keysMid(sh) - 64) < Math.abs(keysMid(best) - 64) ? sh : best));
+  const home = found.reduce((best, sh) => (Math.abs(keysMid(sh, low) - 64) < Math.abs(keysMid(best, low) - 64) ? sh : best));
   return shapes.indexOf(home);
 }
 
@@ -955,7 +963,7 @@ const customDefs = new Map();
 /* One note in octaves: an interval too, a type of its own for each span
    (C3 and C4: C(P8), an octave; C3 and C5: C(P15), two octaves), its id
    the interval's number ("i-8", "i-15"); its shapes span just that */
-const OCTAVE_MAX = 7;   // (a piano's keys)
+const OCTAVE_MAX = 8;   // (a keyboard's keys: the Uniso's C0 to C8)
 const OCTAVE_WORDS = [null, 'Perfect octave', 'Double octave', 'Triple octave'];
 const octaveDefs = new Map();
 /* Two notes more than an octave apart, the same way: C4 and D5, C(M9), a
@@ -1632,7 +1640,7 @@ function applyLink(search, parts = null, fresh = false) {
       const piano = Boolean(findInstrument(linkInst).piano);
       const tuned = tuningsOf(linkInst).find((t) => t.id === readTuning(linkInst, p.get('tuning')));
       const strings = piano ? [] : readCustom(linkInst, p.get('tuning')) || (tuned || tuningsOf(linkInst)[0]).strings;
-      const lift = piano ? PIANO_LOW : readCapo(p.get('capo') || 0, linkInst) || 0;
+      const lift = piano ? findInstrument(linkInst).low : readCapo(p.get('capo') || 0, linkInst) || 0;
       const neck = { ...findInstrument(linkInst), strings };
       const notes = piano ? frets.map((k) => lift + k) : frets.map((f, i) => (f < 0 || strings[i] === undefined ? null : shapePitch(neck, i, f) + lift)).filter((m) => m !== null);
       if (notes.length) {
@@ -2278,7 +2286,7 @@ function chordShapes(root, def, inversion = inversionFor(def)) {
   const key = [inst.id, inst.strings.join(','), capo(), mod12(root), def.id, inversion].join('|');
   if (!shapesMemo.has(key)) {
     if (shapesMemo.size > 200) shapesMemo.clear();
-    shapesMemo.set(key, inst.piano ? pianoShapes(mod12(root), def, inversion) : findShapes(inst, root, def, inversion));
+    shapesMemo.set(key, inst.piano ? pianoShapes(mod12(root), def, inversion, inst) : findShapes(inst, root, def, inversion));
   }
   return shapesMemo.get(key);
 }
@@ -2408,7 +2416,7 @@ let shownChord;          // instrument and chord at the last render
 let openEntry = null;    // the recent chord a root pick made, which the next type pick may still edit
 let menuPick = '';       // how the chord on screen was just picked: 'root', 'type', 'both' or 'other' (menus)
 let chipPick = false;    // ... or from its chip
-const shapeContext = (def = findChord(state.chord.type), inversion = inversionFor(def)) => [instrument().strings, capo(), inversion].join('|');
+const shapeContext = (def = findChord(state.chord.type), inversion = inversionFor(def)) => [instrument().piano ? instrument().id : instrument().strings, capo(), inversion].join('|');
 /* Custom shapes: drawn in Name a chord, when the shape finder does not list
    them. Kept per chord and neck (open strings and capo: the same frets on
    another neck are other notes), the last DRAWN_MAX: a chip remembering
@@ -2418,8 +2426,8 @@ const shapeContext = (def = findChord(state.chord.type), inversion = inversionFo
    are shown. Saved and shared (as frets) like any shape. Kept while in use
    (see pruneDrawn). */
 const DRAWN_MAX = 40;
-const NECK_RE = /^(-?\d+(,-?\d+)*|piano)\|\d+$/;
-const neckContext = () => [instrument().piano ? 'piano' : instrument().strings, capo()].join('|');
+const NECK_RE = /^(-?\d+(,-?\d+)*|piano|uniso)\|\d+$/;
+const neckContext = () => [instrument().piano ? instrument().id : instrument().strings, capo()].join('|');   // (a keyboard: its name, its keys counted from its own lowest)
 const readFrets = (text) => String(text).split('-').map((f) => (f === 'x' ? -1 : Number(f)));
 // A chord's custom shapes on this neck: their frets, one per bass note
 function drawnFrets(root, type) {
@@ -2459,7 +2467,7 @@ function pruneDrawn() {
 // first (the piano: its keys, low to high)
 const shapeMidis = (frets) => {
   const inst = cappedInstrument();
-  if (inst.piano) return frets.map((k) => PIANO_LOW + k);
+  if (inst.piano) return frets.map((k) => inst.low + k);
   return frets.map((f, s) => (f < 0 ? null : shapePitch(inst, s, f))).filter((m) => m !== null);
 };
 /* A chord's name, the way it is written everywhere (chips, panels, links,
@@ -2499,7 +2507,7 @@ function legacyBass(r) {
 // (spell: the chord's spelling the key is named in; the chord on screen's by default)
 const chordOnSpell = () => (state.chord.on ? chordSpelling(state.chord.root, findChord(state.chord.type), state.chord.letter) : null);
 const pianoName = (k, spell = chordOnSpell()) => {
-  const m = PIANO_LOW + k;
+  const m = instrument().low + k;
   return pitchText(m, (spell && spell.names.get(mod12(m))) || plainNote(m, state.flats));
 };
 const shapeTab = (shape, spell = chordOnSpell()) => (shape.piano ? shape.frets.map((k) => pianoName(k, spell)).join(' ') : tabOf(shape));
@@ -2512,8 +2520,8 @@ function playsChord(root, def, frets) {
   const inst = cappedInstrument();
   const pcs0 = new Set(chordTones(root, def).map((t) => t.pc));
   if (inst.piano) {
-    return frets.length >= 2 && frets.every((k, i) => Number.isInteger(k) && k >= 0 && k < PIANO_KEYS && (!i || k > frets[i - 1]))
-      && frets.every((k) => pcs0.has(mod12(PIANO_LOW + k)));
+    return frets.length >= 2 && frets.every((k, i) => Number.isInteger(k) && k >= 0 && k < inst.keys && (!i || k > frets[i - 1]))
+      && frets.every((k) => pcs0.has(mod12(inst.low + k)));
   }
   if (frets.length !== inst.strings.length) return false;
   if (frets.some((f, s) => !Number.isInteger(f) || f < -1 || f > inst.frets || (f > 0 && f <= startFret(inst, s)))) return false;   // (a drone: fretted past its start)
@@ -3045,12 +3053,19 @@ function selectShape(index) {
    root or type, tuning or capo): the group that starts at the same fret if
    there is one, else the nearest (the one whose middle is nearest of two
    as near). Before any pick, on another instrument, or with the capo taken
-   off: the first group (nearest the nut). */
-const groupFrets = (g) => [Math.min(...g.bars.map((b) => b.a)), Math.max(...g.bars.map((b) => b.b))];
+   off: the first group (nearest the nut); on a keyboard, the one about
+   middle C, as its chord's home shape is (homeShape: its notes' middle
+   nearest E4). A keyboard's groups (keyboardGroups): by their keys, as a
+   neck's by their frets. */
+const groupFrets = (g) => (g.keys ? g.keys : [Math.min(...g.bars.map((b) => b.a)), Math.max(...g.bars.map((b) => b.b))]);
 const groupMid = (g) => { const [a, b] = groupFrets(g); return (a + b) / 2; };
 function pickGroup(groups) {
   if (!groups.length) return -1;
-  if (ui.groupAt === null) return 0;
+  if (ui.groupAt === null) {
+    if (!groups[0].keys) return 0;
+    const far = (g) => Math.abs(g.mid - 64);
+    return groups.reduce((best, g, i) => (far(g) < far(groups[best]) ? i : best), 0);
+  }
   const far = (g) => [Math.abs(groupFrets(g)[0] - ui.groupAt.low), Math.abs(groupMid(g) - ui.groupAt.mid)];
   let best = 0;
   groups.forEach((g, i) => {
@@ -3070,8 +3085,25 @@ function selectGroup(index) {
   render();
 }
 /* "Open" (a note at the nut, or at the capo), else its lowest fret, counted
-   from the capo like a chord shape's */
-const groupPlace = (g, capo) => (g.bars.some((b) => b.a === capo) ? 'open' : `fret ${groupFrets(g)[0] - capo}`);
+   from the capo like a chord shape's; a keyboard's: its root ("C4") */
+const groupPlace = (g, capo) => (g.keys ? groupKeyName(g.keys[0]) : g.bars.some((b) => b.a === capo) ? 'open' : `fret ${groupFrets(g)[0] - capo}`);
+const groupKeyName = (k) => pianoName(k, (currentScale() || {}).spell);   // (a key of a keyboard's group: named as in the scale)
+// Where a group lies, as its stepper and chip say: "Frets 2 to 5", "C4 to C5"
+const groupSpan = (g, capo) => (g.keys ? `${groupKeyName(g.keys[0])} to ${groupKeyName(g.keys[1])}` : `Frets ${groupFrets(g)[0] - capo} to ${groupFrets(g)[1] - capo}`);
+
+/* A keyboard's scale groups: an octave each, from the scale's root to the
+   next (both in it: played root to root), every one the keyboard holds,
+   low to high, with its notes' middle (mid, MIDI: see pickGroup). Shown by
+   dimming the notes past it (no outline). */
+function keyboardGroups(inst, sc) {
+  const groups = [];
+  for (let m = inst.low + mod12(sc.root - inst.low); m + 12 < inst.low + inst.keys; m += 12) {
+    const notes = [];
+    for (let x = m; x <= m + 12; x++) if (sc.set.has(mod12(x))) notes.push(x);
+    groups.push({ keys: [m - inst.low, m + 12 - inst.low], mid: notes.reduce((sum, x) => sum + x, 0) / notes.length });
+  }
+  return groups;
+}
 
 /* ==========================================================================
    4. Sound
@@ -3140,7 +3172,7 @@ function warmUp(ch, sc) {
   const piano = Boolean(inst.piano);
   const first = [...(ch && ch.shape ? shapeMidis(ch.shape.frets) : []), ...(sc ? scalePitches(sc) : [])];
   const all = [];
-  if (piano) for (let k = 0; k < PIANO_KEYS; k++) all.push(PIANO_LOW + k);
+  if (piano) for (let k = 0; k < inst.keys; k++) all.push(inst.low + k);
   else inst.strings.forEach((_, s) => { for (let f = startFret(inst, s); f <= inst.frets; f++) all.push(fretPitch(inst, s, f)); });
   all.sort((a, b) => Math.abs(a - 64) - Math.abs(b - 64));
   const cache = piano ? pianoCache : pluckCache;
@@ -3488,9 +3520,9 @@ function setupNeckTaps() {
   };
   const play = (cell) => {
     if (naming) { namerTap(cell); return; }
-    if (cell.dataset.key !== undefined) {   // a piano key
+    if (cell.dataset.key !== undefined) {   // a keyboard's key
       const k = Number(cell.dataset.key);
-      playNote(PIANO_LOW + k);
+      playNote(instrument().low + k);
       flashKey(k);
       if (cell.querySelector('.note.chord, .note.ghost')) keepChord();
       return;
@@ -3592,7 +3624,7 @@ function strumFrets(frets) {
   const inst = instrument();
   if (inst.piano) {   // the keys together, rolled a little, low to high
     frets.forEach((k, i) => {
-      playNote(PIANO_LOW + k, i * ROLL_GAP, 0.6);   // (louder than a strum's notes: a piano chord has fewer, as loud in all)
+      playNote(inst.low + k, i * ROLL_GAP, 0.6);   // (louder than a strum's notes: a piano chord has fewer, as loud in all)
       flashKey(k, i * ROLL_GAP);
     });
     return;
@@ -3719,7 +3751,7 @@ function namerTap(cell) {
     naming.frets = on ? [...naming.frets, k].sort((a, b) => a - b) : naming.frets.filter((x) => x !== k);
     namerRepick();
     const sound = on && !state.muteTaps;
-    if (sound) playNote(PIANO_LOW + k);
+    if (sound) playNote(inst.low + k);
     render();
     if (sound) flashKey(k);
     return;
@@ -3750,7 +3782,7 @@ function namerMoved(step) {
   const inst = instrument();
   if (inst.piano) {
     const keys = naming.frets.map((k) => k + step);
-    return keys.length && keys.every((k) => k >= 0 && k < PIANO_KEYS) ? keys : null;
+    return keys.length && keys.every((k) => k >= 0 && k < inst.keys) ? keys : null;
   }
   if (!naming.frets.some((f) => f >= 0)) return null;
   const top = cappedInstrument().frets;
@@ -3871,20 +3903,24 @@ function playGroup() {
   stopScale();
   const inst = instrument();
   const notes = [];
-  for (const { s, a, b } of g.bars) {   // (its strings in group order)
-    for (let f = a; f <= b; f++) if (sc.set.has(mod12(fretPitch(inst, s, f)))) notes.push({ s, f, midi: fretPitch(inst, s, f) });
+  if (g.keys) {   // a keyboard's: its keys in the scale, low to high
+    for (let k = g.keys[0]; k <= g.keys[1]; k++) if (sc.set.has(mod12(inst.low + k))) notes.push({ k, midi: inst.low + k });
+  } else {
+    for (const { s, a, b } of g.bars) {   // (its strings in group order)
+      for (let f = a; f <= b; f++) if (sc.set.has(mod12(fretPitch(inst, s, f)))) notes.push({ s, f, midi: fretPitch(inst, s, f) });
+    }
   }
   groupRun = { key: groupKey(g, sc), sources: [], timers: [] };
   notes.forEach((x, i) => {
     groupRun.sources.push(playNote(x.midi, i * GROUP_GAP, 0.5));
-    groupRun.timers.push(setTimeout(() => flashCell(x.s, x.f), i * GROUP_GAP * 1000));
+    groupRun.timers.push(setTimeout(() => (g.keys ? flashKey(x.k) : flashCell(x.s, x.f)), i * GROUP_GAP * 1000));
   });
   // Done once the last note has started: it rings on, and Play is back
   groupRun.timers.push(setTimeout(() => { groupRun = null; renderGroupPlay(); }, (notes.length - 1) * GROUP_GAP * 1000 + 50));
   renderGroupPlay();
 }
 // The group as played: another scale, tuning, capo or group stops it (see draw)
-const groupKey = (g, sc) => (g && sc ? [scaleKey(sc), g.bars.map((b) => `${b.s}:${b.a}-${b.b}`)].join('|') : '');
+const groupKey = (g, sc) => (g && sc ? [scaleKey(sc), g.keys ? `keys:${g.keys.join('-')}` : g.bars.map((b) => `${b.s}:${b.a}-${b.b}`)].join('|') : '');
 function stopGroup() {
   if (!groupRun) return;
   for (const src of groupRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
@@ -4110,7 +4146,7 @@ function focusNotes() {
   if (ui.focus === 'group' && group.length) return group;
   if (chord.length) return chord;
   if (group.length) return group;
-  return instrument().piano ? [els.neck.querySelector(`.key[data-key="${60 - PIANO_LOW}"]`)].filter(Boolean) : [];
+  return instrument().piano ? [els.neck.querySelector(`.key[data-key="${60 - instrument().low}"]`)].filter(Boolean) : [];
 }
 function revealFocus(behavior = 'smooth') {
   const notes = focusNotes();
@@ -4145,8 +4181,10 @@ function refocus() {
   placeStrip();   // (the open strings where the neck now sits, at once)
 }
 
-// A scale group's notes on the neck: each string's first and last
+// A scale group's notes on the neck: each string's first and last (a
+// keyboard's: its first and last key)
 function groupNotes(g) {
+  if (g.keys) return g.keys.map((k) => els.neck.querySelector(`.key[data-key="${k}"] .note`)).filter(Boolean);
   return g.bars.flatMap(({ s, a, b }) => [a, b].map((f) => els.neck.querySelector(`.cell[data-s="${s}"][data-f="${f}"]:not(.strip-cell) .note`))).filter(Boolean);
 }
 
@@ -4865,13 +4903,12 @@ function fillStepper(bar, mode, ch, sc) {
   bar.play.querySelector('.strum-label').textContent = playText;
   if (mode !== 'group') bar.play.querySelector('.ico').outerHTML = PLAY_ICON;   // (the dock's, back from a group's Stop)
   if (group) {
-    const [a, b] = groupFrets(group).map((f) => f - capo());   // counted from the capo
     bar.prev.disabled = bar.next.disabled = ui.groups.length < 2;
     bar.play.disabled = false;
     bar.symbol.innerHTML = tx(sc.rootName);
     const n = `${ui.group + 1}/${ui.groups.length}`;
-    bar.tab.innerHTML = `<span class="dock-count" ${fitsAttr([`Group ${n}, ${groupPlace(group, capo())}`, `Group ${n}`, n])}></span>` +
-      `<span class="dock-main dock-words">Frets ${a} to ${b}</span>`;
+    bar.tab.innerHTML = `<span class="dock-count" ${fitsAttr([...(group.keys ? [] : [`Group ${n}, ${groupPlace(group, capo())}`]), `Group ${n}`, n])}></span>` +   // (a keyboard's place: in its span)
+      `<span class="dock-main dock-words">${esc(groupSpan(group, capo()))}</span>`;   // (frets counted from the capo)
   } else {
     const many = Boolean(ch && ch.shapes.length > 1);
     bar.prev.disabled = bar.next.disabled = !many;
@@ -4932,7 +4969,7 @@ function renderDock(ch, sc) {
   // (the piano: its keys, nothing to tune)
   const tuning = instrument().tuning;
   const piano = Boolean(instrument().piano);
-  els.tabNeckValue.textContent = piano ? '88 keys' : capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
+  els.tabNeckValue.textContent = piano ? `${instrument().keys} keys` : capo() ? `Capo ${capo()}` : tuningName(instrument()) ? tuning.short || tuning.name : 'Standard';
 
   const open = !isWide() && ui.tab !== null;
   for (const tab of els.tabs) tab.setAttribute('aria-pressed', String(open && tab.dataset.tab === ui.tab));
@@ -5126,7 +5163,7 @@ function setupFolds() {
 function renderHeader() {
   const inst = instrument();
   document.body.classList.toggle('piano', Boolean(inst.piano));   // (styles.css hides what a piano has no use for)
-  els.neck.closest('.neck-panel').setAttribute('aria-label', inst.piano ? 'Piano' : 'Fretboard');
+  els.neck.closest('.neck-panel').setAttribute('aria-label', inst.piano ? inst.name : 'Fretboard');
   const tuned = tuningName(inst);
   els.instrumentPicker.innerHTML = `<span class="inst-label"><span class="inst-name">${esc(inst.name)}</span>` +
     (tuned ? ` <span class="inst-tuning">${esc(tuned)}</span>` : '') + '</span>';   // (the space: phones, where they wrap)
@@ -5763,23 +5800,35 @@ function renderNeck(ch, sc) {
   placeStrip();
 }
 
-/* The piano: its 88 keys, low to high (phones: from the top down, the
-   keys' fronts on the left by the octave numbers; wide screens: from left
-   to right, the octave numbers above). Each key's note is a pill as on the
-   neck: on a white key in the part in front of the black keys, on a black
-   key near its front. Sizes and places are in styles.css, from each key's
-   place among the white keys (--i: a white key's own, a black key's the
-   white key it starts on). The octave's number sits by its first key (A0,
-   then each C). */
+/* A keyboard (the piano, the Uniso): its keys, low to high (phones: from
+   the top down, the keys' fronts on the left by the octave numbers; wide
+   screens: from left to right, the octave numbers above). Each key's note
+   is a pill as on the neck: on a white key in the part in front of the
+   black keys, on a black key near its front. Sizes and places are in
+   styles.css, from each key's place among the white keys (--i: a white
+   key's own, a black key's the white key it starts on), the same on both
+   keyboards (a white key as wide, a black key as narrow and short): the
+   Uniso's black keys one between each two white keys, its C and F keys
+   grey (.marked), as its own are. The octave's number sits by its C. */
 const BLACK_PCS = new Set([1, 3, 6, 8, 10]);
+const keysText = (inst) => `${inst.keys} keys, ${[inst.low, inst.low + inst.keys - 1].map((m) => pitchText(m, plainNote(m))).join(' to ')}`;   // ("88 keys, A0 to C8")
 function renderPiano(ch, sc) {
+  const inst = instrument();
   const vertical = !isWide();
-  els.neck.className = `neck piano ${vertical ? 'vertical' : 'horizontal'}`;
+  const isBlack = (pc) => (inst.wholeTone ? pc % 2 === 1 : BLACK_PCS.has(pc));
+  els.neck.className = `neck piano${inst.wholeTone ? ' whole-tone' : ''} ${vertical ? 'vertical' : 'horizontal'}`;
   els.neck.removeAttribute('style');   // (the neck's grid)
-  els.neck.setAttribute('aria-label', 'Piano keys');
+  els.neck.setAttribute('aria-label', `${inst.name} keys`);
   els.neck.parentElement.classList.remove('lefty');   // (a piano is not mirrored)
-  ui.groups = [];
-  ui.group = -1;
+  // Its scale groups (Groups on): an octave each, picked as a neck's (see
+  // pickGroup); the notes past the one picked dimmer, as on a neck
+  if (ui.groupInst !== state.instrument) {
+    ui.groupInst = state.instrument;
+    ui.groupAt = null;
+  }
+  ui.groups = sc && state.scaleGroups && sc.def.steps.length < 12 ? keyboardGroups(inst, sc) : [];
+  ui.group = pickGroup(ui.groups);
+  const range = ui.groups[ui.group] ? ui.groups[ui.group].keys : null;
   const offKey = offKeyTest(sc);
   const onlyScale = Boolean(sc && state.scaleOnly);
   const keyFlats = sc ? sc.spell.flats : ch && ch.spell.flats !== undefined ? ch.spell.flats : state.flats;   // (as the neck's)
@@ -5788,12 +5837,12 @@ function renderPiano(ch, sc) {
   const html = [];
   let white = 0;
   let pending = '';
-  for (let k = 0; k < PIANO_KEYS; k++) {
-    const midi = PIANO_LOW + k;
+  for (let k = 0; k < inst.keys; k++) {
+    const midi = inst.low + k;
     const pc = mod12(midi);
-    const black = BLACK_PCS.has(pc);
+    const black = isBlack(pc);
     const octave = Math.floor(midi / 12) - 1;
-    if (pc === 0) html.push(`<span class="oct-label${octave === 4 ? ' mid' : ''}${k === PIANO_KEYS - 1 ? ' last' : ''}" style="--i:${white}" title="Octave ${octave}${octave === 4 ? ', middle C' : ''}">${tx(String(octave))}</span>`);   // (at each C: the few keys of octave 0 go without)
+    if (pc === 0) html.push(`<span class="oct-label${octave === 4 ? ' mid' : ''}${k === 0 ? ' first' : ''}${k === inst.keys - 1 ? ' last' : ''}" style="--i:${white}" title="Octave ${octave}${octave === 4 ? ', middle C' : ''}">${tx(String(octave))}</span>`);   // (at each C: the piano's few keys of octave 0 go without)
     let cls = 'note';
     let n = plainNote(pc, keyFlats);
     let deg = null;
@@ -5807,10 +5856,12 @@ function renderPiano(ch, sc) {
     } else {
       cls += onlyScale ? ' plain out' : sc ? ' plain off' : ' plain';
     }
+    // (as a neck's: a note not in the scale never one of the group's; the chord's never dimmer)
+    if (range && ((cls.includes(' scale') && (k < range[0] || k > range[1])) || cls.includes(' off'))) cls += ' ungrouped';
     let title = `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, key ${k + 1}`;
     if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
     const badge = deg ? `<span class="deg-badge" aria-hidden="true">${tx(fmtDeg(deg))}</span>` : '';
-    const key = `<div class="key ${black ? 'black' : 'white'}" data-key="${k}" style="--i:${white}">` +
+    const key = `<div class="key ${black ? 'black' : 'white'}${inst.wholeTone && (pc === 0 || pc === 5) ? ' marked' : ''}" data-key="${k}" style="--i:${white}">` +
       `<span class="${cls}" title="${esc(title)}">${tx(noteText(n))}${badge}</span></div>`;
     // A black key comes after the white key above it, so it lies over both
     // its white keys with no stacking of its own (which would hold its
@@ -6120,10 +6171,10 @@ function renderChordPanel(ch, sc) {
   }
 
   const inst = cappedInstrument();
-  // Each note, where it is played: a string and fret, or a piano key (its
-  // number, 1 to 88, as pianos count them: middle C is key 40)
+  // Each note, where it is played: a string and fret, or a key (its number,
+  // from 1, as pianos count them: middle C is the piano's key 40)
   const notes = inst.piano
-    ? ch.shape.frets.map((k) => ({ k, midi: PIANO_LOW + k }))
+    ? ch.shape.frets.map((k) => ({ k, midi: inst.low + k }))
     : ch.shape.frets
       .map((f, s) => ({ f, s, midi: shapePitch(inst, s, f) }))
       .filter((x) => x.f >= 0)
@@ -6199,6 +6250,8 @@ function renderScalePanel(sc, ch) {
   els.scaleClear.disabled = !sc;
   // The chromatic scale has every note: nothing to hide or to group
   els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
+  els.tglScaleGroups.title = instrument().piano ? 'Show the scale an octave at a time, the notes past it dimmer, and step from one to the next'
+    : 'Outline the scale in hand-sized groups, a few notes per string, and step from one to the next';
   renderGroupLine(sc, ch);
 
   if (scaleRun && scaleRun.key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
@@ -6260,7 +6313,7 @@ function renderScalePanel(sc, ch) {
 
 /* The scale's groups as chips, from the nut up: shown while Groups is on */
 function renderGroupLine(sc, ch) {
-  const on = Boolean(sc && state.scaleGroups && sc.def.steps.length < 12 && !instrument().piano);   // (no groups on a piano)
+  const on = Boolean(sc && state.scaleGroups && sc.def.steps.length < 12);
   els.groupLine.hidden = !on;
   els.groupPrev.disabled = els.groupNext.disabled = ui.groups.length < 2;
   // The arrow keys step the groups when keysOnGroups says (else the chord's shapes)
@@ -6276,10 +6329,10 @@ function renderGroupLine(sc, ch) {
   els.groupList.dataset.empty = 'No group fits on this neck';
   els.groupList.innerHTML = ui.groups.map((g, i) => {
     const sel = i === ui.group;
-    const [a, b] = groupFrets(g).map((f) => f - c);   // counted from the capo
     const place = groupPlace(g, c);
+    const span = groupSpan(g, c);
     return `<li><button type="button" class="chip group-chip${sel ? ' selected' : ''}" data-group="${i}" aria-pressed="${sel}" ` +
-      `title="Group ${i + 1}, frets ${a} to ${b}"><span class="tx">${place[0].toUpperCase()}${place.slice(1)}</span></button></li>`;
+      `title="Group ${i + 1}, ${esc(span[0].toLowerCase() + span.slice(1))}"><span class="tx">${esc(place[0].toUpperCase() + place.slice(1))}</span></button></li>`;
   }).join('');
   requestAnimationFrame(() => keepChipVisible(els.groupList));
 }
@@ -6506,7 +6559,7 @@ function init() {
         // a preset in its usual spelling (Open D's F♯, E♭ for half step down);
         // a custom tuning as the Flats switch says
         const flats = t.tuning.custom || t.tuning.saved ? state.flats : Boolean(t.tuning.flats);
-        return { value: i.id, label: i.name, sub: i.piano ? '88 keys, A0 to C8' : tuningNotes(t.strings, flats, i.id) };
+        return { value: i.id, label: i.name, sub: i.piano ? keysText(i) : tuningNotes(t.strings, flats, i.id) };
       }),
     })),
     onPick: (v) => {

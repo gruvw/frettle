@@ -987,7 +987,9 @@ button, a { scroll-margin: 6px; }
 }
 
 /* Piano (script.js): 88 keys, placed from each key's place among the white
-   keys (--i; 52 white keys, --whites). Wide screens: from left to right,
+   keys (--i; 52 white keys, --whites). The Uniso (.whole-tone): 97 keys,
+   49 white, the same sizes, a black key between each two white keys, its
+   C and F keys grey (.marked). Wide screens: from left to right,
    the octave numbers above the keys' far ends, the keys as wide as the
    panel allows but never narrower than --wk; phones: the same keyboard
    turned a quarter turn, from the top down, the keys' near ends on the left
@@ -1000,7 +1002,9 @@ button, a { scroll-margin: 6px; }
   --key-white: color-mix(in srgb, var(--pk-white) 84%, var(--bg));
   --key-black: color-mix(in srgb, var(--pk-black) 70%, var(--bg));
   --key-edge: color-mix(in srgb, var(--pk-grey) 55%, var(--bg));
+  --key-grey: color-mix(in srgb, var(--pk-grey) 78%, var(--bg));   /* (the Uniso's C and F keys: between its white keys and its black) */
   --bl: 0.6;          /* a black key's length, of a white key's */
+  --black-note: 20px;  /* a note on a black key: this far from the key's front */
   --badge-gap: -3px;   /* (negative: over the note's edge, touching it, as on the neck) */
   --badge-room: calc(18px + var(--badge-gap));
   position: relative;
@@ -1014,6 +1018,7 @@ button, a { scroll-margin: 6px; }
 .neck.piano .note { z-index: 1; flex-shrink: 0; }   /* (as wide as its name, past a narrow black key's sides: B♭♭♭) */
 .key.white { background: var(--key-white); box-shadow: inset 0 0 0 0.5px var(--key-edge); }
 .key.black { background: var(--key-black); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pk-grey) 30%, transparent); }
+.key.marked { background: var(--key-grey); }
 /* A plain note on a black key: the pill's outline brighter, to stand out
    from the key as it does from the neck */
 .neck.piano .note.scale-root, .neck.piano .note.chord.root { box-shadow: 0 0 0 2px var(--bg); }   /* a root's ring as on the neck: dark between it and the note (the keys are lighter) */
@@ -1036,6 +1041,12 @@ button, a { scroll-margin: 6px; }
   width: calc(var(--whites) * var(--wk));
   height: calc(var(--ruler-row) + var(--kl));
 }
+/* The Uniso across: a black key between each two white keys, every one
+   can hold a note. Its keys as the piano's in shape (a black key 0.6 of a
+   white one's width), a little wider (46px a white key) for a note on a
+   black key to fit inside it, sharps' included, with room between two
+   black keys */
+.neck.piano.whole-tone.horizontal { --wk: max(var(--wk-min, 46px), calc(100cqw / var(--whites))); }
 .neck.piano.horizontal .key { top: var(--ruler-row); }
 .neck.piano.horizontal .key.white {
   left: calc(var(--i) * var(--wk));
@@ -1049,7 +1060,7 @@ button, a { scroll-margin: 6px; }
   width: var(--bk);
   height: calc(var(--kl) * var(--bl));
   align-items: flex-end;
-  padding-bottom: 14px;
+  padding-bottom: var(--black-note);
   border-radius: 0 0 4px 4px;
 }
 .neck.piano.horizontal .deg-badge { top: auto; bottom: calc(100% + var(--badge-gap)); left: 50%; transform: translateX(-50%); }
@@ -1057,6 +1068,11 @@ button, a { scroll-margin: 6px; }
    C has none) */
 .neck.piano.horizontal .oct-label { top: 0; height: var(--ruler-row); left: calc(var(--i) * var(--wk)); width: calc(var(--wk) - var(--bk) / 2); }
 .neck.piano.horizontal .oct-label.last { width: var(--wk); }
+/* The Uniso's C: a black key on each side (its first C none below, its
+   last none above): its number over the part between them */
+.neck.piano.whole-tone.horizontal .oct-label { left: calc(var(--i) * var(--wk) + var(--bk) / 2); width: calc(var(--wk) - var(--bk)); }
+.neck.piano.whole-tone.horizontal .oct-label.first { left: calc(var(--i) * var(--wk)); width: calc(var(--wk) - var(--bk) / 2); }
+.neck.piano.whole-tone.horizontal .oct-label.last { width: calc(var(--wk) - var(--bk) / 2); }
 /* Phones: the keys down the page, as long as the panel allows, which goes
    no wider than keys --kl long need (the page shows round it) */
 /* Phones: a neck's strings no further apart than --col-max however wide the
@@ -1078,7 +1094,7 @@ button, a { scroll-margin: 6px; }
 }
 .neck.piano.vertical {
   --wk: 36px;   /* a white key's height */
-  --bk: 26px;   /* a black key's (room round a note: --pill-h and 2px each side) */
+  --bk: calc(var(--pill-h) + 4px);   /* a black key's (room round a note: --pill-h and 2px each side) */
   height: calc(var(--whites) * var(--wk));
 }
 .neck.piano.vertical .key { left: 0; right: var(--oct-w); }
@@ -1093,7 +1109,7 @@ button, a { scroll-margin: 6px; }
   height: var(--bk);
   left: calc((100% - var(--oct-w)) * (1 - var(--bl)));
   justify-content: flex-start;
-  padding-left: 14px;
+  padding-left: var(--black-note);
   border-radius: 4px 0 0 4px;
 }
 .neck.piano.vertical .deg-badge { top: 50%; left: calc(100% + var(--badge-gap)); transform: translateY(-50%); }
@@ -1105,10 +1121,13 @@ button, a { scroll-margin: 6px; }
   height: calc(var(--wk) - var(--bk) / 2);
 }
 .neck.piano.vertical .oct-label.last { height: var(--wk); }
-/* A piano has no tuning, capo, mirror image, octave shading or hand-sized
-   groups: their controls go (its octave numbers always show) */
-body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty,
-body.piano #tglScaleGroups { display: none; }
+.neck.piano.whole-tone.vertical .oct-label { top: calc(var(--i) * var(--wk) + var(--bk) / 2); height: calc(var(--wk) - var(--bk)); }
+.neck.piano.whole-tone.vertical .oct-label.first { top: calc(var(--i) * var(--wk)); height: calc(var(--wk) - var(--bk) / 2); }
+.neck.piano.whole-tone.vertical .oct-label.last { height: calc(var(--wk) - var(--bk) / 2); }
+/* A keyboard has no tuning, capo, mirror image or octave shading: their
+   controls go (its octave numbers always show; its groups, an octave each:
+   see keyboardGroups) */
+body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty { display: none; }
 
 /* The strip (script.js): each string's first cell, held at the edge of the
    view once the neck has scrolled past it, over everything on the neck.
