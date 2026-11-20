@@ -579,10 +579,14 @@ function optionalTones(def, inversion, piano = false) {
    that has no shape otherwise, one more muted string allowed between the
    notes and one more after them, and the long 4-fret stretches (still
    within a hand's width and four fingers): the ukulele's Am(add9),
-   4 x 5 3; the bass's D9/F♯, 2 5 2 5. relaxed 2, last, for a chord with
+   4 x 5 3; the bass's D9/F♯, 2 5 2 5. relaxed 2, for a chord with
    none even so: open strings with a shape higher up the neck too (the
-   ukulele's A13/G, 0 9 9 9). */
-function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = null, relaxed = 0) {
+   ukulele's A13/G, 0 9 9 9). relaxed 3, last, for an interval with none
+   even so: any strings muted around its notes, as two notes are plucked
+   (the guitar's C(m13), 20 x x x 21 x). droneMidis: the drones that ring
+   with a shape, by pitch (an interval's notes are pitches: the banjo's
+   E(m10), E3 on string 4 fret 2 under its open g, G4). */
+function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = null, relaxed = 0, droneMidis = []) {
   const tones = chordTones(rootPc, def);
   const n = inst.strings.length;
   const chordPcs = new Set(tones.map((t) => t.pc));
@@ -591,19 +595,22 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
   const required = tones.map((t) => t.pc).filter((pc) => !optional.includes(pc));
   // (a note the drone rings needs no string here: the banjo's Em7/B, 0 x 4 3 2)
   const minSounding = Math.min(n, Math.max(required.filter((pc) => !extraPcs.includes(pc)).length, tones.length <= 2 ? 2 : 3));
-  const maxInner = (n >= 6 ? 1 : 0) + (relaxed ? 1 : 0);
+  const plucked = def.span && relaxed > 2;   // (an interval's last resort: any strings muted, see above)
+  const maxInner = plucked ? n : (n >= 6 ? 1 : 0) + (relaxed ? 1 : 0);
   // On a re-entrant tuning (ukulele high G) the lowest note matters little
   const reentrant = inst.strings.some((m, i) => i > 0 && m < inst.strings[i - 1]);
   // Top strings left out: one at most, but any number for a power chord (two
   // notes), played on the low strings (G5: 3 5 5 x x x; on a bass, E5: 0 2 x x);
   // not on a re-entrant tuning, whose low strings aren't its lowest notes
-  const maxTrail = tones.length <= 2 && !reentrant ? n : relaxed ? 2 : 1;
+  const maxTrail = plucked || (tones.length <= 2 && !reentrant) ? n : relaxed ? 2 : 1;
   const found = [];
 
   function evaluate(frets, pos) {
     const sound = [];
     frets.forEach((f, s) => { if (f >= 0) sound.push({ s, f, midi: inst.strings[s] + f }); });
-    if (sound.length < minSounding) return null;
+    // (an interval's: a drone above its notes that is one of them, see droneShapes)
+    const drone = droneRings(def, sound.map((x) => x.midi), droneMidis);
+    if (sound.length + drone.length < minSounding) return null;
 
     // Each shape is generated once: in the window starting at its lowest fretted note
     const fretted = sound.filter((x) => x.f > 0);
@@ -617,7 +624,7 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     if (inner > maxInner || trail > maxTrail) return null;
 
     const pcs = new Set(sound.map((x) => mod12(x.midi)));
-    if (def.span && !spans(def, sound.map((x) => x.midi))) return null;
+    if (def.span && !spans(def, [...sound.map((x) => x.midi), ...drone])) return null;
     const complete = required.every((pc) => pcs.has(pc) || extraPcs.includes(pc));
     if (!complete && !(forced && frets.join(',') === forced.join(','))) return null;
 
@@ -692,7 +699,13 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
 // between: C3 C4 D4 is no major 9th, the namer reads it C(M2)); an octave's,
 // one note in octaves (C3 C4 C5, two octaves, as the namer reads it)
 const spans = (def, midis) => Math.max(...midis) - Math.min(...midis) === def.span && (def.steps.length === 1 || new Set(midis).size === 2);
-// (none as usual: the relaxed rules, then with open strings anywhere, see shapeCandidates)
+// The drones that ring with an interval's fretted notes (midis): those above
+// them that keep it the interval (the others are left unplayed); none for a
+// chord, whose drones go by its notes' names (see droneShapes)
+const droneRings = (def, midis, drones) => (def.span && midis.length
+  ? drones.filter((m) => m > Math.min(...midis) && spans(def, [...midis, m])) : []);
+// (none as usual: the relaxed rules, then with open strings anywhere, then
+// for an interval any strings muted, see shapeCandidates)
 function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
   const find = (relaxed) => {
     if (inst.starts && def.span) {   // (a ringing drone counts)
@@ -702,9 +715,10 @@ function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
     if (inst.starts) return droneShapes(inst, rootPc, def, inversion, weights, relaxed);
     return pickShapes(shapeCandidates(inst, rootPc, def, inversion, [], null, relaxed), weights, chartShape(inst, rootPc, def));
   };
-  for (const relaxed of [0, 1, 2]) {
+  const last = def.span ? 3 : 2;
+  for (let relaxed = 0; relaxed <= last; relaxed++) {
     const shapes = find(relaxed);
-    if (shapes.length || relaxed === 2) return shapes;
+    if (shapes.length || relaxed === last) return shapes;
   }
 }
 
@@ -715,7 +729,9 @@ function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
    open g (its 5th), A7 can be the A barre under an open g (its 7th).
    It never sets the bass: high up the neck, where all the fretted notes
    are above it, it is left out (as banjo players skip it there), and a
-   shape that needed it for a chord tone goes. */
+   shape that needed it for a chord tone goes. An interval's notes are
+   pitches: the drone rings when it is one of them (E(m10): E3 under the
+   open g, G4), and is left out when it would make another interval. */
 function droneShapes(inst, rootPc, def, inversion, weights, relaxed = 0) {
   const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
   const drones = inst.strings.map((m, s) => s).filter((s) => startFret(inst, s));
@@ -728,9 +744,13 @@ function droneShapes(inst, rootPc, def, inversion, weights, relaxed = 0) {
   const ringing = drones.filter(rings).map((s) => mod12(inst.strings[s]));
   const chart = chartShape(longInst, rootPc, def);
   const low = (shape) => Math.min(...shape.frets.map((f, q) => (f < 0 ? Infinity : longInst.strings[q] + f)));
-  // A drone that rings with this shape: in the chord, and above its lowest note
-  const ringsWith = (s, shape) => rings(s) && inst.strings[s] > low(shape);
-  const candidates = shapeCandidates(longInst, rootPc, def, inversion, ringing, chart, relaxed).filter((shape) => {
+  // A drone that rings with this shape: in the chord, and above its lowest
+  // note (an interval's: one of its notes, see droneRings)
+  const pitches = (shape) => shape.frets.flatMap((f, q) => (f < 0 ? [] : [longInst.strings[q] + f]));
+  const ringsWith = (s, shape) => rings(s) && inst.strings[s] > low(shape)
+    && (!def.span || droneRings(def, pitches(shape), [inst.strings[s]]).length > 0);
+  const droneMidis = def.span ? drones.filter(rings).map((s) => inst.strings[s]) : [];
+  const candidates = shapeCandidates(longInst, rootPc, def, inversion, ringing, chart, relaxed, droneMidis).filter((shape) => {
     if (chart && shape.frets.join(",") === chart.join(",")) return true;   // (a chart shape: kept, as there)
     const pcs = new Set(shape.frets.flatMap((f, q) => (f < 0 ? [] : [mod12(longInst.strings[q] + f)])));
     for (const s of drones) if (ringsWith(s, shape)) pcs.add(mod12(inst.strings[s]));
@@ -2379,6 +2399,12 @@ function chordShapes(root, def, inversion = inversionFor(def)) {
 }
 
 /* Everything the views need about the selected chord, or null. */
+/* A note of a chord's shape: its degree, as its pitch class has it; an
+   octave's (one note in octaves) its lowest the root, the others the
+   octaves above, 8, 15... (as the chord panel lists them). low: the
+   shape's lowest pitch. */
+const isOctave = (def) => Boolean(def.span && def.steps.length === 1);
+const shapeDegree = (ch, midi, low) => (ch.octave && midi > low ? String(7 * Math.round((midi - low) / 12) + 1) : ch.degOfPc.get(mod12(midi)));
 function currentChord() {
   if (!state.chord.on) return null;
   const def = findChord(state.chord.type);
@@ -2399,6 +2425,7 @@ function currentChord() {
   return {
     def, root, inversion, tones, shapes, index, home, shape, bassIndex,
     degOfPc: new Map(tones.map((t) => [t.pc, t.deg])),
+    octave: isOctave(def),
     spell,
     rootName: noteText(spell.root),
     symbol: chordName(root, def, bassIndex, state.chord.letter),   // ("C/E": see chordName)
@@ -3769,7 +3796,7 @@ function namerSettle() {
 function namerChord() {
   const r = namerReadings()[naming.pick];
   const tones = r ? chordTones(r.root, r.def) : [];
-  return { naming: true, shape: { frets: naming.frets }, degOfPc: new Map(tones.map((t) => [t.pc, t.deg])),
+  return { naming: true, shape: { frets: naming.frets }, degOfPc: new Map(tones.map((t) => [t.pc, t.deg])), octave: Boolean(r && isOctave(r.def)),
     spell: r ? chordSpelling(r.root, r.def, namerLetter(r)) : { names: new Map() } };
 }
 function openNamer() {
@@ -4208,7 +4235,9 @@ function draw() {
    switched on too); opening a panel on phones too (openTab). */
 function noteFocus(ch, sc) {
   const neckKey = [state.instrument, instrument().strings, capo()].join('|');
-  const chordKey = ch && ch.shape ? [ch.symbol, tabOf(ch.shape)].join('|') : null;
+  // (the chord by its root and type, not its name: respelt by an
+  // Alternative root, the same chord on the same keys, nothing acted on)
+  const chordKey = ch && ch.shape ? [ch.root, ch.def.id, tabOf(ch.shape)].join('|') : null;
   const scaleKey = sc && ui.groups.length ? [sc.root, sc.def.id].join('|') : null;   // (with its groups shown)
   const first = ui.neckKey === undefined;
   const sameNeck = neckKey === ui.neckKey;
@@ -5703,8 +5732,10 @@ function renderNeck(ch, sc) {
   // Shape frets count from the capo; place them at their real fret
   const shapeAt = new Map();
   if (ch && ch.shape) {
+    const pitches = ch.shape.frets.map((f, s) => (f >= 0 ? shapePitch(inst, s, f) + c : Infinity));
+    const low = Math.min(...pitches);
     ch.shape.frets.forEach((f, s) => {
-      if (f >= 0) shapeAt.set(`${s}:${shapeNeckFret(inst, s, f, c)}`, ch.degOfPc.get(mod12(shapePitch(inst, s, f) + c)));
+      if (f >= 0) shapeAt.set(`${s}:${shapeNeckFret(inst, s, f, c)}`, shapeDegree(ch, pitches[s], low));
     });
   }
   const ghosts = ch && !ch.naming && (state.allTones || !ch.shape);   // (naming: only the notes placed)
@@ -5950,7 +5981,7 @@ function renderPiano(ch, sc) {
     let n = plainNote(pc, keyFlats);
     let deg = null;
     if (played.has(k) || (ghosts && ch.degOfPc.has(pc))) {
-      deg = ch.degOfPc.get(pc);
+      deg = played.has(k) ? shapeDegree(ch, midi, inst.low + Math.min(...played)) : ch.degOfPc.get(pc);
       cls += `${played.has(k) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`;
       n = ch.spell.names.get(pc) || n;
     } else if (sc && sc.set.has(pc)) {
@@ -6314,9 +6345,7 @@ function renderChordPanel(ch, sc) {
       .sort((a, b) => a.midi - b.midi || a.s - b.s);
   const offKey = offKeyTest(sc);
   els.chordTones.innerHTML = notes.map((x) => {
-    // (an octave: the lowest note its root, the others its octaves above, 8, 15...)
-    const above = octaves ? (x.midi - notes[0].midi) / 12 : 0;
-    const deg = above ? String(7 * above + 1) : ch.degOfPc.get(mod12(x.midi));
+    const deg = shapeDegree(ch, x.midi, notes[0].midi);   // (an octave's: R, 8, 15...)
     const name = pitchText(x.midi, ch.spell.names.get(mod12(x.midi)));
     const open = c && !startFret(inst, x.s) ? 'capo' : 'open';   // a banjo's drone rings open past its spike
     const loc = inst.piano ? `key ${x.k + 1}` : x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
@@ -6923,9 +6952,12 @@ function init() {
         value: c.id,
         label: c.name,
         tag: noteText(chordSpelling(state.chord.root, c, state.chord.letter).root) + c.symbol,
-        // (in brackets: notes a shape may leave out, here: this instrument and bass note)
+        // (in brackets: notes a shape may leave out, here: this instrument and
+        // the bass note it will have: another type starts from the
+        // instrument's default inversion, see updateChord; the type on, its own)
         sub: (() => {
-          const optional = optionalTones(c, inversionFor(c), Boolean(instrument().piano));
+          const inversion = state.chord.on && c.id === state.chord.type ? inversionFor(c) : inversionFor(c, DEFAULT_INVERSION[state.instrument]);
+          const optional = optionalTones(c, inversion, Boolean(instrument().piano));
           return chordSpelling(state.chord.root, c, state.chord.letter).notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
         })(),
         cls: fitsScale(state.chord.root, c, currentScale()) ? 'fits' : '',

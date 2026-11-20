@@ -65,3 +65,46 @@ for (const inst of INSTRUMENTS.filter((i) => i.piano)) test(`${inst.name} shapes
   }
   assert.deepStrictEqual(bad, []);
 });
+
+/* Intervals (two notes, or one in octaves): on every instrument and tuning,
+   every one two strings can play within a hand's reach (an open string
+   anywhere; a banjo's drone open only) has shapes, and each shape plays
+   just that interval, its root below (the banjo's drone counted when it
+   rings: E(m10), E3 under its open g, G4). */
+const { customChord } = require('../web/script.js');
+const INTERVALS = [
+  ...['b2', '2', 'b3', '3', '4', 's4', 'b5', '5', 's5', 'b6', '6', 'bb7', 'b7', '7'].map((d) => `i-${d}`),
+  ...['min', 'maj', 'perf', 'aug'].flatMap((q) => [...Array(16).keys()].map((k) => `i-${q}${k + 9}`)),
+  'i-8', 'i-15', 'i-22',
+].map(customChord).filter(Boolean);
+test('every playable interval has shapes, and each is that interval', () => {
+  const bad = [];
+  for (const base of INSTRUMENTS.filter((i) => !i.piano)) {
+    for (const tuning of TUNINGS[base.id] || [{ id: 'standard', strings: base.strings }]) {
+      const inst = { ...base, strings: tuning.strings };
+      const reach = (inst.span || 4) - 1;
+      const frets = (s) => (startFret(inst, s) ? [0] : [...Array(inst.frets + 1).keys()]);
+      for (const def of INTERVALS) {
+        for (let root = 0; root < 12; root++) {
+          const at = `${base.id} ${tuning.id}, ${def.id} on ${root}`;
+          const shapes = findShapes(inst, root, def, '0');
+          for (const { frets: fr } of shapes) {
+            const midis = fr.flatMap((f, s) => (f < 0 ? [] : [shapePitch(inst, s, f)]));
+            const low = Math.min(...midis);
+            const ok = mod12(low) === root && Math.max(...midis) - low === def.span
+              && (def.steps.length === 1 || new Set(midis).size === 2);
+            if (!ok) bad.push(`${at}: ${fr.join(' ')} is not the interval`);
+          }
+          if (shapes.length) continue;
+          const playable = inst.strings.some((_, a) => inst.strings.some((__, b) => a !== b && frets(a).some((x) => frets(b).some((y) => {
+            const lo = shapePitch(inst, a, x);
+            const both = [x, y].filter((f) => f > 0);
+            return mod12(lo) === root && shapePitch(inst, b, y) - lo === def.span && (both.length < 2 || Math.abs(x - y) <= reach);
+          }))));
+          if (playable) bad.push(`${at}: no shape, though two strings play it`);
+        }
+      }
+    }
+  }
+  assert.deepStrictEqual(bad, []);
+});
