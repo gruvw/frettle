@@ -2482,23 +2482,40 @@ const resetInversion = () => { state.inversion = { ...DEFAULT_INVERSION }; };
    inversion picked for one chord does not follow to the next (its chip
    keeps it) */
 function updateChord(patch) {
-  const fresh = !state.chord.on || ('type' in patch && patch.type !== state.chord.type) || ('root' in patch && patch.root !== state.chord.root);
-  const newRoot = !state.chord.on || ('root' in patch && patch.root !== state.chord.root);
-  if (fresh) resetInversion();
-  Object.assign(state.chord, patch, { on: true });
+  const out = menuOutcome('root' in patch ? patch.root : state.chord.root, findChord('type' in patch ? patch.type : state.chord.type));
+  if (out.fresh) resetInversion();
+  Object.assign(state.chord, patch, { on: true, letter: out.letter });
   state.loose = false;
-  // Its root's name: another root, the usual one; another type, the one
-  // picked (Alternative root) while the type does not write it anyway (see
-  // settleLetters): as the menus show it. A chord that has a chip already
-  // (the list's, a recent one) comes back as the chip has it, as its shape
-  // does (an F♭ major kept in the list stays F♭ when E is picked again: a
-  // chip's name changes only with the Alternative root, on its chord)
-  if (newRoot) state.chord.letter = null;
-  const entry = menuChip();
-  if (fresh && entry) state.chord.letter = entry.letter ?? null;
-  state.shape = menuShape(entry);
+  state.shape = menuShape(out.entry);
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
   render();
+}
+/* What a pick from the chord menus gives (a root, a type), as updateChord
+   sets it, so the menus show it before (a tile: the name and notes the
+   chord will have): fresh, another chord (another root or type, or none
+   on), from the instrument's default inversion; its inversion; the bass
+   it will show (its shape's, see menuChip); its chip, if it has one; its
+   root's name, letter: another root, the usual one; another type, the
+   one picked (Alternative root) while the type does not write it anyway
+   (see settleLetters); a chord that has a chip already (the list's, a
+   recent one) as the chip has it, as its shape (an F♭ major kept in the
+   list stays F♭ when E is picked again: a chip's name changes only with
+   the Alternative root, on its chord). */
+function menuOutcome(root, def) {
+  const fresh = !state.chord.on || def.id !== state.chord.type || root !== state.chord.root;
+  const newRoot = !state.chord.on || root !== state.chord.root;
+  const inversion = inversionFor(def, fresh ? DEFAULT_INVERSION[state.instrument] : state.inversion[state.instrument]);
+  // (its bass: the inversion's, or "any bass note", its first shape's)
+  let bass = /^\d+$/.test(inversion) ? Number(inversion) : null;
+  if (bass === null) {
+    const shapes = listShapes(root, def, inversion);
+    bass = shapes.length ? bassIndexOf(root, def, shapes[homeShape(shapes, root, inversion)]) : 0;
+  }
+  const entry = chipEntry(root, def.id, bass);
+  let letter = newRoot ? null : state.chord.letter;
+  if (fresh && entry) letter = entry.letter ?? null;
+  letter = settledLetter(letter, root, spellChord(root, def).root, chordNameAs);
+  return { fresh, inversion, bass, entry, letter };
 }
 
 /* A chord picked from the menus that has a chip already (the list's, a
@@ -2511,14 +2528,7 @@ function menuShape(entry = menuChip()) {
   return entry ? rememberedShape(entry, inversion) : null;
 }
 // (the chip of the chord the menus now have, with the bass it will show)
-function menuChip() {
-  const def = findChord(state.chord.type);
-  const inversion = inversionFor(def);
-  const shapes = listShapes(state.chord.root, def, inversion);
-  const bass = /^\d+$/.test(inversion) ? Number(inversion)
-    : shapes.length ? bassIndexOf(state.chord.root, def, shapes[homeShape(shapes, state.chord.root, inversion)]) : 0;
-  return chipEntry(state.chord.root, def.id, bass);
-}
+const menuChip = () => menuOutcome(state.chord.root, findChord(state.chord.type)).entry;
 
 /* The chord list and the recent chords, for all instruments. The list is
    the one you build (a song's chords): a chord goes in when you tap the +
@@ -2866,8 +2876,9 @@ const otherLetter = (root, def, letter) => (Number.isInteger(letter) && def && c
    choice any more: the switch goes off, the name stays. Same for one that
    is not a name of that root. A chord keeps its own under a scale that
    names its root (see chordSpelling). */
+const settledLetter = (letter, root, auto, as = rootAs) => (Number.isInteger(letter) && as(root, letter) && letter !== auto.letter ? letter : null);
 function settleLetters() {
-  const keep = (letter, root, auto, as = rootAs) => (Number.isInteger(letter) && as(root, letter) && letter !== auto.letter ? letter : null);
+  const keep = settledLetter;
   state.scale.letter = state.scale.on ? keep(state.scale.letter, state.scale.root, spellScale(state.scale.root, findScale(state.scale.type)).root) : null;
   state.chord.letter = state.chord.on ? keep(state.chord.letter, state.chord.root, spellChord(state.chord.root, findChord(state.chord.type)).root, chordNameAs) : null;
   // Name a chord's, as the chord's (Flats on: G♭ the usual name, picked or not)
@@ -3868,6 +3879,7 @@ function closeNamer(select) {
   const letter = namerLetter(reading);   // (its root's other name, if picked: the chord's, see keepLetter)
   const text = fretsText(naming.frets);
   const focused = els.namer.contains(document.activeElement);
+  if (!reading && naming.scaleMoved) ui.revealGroup = true;   // (cancelled: a scale picked meanwhile shows its group, see draw)
   naming = null;
   document.body.classList.remove('naming');
   if (reading) {
@@ -4251,9 +4263,16 @@ function draw() {
   // shape changes (picked, stepped, a chip, an inversion...), the scale
   // group when one is picked or the scale changes. Not while naming: the
   // neck stays where the notes are being placed (moved past the edge of
-  // the view, it follows them: see namerMove).
-  if (naming) return;
+  // the view, it follows them: see namerMove); what changes meanwhile (a
+  // scale picked) is seen then, not when the namer closes: Select shows
+  // the notes selected, where they are (C7 E7 G7, not the C4 group);
+  // Cancel, the scale's group, as it would have shown (see closeNamer)
   const { neckKey, chordKey, scaleKey, first, sameNeck } = seen;
+  if (naming) {
+    if (sameNeck && scaleKey && scaleKey !== ui.scaleKey) naming.scaleMoved = true;
+    Object.assign(ui, { neckKey, chordKey, scaleKey, reveal: false, revealGroup: false });
+    return;
+  }
   // The piano, as it comes on screen (opened on it, or picked): its chord's
   // shape in view, or else middle C (a keyboard is long, and starts far down)
   const pianoNow = instrument().piano && ui.shownInst !== state.instrument;
@@ -4283,10 +4302,10 @@ function noteFocus(ch, sc) {
   const scaleKey = sc && ui.groups.length ? [sc.root, sc.def.id].join('|') : null;   // (with its groups shown)
   const first = ui.neckKey === undefined;
   const sameNeck = neckKey === ui.neckKey;
-  if (!naming) {
-    if (ui.reveal || (sameNeck && chordKey && chordKey !== ui.chordKey)) ui.focus = 'chord';
-    if (ui.revealGroup || (sameNeck && scaleKey && scaleKey !== ui.scaleKey)) ui.focus = 'group';
-  }
+  if (!naming && (ui.reveal || (sameNeck && chordKey && chordKey !== ui.chordKey))) ui.focus = 'chord';
+  // (naming too: a scale picked meanwhile is the last thing acted on, its
+  // groups for the keys, though the neck stays put; see draw)
+  if (ui.revealGroup || (sameNeck && scaleKey && scaleKey !== ui.scaleKey)) ui.focus = 'group';
   return { neckKey, chordKey, scaleKey, first, sameNeck };
 }
 /* What the arrow keys step and Space plays: what was last acted on (see
@@ -6978,7 +6997,15 @@ function init() {
     note: state.chord.on ? fitsNote(currentScale()) : rootNote(currentScale()),
     noteNone: 'No root fits this chord type and scale',
     // (a root the scale shown names: that name alone, see chordSpelling)
-    groups: rootItems((pc) => { const named = scaleRootName(pc); return named ? [named, null] : typedLines(pc, state.chord.on ? findChord(state.chord.type) : null, true); },
+    // (a chord on: the name the pick will have, see menuOutcome)
+    groups: rootItems((pc) => {
+      const named = scaleRootName(pc);
+      if (named) return [named, null];
+      if (!state.chord.on) return typedLines(pc, null, true);
+      const def = findChord(state.chord.type);
+      const used = ownChordSpelling(pc, def, menuOutcome(pc, def).letter).root;
+      return [used, otherRoot(pc, used)];
+    },
       state.chord.on ? (pc) => fitsScale(pc, findChord(state.chord.type), currentScale()) : (pc) => inScale(pc, currentScale())),
     onPick: (v) => {
       const root = Number(v);
@@ -6993,14 +7020,14 @@ function init() {
       items: g.items.map((c) => ({
         value: c.id,
         label: c.name,
-        tag: noteText(chordSpelling(state.chord.root, c, state.chord.letter).root) + c.symbol,
-        // (in brackets: notes a shape may leave out, here: this instrument and
-        // the bass note it will have: another type starts from the
-        // instrument's default inversion, see updateChord; the type on, its own)
-        sub: (() => {
-          const inversion = state.chord.on && c.id === state.chord.type ? inversionFor(c) : inversionFor(c, DEFAULT_INVERSION[state.instrument]);
-          const optional = optionalTones(c, inversion, Boolean(instrument().piano));
-          return chordSpelling(state.chord.root, c, state.chord.letter).notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
+        // (as the pick will have it, see menuOutcome: its root's name, its
+        // notes, in brackets those a shape may leave out, here: this
+        // instrument and the bass note it will have)
+        ...(() => {
+          const out = menuOutcome(state.chord.root, c);
+          const spell = chordSpelling(state.chord.root, c, out.letter);
+          const optional = optionalTones(c, String(out.bass), Boolean(instrument().piano));
+          return { tag: noteText(spell.root) + c.symbol, sub: spell.notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ') };
         })(),
         cls: fitsScale(state.chord.root, c, currentScale()) ? 'fits' : '',
       })),
@@ -7010,8 +7037,13 @@ function init() {
   }));
   els.scaleRoot.addEventListener('click', () => openPicker({
     title: 'Scale root', layout: 'roots', value: state.scale.root,
-    // (another root: written as its key has it, the switch off)
-    groups: rootItems((pc) => typedLines(pc, state.scale.on ? findScale(state.scale.type) : null)),
+    // (another root: written as its key has it, the switch off; its own,
+    // as it is, see onPick)
+    groups: rootItems((pc) => {
+      if (!state.scale.on || pc !== state.scale.root) return typedLines(pc, state.scale.on ? findScale(state.scale.type) : null);
+      const used = scaleSpelling(pc, findScale(state.scale.type)).root;
+      return [used, otherRoot(pc, used)];
+    }),
     onPick: (v) => {
       if (Number(v) !== state.scale.root) state.scale.letter = null;
       state.scale.root = Number(v);
