@@ -1078,6 +1078,31 @@ function customChord(id) {
   return def;
 }
 const customId = (degrees) => `i-${degrees.filter((x) => x !== 'R').sort(byDegree).map((x) => x.replace(/#/g, 's')).join('-')}`;
+/* The interval some pitches make: one note or two, any of them doubled at
+   octaves, its root the lowest. One note: its octaves, from the lowest to
+   the highest (C3 C4 C5: C(P15)). Two: from the lowest to the other's
+   lowest, the higher ones its doublings (C4 D5 D6: C(M9), not C(M2);
+   C4 C5 D5 too; C4 D4 D5: C(M2)); within the octave the plain interval
+   (C4 G4: C(P5), though the namer reads a root and 5th within the octave
+   as the power chord, see nameChord). undefined: none (one pitch, three
+   notes or more, too wide). */
+function intervalOf(midis) {
+  const low = Math.min(...midis);
+  const pcs = new Set(midis.map(mod12));
+  if (pcs.size === 1) return octaveType((Math.max(...midis) - low) / 12);
+  if (pcs.size !== 2) return undefined;
+  const span = Math.min(...midis.filter((m) => mod12(m - low))) - low;
+  return span < 12 ? customChord(customId(['R', DYAD_DEGREES[span]])) : compoundType(span);
+}
+/* An interval's note by its distance from the lowest (above): R, the
+   root's octaves 8, 15..., the other note its degree (C(M9)'s D5, 9) and
+   that an octave up and more (D6, 16). null: not one of its notes there. */
+function intervalDegree(def, above) {
+  if (!mod12(above)) return above > 0 ? String(7 * (above / 12) + 1) : above === 0 ? 'R' : null;
+  const m = def.steps.length === 2 ? /^(b|#)?(\d+)$/.exec(def.degrees[1]) : null;
+  const k = (above - def.span) / 12;
+  return m && Number.isInteger(k) && k >= 0 ? `${m[1] || ''}${Number(m[2]) + 7 * k}` : null;
+}
 // A chord type from its degrees: a menu's when one has exactly these, else its own
 function chordOf(degrees) {
   const key = degrees.slice().sort(byDegree).join(' ');
@@ -1114,18 +1139,23 @@ function degreesOver(root, pcs) {
    ========================================================================== */
 function nameChord(midis, scalePcs = null) {
   const pcs = [...new Set(midis.map(mod12))];
-  if (pcs.length === 1 && new Set(midis).size > 1) {   // (by the octaves from the lowest to the highest)
-    const def = octaveType((Math.max(...midis) - Math.min(...midis)) / 12);
-    return def ? [{ root: pcs[0], def, bassIndex: 0, missing: [], score: 0 }] : [];
-  }
-  if (pcs.length < 2) return [];
+  // One or two notes (any doubled): the interval they make (see intervalOf)
+  const interval = pcs.length <= 2 ? intervalOf(midis) : undefined;
+  if (pcs.length === 1) return interval ? [{ root: pcs[0], def: interval, bassIndex: 0, missing: [], score: 0 }] : [];
   const bass = mod12(Math.min(...midis));
+  // (two notes more than an octave apart, any doubled: that interval, not
+  // a power chord on the bass, C4 G5 a C(P12); unless a root has its 5th
+  // within the octave above it, C3 C4 G4 a C5; over its 5th, as before:
+  // G2 G3 C4 a C5/G too)
+  const compound = Boolean(interval && interval.span > 12)
+    && !midis.some((m) => mod12(m) === bass && midis.some((x) => x > m && x - m < 12));
   const best = new Map();   // root → its best reading
   const offer = (r) => { const was = best.get(r.root); if (!was || r.score > was.score) best.set(r.root, r); };
   const fits = (root, def) => Boolean(scalePcs) && chordTones(root, def).every((t) => scalePcs.has(t.pc));
   CHORDS.forEach((group, rank) => group.items.forEach((def, order) => {
     const upper = def.degrees.includes('11') || def.degrees.includes('13');
     for (const root of pcs) {
+      if (compound && root === bass) continue;
       const tones = chordTones(root, def);
       const tonePcs = new Set(tones.map((t) => t.pc));
       if (!pcs.every((pc) => tonePcs.has(pc))) continue;
@@ -1137,14 +1167,12 @@ function nameChord(midis, scalePcs = null) {
     }
   }));
   // The general names, for the roots no menu type reads: two notes by their
-  // interval above the bass; more on each note as the root
+  // interval above the bass (see intervalOf); more on each note as the root
   const roots = pcs.length === 2 ? [bass] : pcs;
   for (const root of roots) {
     if (best.has(root)) continue;
-    const degrees = pcs.length === 2 ? ['R', DYAD_DEGREES[mod12(pcs.find((pc) => pc !== root) - root)]] : degreesOver(root, pcs);
-    const apart = Math.max(...midis) - Math.min(...midis);
-    // (just two notes, more than an octave apart: by their distance, C4 D5 a major 9th)
-    const def = degrees && (new Set(midis).size === 2 && apart > 12 ? compoundType(apart) : chordOf(degrees));
+    const degrees = pcs.length === 2 ? null : degreesOver(root, pcs);
+    const def = pcs.length === 2 ? interval : degrees && chordOf(degrees);
     if (!def) continue;
     const tones = chordTones(root, def);
     const bassIndex = tones.findIndex((t) => t.pc === bass);
@@ -2398,13 +2426,11 @@ function chordShapes(root, def, inversion = inversionFor(def)) {
   return shapesMemo.get(key);
 }
 
-/* Everything the views need about the selected chord, or null. */
 /* A note of a chord's shape: its degree, as its pitch class has it; an
-   octave's (one note in octaves) its lowest the root, the others the
-   octaves above, 8, 15... (as the chord panel lists them). low: the
-   shape's lowest pitch. */
-const isOctave = (def) => Boolean(def.span && def.steps.length === 1);
-const shapeDegree = (ch, midi, low) => (ch.octave && midi > low ? String(7 * Math.round((midi - low) / 12) + 1) : ch.degOfPc.get(mod12(midi)));
+   interval's (ch.interval: its type) by its distance from the shape's
+   lowest note, low (see intervalDegree): C4 D5 D6, R 9 16. */
+const shapeDegree = (ch, midi, low) => (ch.interval && intervalDegree(ch.interval, midi - low)) || ch.degOfPc.get(mod12(midi));
+/* Everything the views need about the selected chord, or null. */
 function currentChord() {
   if (!state.chord.on) return null;
   const def = findChord(state.chord.type);
@@ -2425,7 +2451,7 @@ function currentChord() {
   return {
     def, root, inversion, tones, shapes, index, home, shape, bassIndex,
     degOfPc: new Map(tones.map((t) => [t.pc, t.deg])),
-    octave: isOctave(def),
+    interval: def.span ? def : null,   // (its notes labelled by their distance, see shapeDegree)
     spell,
     rootName: noteText(spell.root),
     symbol: chordName(root, def, bassIndex, state.chord.letter),   // ("C/E": see chordName)
@@ -2463,10 +2489,13 @@ function updateChord(patch) {
   state.loose = false;
   // Its root's name: another root, the usual one; another type, the one
   // picked (Alternative root) while the type does not write it anyway (see
-  // settleLetters): as the menus show it (a chip already there for it takes
-  // that, see trackChord)
+  // settleLetters): as the menus show it. A chord that has a chip already
+  // (the list's, a recent one) comes back as the chip has it, as its shape
+  // does (an F♭ major kept in the list stays F♭ when E is picked again: a
+  // chip's name changes only with the Alternative root, on its chord)
   if (newRoot) state.chord.letter = null;
   const entry = menuChip();
+  if (fresh && entry) state.chord.letter = entry.letter ?? null;
   state.shape = menuShape(entry);
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
   render();
@@ -2632,15 +2661,17 @@ const shapeWhere = (shape) => (shape.piano ? pianoName(shape.frets[0]) : shapePl
 function playsChord(root, def, frets) {
   const inst = cappedInstrument();
   const pcs0 = new Set(chordTones(root, def).map((t) => t.pc));
+  // (an interval's: just that interval, its root below, see intervalOf)
+  const isIt = (midis) => !def.span || (mod12(Math.min(...midis)) === root && (intervalOf(midis) || {}).id === def.id);
   if (inst.piano) {
     return frets.length >= 2 && frets.every((k, i) => Number.isInteger(k) && k >= 0 && k < inst.keys && (!i || k > frets[i - 1]))
-      && frets.every((k) => pcs0.has(mod12(inst.low + k)));
+      && frets.every((k) => pcs0.has(mod12(inst.low + k))) && isIt(frets.map((k) => inst.low + k));
   }
   if (frets.length !== inst.strings.length) return false;
   if (frets.some((f, s) => !Number.isInteger(f) || f < -1 || f > inst.frets || (f > 0 && f <= startFret(inst, s)))) return false;   // (a drone: fretted past its start)
   const pcs = new Set(chordTones(root, def).map((t) => t.pc));
   const notes = shapeMidis(frets);
-  return notes.length >= 2 && notes.every((m) => pcs.has(mod12(m)));
+  return notes.length >= 2 && notes.every((m) => pcs.has(mod12(m))) && isIt(notes);
 }
 function listShapes(root, def, inversion = inversionFor(def)) {
   let shapes = chordShapes(root, def, inversion);
@@ -3796,7 +3827,7 @@ function namerSettle() {
 function namerChord() {
   const r = namerReadings()[naming.pick];
   const tones = r ? chordTones(r.root, r.def) : [];
-  return { naming: true, shape: { frets: naming.frets }, degOfPc: new Map(tones.map((t) => [t.pc, t.deg])), octave: Boolean(r && isOctave(r.def)),
+  return { naming: true, shape: { frets: naming.frets }, degOfPc: new Map(tones.map((t) => [t.pc, t.deg])), interval: r && r.def.span ? r.def : null,
     spell: r ? chordSpelling(r.root, r.def, namerLetter(r)) : { names: new Map() } };
 }
 function openNamer() {
@@ -3933,6 +3964,20 @@ function namerRepick() {
   if (naming.root !== null && !shapeMidis(naming.frets).some((m) => mod12(m) === naming.root)) naming.root = null;
   naming.pick = Math.max(0, namerReadings().findIndex((r) => r.root === naming.root));
   namerSettle();
+}
+/* Before a draw: the notes placed as they now sound. Past the end of the
+   neck (a capo moved up), lifted; sounding otherwise (another tuning, a
+   capo), named again as when they change, the name picked kept to one
+   there is (see namerRepick): the neck and the bar show the same name. */
+function namerHeard() {
+  if (!instrument().piano) {
+    const top = cappedInstrument().frets;
+    naming.frets = naming.frets.map((f) => (f > top ? -1 : f));
+  }
+  const heard = shapeMidis(naming.frets).join(' ');
+  if (naming.heard !== undefined && naming.heard !== heard) namerRepick();
+  naming.heard = heard;
+  naming.pick = Math.min(naming.pick, Math.max(0, namerReadings().length - 1));
 }
 function namerClear() {
   naming.frets = instrument().piano ? [] : naming.frets.map(() => -1);
@@ -4181,6 +4226,7 @@ function draw() {
   // the next 7th chord would come back in that old inversion (and links
   // would carry it)
   if (state.chord.on) state.inversion[state.instrument] = inversionFor(findChord(state.chord.type));
+  if (naming) namerHeard();
   settleLetters();
   const ch = currentChord();
   const sc = currentScale();
@@ -4188,10 +4234,6 @@ function draw() {
   trackChord();
   renderHeader();
   renderRecent();
-  if (naming && !instrument().piano) {   // (a capo moved up meanwhile: notes past the end of the neck are lifted)
-    const top = cappedInstrument().frets;
-    naming.frets = naming.frets.map((f) => (f > top ? -1 : f));
-  }
   renderNeck(naming ? namerChord() : ch, sc);
   warmUp(ch, sc);
   if (groupRun && groupRun.key !== groupKey(ui.groups[ui.group], sc)) stopGroup();   // what it was playing is gone
@@ -7275,6 +7317,6 @@ if (typeof module !== 'undefined') {
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
     ALL_SCALES, spellScale, spellChord, rootNames, noteText, pitchText, plainNote,
     readChord, noteToken, ownChordSpelling,
-    nameChord, describeChord, customChord, chordOf, degreesOver,
+    nameChord, describeChord, customChord, chordOf, degreesOver, intervalOf, intervalDegree,
     scaleGroups, groupsFor: scaleGroups, REACH, MAX_FINGERS, mergeShared, loadState, sharedForm, SAVE_VERSION };
 }
