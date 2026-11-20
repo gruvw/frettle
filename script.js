@@ -282,6 +282,7 @@ function degreeName(d) {
   const m = /^(b|#)?(\d+)$/.exec(d);
   if (!m) return '';
   const n = Number(m[2]);
+  if (!m[1] && n > 1 && (n - 1) % 7 === 0) return OCTAVE_WORDS[(n - 1) / 7] || `${(n - 1) / 7}-octave`;   // (8: "Perfect octave", 15: "Double octave", as the interval)
   const perfect = [1, 4, 5].includes(((n - 1) % 7) + 1);
   return `${m[1] === '#' ? 'Augmented' : m[1] === 'b' ? (perfect ? 'Diminished' : 'Minor') : perfect ? 'Perfect' : 'Major'} ${ordinalOf(n)}`;
 }
@@ -561,8 +562,10 @@ function optionalTones(def, inversion, piano = false) {
    that has no shape otherwise, one more muted string allowed between the
    notes and one more after them, and the long 4-fret stretches (still
    within a hand's width and four fingers): the ukulele's Am(add9),
-   4 x 5 3; the bass's D9/F♯, 2 5 2 5. */
-function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = null, relaxed = false) {
+   4 x 5 3; the bass's D9/F♯, 2 5 2 5. relaxed 2, last, for a chord with
+   none even so: open strings with a shape higher up the neck too (the
+   ukulele's A13/G, 0 9 9 9). */
+function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = null, relaxed = 0) {
   const tones = chordTones(rootPc, def);
   const n = inst.strings.length;
   const chordPcs = new Set(tones.map((t) => t.pc));
@@ -649,7 +652,7 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
     const top = Math.min(inst.frets, pos + (inst.span || SHAPE_SPAN) - 1);
     const options = inst.strings.map((open) => {
       const list = [-1];
-      if (pos <= OPEN_MAX_POS && chordPcs.has(mod12(open))) list.push(0);
+      if ((pos <= OPEN_MAX_POS || relaxed > 1) && chordPcs.has(mod12(open))) list.push(0);
       for (let f = pos; f <= top; f++) if (chordPcs.has(mod12(open + f))) list.push(f);
       return list;
     });
@@ -667,9 +670,12 @@ function shapeCandidates(inst, rootPc, def, inversion, extraPcs = [], forced = n
   return found;
 }
 
-// An octave type's notes: its span from the lowest to the highest (not a unison)
-const spans = (def, midis) => Math.max(...midis) - Math.min(...midis) === def.span;
-// (none as usual: the relaxed rules, see shapeCandidates)
+// An interval type's notes: its span from the lowest to the highest; two
+// notes a simple or compound interval's (in unison too, not another octave
+// between: C3 C4 D4 is no major 9th, the namer reads it C(M2)); an octave's,
+// one note in octaves (C3 C4 C5, two octaves, as the namer reads it)
+const spans = (def, midis) => Math.max(...midis) - Math.min(...midis) === def.span && (def.steps.length === 1 || new Set(midis).size === 2);
+// (none as usual: the relaxed rules, then with open strings anywhere, see shapeCandidates)
 function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
   const find = (relaxed) => {
     if (inst.starts && def.span) {   // (a ringing drone counts)
@@ -679,8 +685,10 @@ function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
     if (inst.starts) return droneShapes(inst, rootPc, def, inversion, weights, relaxed);
     return pickShapes(shapeCandidates(inst, rootPc, def, inversion, [], null, relaxed), weights, chartShape(inst, rootPc, def));
   };
-  const shapes = find(false);
-  return shapes.length ? shapes : find(true);
+  for (const relaxed of [0, 1, 2]) {
+    const shapes = find(relaxed);
+    if (shapes.length || relaxed === 2) return shapes;
+  }
 }
 
 /* Banjo: chords are fretted on the long strings, as on any 4-string
@@ -691,7 +699,7 @@ function findShapes(inst, rootPc, def, inversion, weights = SHAPE_WEIGHTS) {
    It never sets the bass: high up the neck, where all the fretted notes
    are above it, it is left out (as banjo players skip it there), and a
    shape that needed it for a chord tone goes. */
-function droneShapes(inst, rootPc, def, inversion, weights, relaxed = false) {
+function droneShapes(inst, rootPc, def, inversion, weights, relaxed = 0) {
   const long = inst.strings.map((m, s) => s).filter((s) => !startFret(inst, s));
   const drones = inst.strings.map((m, s) => s).filter((s) => startFret(inst, s));
   const longInst = { ...inst, strings: long.map((s) => inst.strings[s]), starts: undefined };
@@ -1014,7 +1022,9 @@ function customChord(id) {
   const steps = degrees.map((x) => DEGREE_STEPS[x]);
   const ok = steps.every((x) => x !== undefined) && new Set(steps.map(mod12)).size === steps.length
     && customId(degrees) === id && (degrees.length > 2 || DYAD_DEGREES.includes(degrees[1]));
-  const def = ok ? { id, steps, degrees, custom: true, ...describeChord(degrees) } : undefined;
+  // (two notes: the interval, its shapes just that, the root below, as the
+  // namer reads it: E3 F♯3 an E(M2), E2 F♯3 an E(M9))
+  const def = ok ? { id, steps, degrees, custom: true, ...(degrees.length === 2 ? { span: steps[1] } : {}), ...describeChord(degrees) } : undefined;
   if (customDefs.size > 200) customDefs.clear();
   customDefs.set(id, def);
   return def;
@@ -1453,12 +1463,20 @@ function readPair(text) {
   const name = m ? readName(m[1]) : null;
   return name ? { root: name.pc, name, id: m[2] || null } : null;
 }
-// (a chord: its root as named with no scale to follow, the one picked
-// (letter) or as usual, so it reads the same with another scale or none;
+// (saved settings: a chord's root as named with no scale to follow, the one
+// picked (letter) or as usual, so it reads the same with another scale or
+// none (a link's: as on screen, see shownChordText);
 // a scale: its root as it writes it, its Alternative root as it is)
 const chordText = (root, def, letter = null) => `${noteToken(ownChordSpelling(root, def, letter).root)}-${def.id}`;
 // A chord with its bass note when not the root ("C-maj*E", C/E), as chips are told apart
 const chordBassText = (root, def, bass, letter = null) => chordText(root, def, letter) + (bass ? `*${noteToken(ownChordSpelling(root, def, letter).notes[bass])}` : '');
+// (a link's: spelled as on screen, the scale's name for its root too, as
+// the Share popup shows it: C♯ in C♯ major is "Cs-maj", read with no scale
+// as C♯, its Alternative root on; see pickedLetter)
+const shownChordText = (root, def, bass, letter = null) => {
+  const spell = chordSpelling(root, def, letter);
+  return `${noteToken(spell.root)}-${def.id}${bass ? `*${noteToken(spell.notes[bass])}` : ''}`;
+};
 const scaleText = (root, def) => `${noteToken(scaleSpelling(root, def).root)}-${def.id}`;
 // → { root, def (null: none), frets ('' without a shape), bass (its place
 // in the chord's notes; null: not said) }, or null when wrong
@@ -1580,11 +1598,11 @@ function plainInversion(root, def, bass) {
 }
 function chordToken(neck) {
   const ch = currentChord();
-  return chordBassText(ch.root, ch.def, ch.bassIndex, state.chord.letter) + (neck ? shapeToken(ch.root, ch.def, ch, ch.bassIndex) : '');
+  return shownChordText(ch.root, ch.def, ch.bassIndex, state.chord.letter) + (neck ? shapeToken(ch.root, ch.def, ch, ch.bassIndex) : '');
 }
 function listToken(entry, neck) {
   const def = findChord(entry.type);
-  return chordBassText(entry.root, def, entry.bass, entry.letter) + (neck ? shapeToken(entry.root, def, chipShape(entry), entry.bass) : '');
+  return shownChordText(entry.root, def, entry.bass, entry.letter) + (neck ? shapeToken(entry.root, def, chipShape(entry), entry.bass) : '');
 }
 
 /* What the link holds: the neck (instrument, tuning, capo), the chord, the
@@ -2309,6 +2327,7 @@ const stringNumber = (s) => instrument().strings.length - s;   // 1 = string nea
    guitar and bass, any bass note on the others) when the chord has no such
    bass note (a 3rd inversion on a triad) */
 function inversionFor(def, v = state.inversion[state.instrument]) {
+  if (def.span) return '0';   // (an interval: its root below, "any bass note" too: turned over, it is another interval; a tritone, the same span)
   return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : DEFAULT_INVERSION[state.instrument];
 }
 
@@ -4172,9 +4191,11 @@ function keysOnGroups(ch = currentChord()) {
 }
 /* What the neck scrolls to: what was last acted on (ui.focus), the chord's
    shape or the scale group, and only that one; when it is not on the neck,
-   the other; on a piano with neither, middle C. */
+   the other; on a piano with neither, middle C. Naming a chord: the notes
+   placed, only (they are what is edited; none placed: nothing). */
 function focusNotes() {
   const chord = [...els.neck.querySelectorAll('.cell:not(.strip-cell) .note.chord, .key .note.chord')];
+  if (naming) return chord;
   const g = ui.groups[ui.group];
   const group = g ? groupNotes(g) : [];
   if (ui.focus === 'group' && group.length) return group;
@@ -5767,7 +5788,10 @@ function renderNeck(ch, sc) {
         if (tone) deg = ch.degOfPc.get(pc);
         cls += ` mute named${tone ? ` ghost${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`
           : sc && sc.set.has(pc) ? ` scale${pc === sc.root ? ' scale-root' : ''}` : ''}`;
-        n = ch.spell.names.get(pc) || (sc && sc.spell.names.get(pc)) || n;
+        // (named by the role it shows: a chord tone as the chord, else a
+        // scale note as the scale, else as any other note; not the chord's
+        // F♭ for a C major scale's E, All chord tones off)
+        n = (tone && ch.spell.names.get(pc)) || (sc && sc.set.has(pc) && sc.spell.names.get(pc)) || n;
       } else if (shapeAt.has(key) || (ghosts && ch.degOfPc.has(pc))) {
         deg = shapeAt.has(key) ? shapeAt.get(key) : ch.degOfPc.get(pc);
         cls += `${shapeAt.has(key) ? ' chord' : ' ghost'}${deg === 'R' ? ' root' : ''}${offKey(pc) ? ' off-key' : ''}`;
@@ -6132,7 +6156,7 @@ function renderChordPanel(ch, sc) {
       : INVERSION_NAMES[Number(inversion)];
 
   els.chordClear.disabled = !ch;
-  els.chordInversion.disabled = !ch;
+  els.chordInversion.disabled = !ch || Boolean(ch.def.span);   // (an interval: in root position only, see inversionFor)
   // No shape to play: every chord tone shows on the neck (renderNeck), so the
   // switch shows on, and can't be turned off
   const noShape = Boolean(ch && !ch.shape);
@@ -6168,7 +6192,9 @@ function renderChordPanel(ch, sc) {
   fitSymbol(els.chordSymbol, ch.symbol, ch.bassIndex > 0);
   els.chordName.textContent = `${rootName} ${ch.def.name.toLowerCase()}`;
   const optional = optionalTones(ch.def, String(ch.bassIndex), Boolean(instrument().piano));   // (in brackets, as in the Chord type menu; never the shape's bass)
-  const formula = ch.def.degrees.map((d, i) => {
+  // (an octave: one note, the root and its octave, "1 8"; two octaves, "1 15")
+  const octaves = ch.def.span && ch.def.steps.length === 1 ? ch.def.span / 12 : 0;
+  const formula = octaves ? `1 ${7 * octaves + 1}` : ch.def.degrees.map((d, i) => {
     const deg = fmtDeg(d === 'R' ? '1' : d);
     return optional.has(i) ? `(${deg})` : deg;
   }).join(' ');
@@ -6177,7 +6203,8 @@ function renderChordPanel(ch, sc) {
   // the Chord type menu (the shape's notes, bass to top, with any doubled,
   // are below), after a bar; on two lines, the notes on the second, no bar
   // (see .np-parts)
-  const spelled = ch.spell.notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
+  const spelled = octaves ? `${noteText(ch.spell.root)} ${noteText(ch.spell.root)}`
+    : ch.spell.notes.map((n, i) => (optional.has(i) ? `(${noteText(n)})` : noteText(n))).join(' ');
   els.chordMeta.innerHTML = `<span class="np-parts"><span class="np-tail">Formula: ${esc(formula)}</span><span class="np-tail np-then">${esc(spelled)}</span></span>`;
   // Its inversion, on its own line (the shape's: with "Any bass note" too)
   els.chordPosition.textContent = INVERSION_NAMES[ch.bassIndex];
@@ -6238,7 +6265,9 @@ function renderChordPanel(ch, sc) {
       .sort((a, b) => a.midi - b.midi || a.s - b.s);
   const offKey = offKeyTest(sc);
   els.chordTones.innerHTML = notes.map((x) => {
-    const deg = ch.degOfPc.get(mod12(x.midi));
+    // (an octave: the lowest note its root, the others its octaves above, 8, 15...)
+    const above = octaves ? (x.midi - notes[0].midi) / 12 : 0;
+    const deg = above ? String(7 * above + 1) : ch.degOfPc.get(mod12(x.midi));
     const name = pitchText(x.midi, ch.spell.names.get(mod12(x.midi)));
     const open = c && !startFret(inst, x.s) ? 'capo' : 'open';   // a banjo's drone rings open past its spike
     const loc = inst.piano ? `key ${x.k + 1}` : x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
