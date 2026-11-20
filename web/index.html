@@ -298,7 +298,7 @@
       </div>
     </div>
 
-    <!-- Phones only: always-visible shape controls and the tab bar -->
+    <!-- Phones only, always in view: the chord list, the shape (or group) stepper and the tab bar -->
     <div class="dock-bar narrow-only">
       <!-- The chord list (built with the + on a recent chord), then the last few chords used: one tap to switch -->
       <div id="dockRecent" class="dock-recent" hidden>
@@ -363,7 +363,6 @@
     </div>
   </div>
 
-  <!-- Picker popup for every menu: roots, chord and scale types, inversion, capo -->
   <!-- About: one line on the app and the link to its code -->
   <dialog id="about" class="picker about" aria-labelledby="aboutTitle">
     <div class="picker-head">
@@ -508,7 +507,7 @@
     </div>
   </dialog>
 
-  <!-- Clearing the chords, when some are saved: asked first -->
+  <!-- Reset: what goes (the chord, the scale, the capo), asked first -->
   <dialog id="resetAsk" class="picker share" aria-labelledby="resetAskTitle">
     <div class="picker-head">
       <h2 id="resetAskTitle">Reset</h2>
@@ -525,6 +524,7 @@
     </div>
   </dialog>
 
+  <!-- Clearing the chords, when some are saved: asked first -->
   <dialog id="listClear" class="picker share" aria-labelledby="listClearTitle">
     <div class="picker-head">
       <h2 id="listClearTitle">Clear chords</h2>
@@ -547,6 +547,7 @@
     </div>
   </dialog>
 
+  <!-- Picker popup for every menu: instrument, tuning, capo, roots, chord and scale types, inversion -->
   <dialog id="picker" class="picker" aria-labelledby="pickerTitle">
     <div class="picker-head">
       <h2 id="pickerTitle"></h2>

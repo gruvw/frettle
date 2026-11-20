@@ -11,8 +11,9 @@
    press (a sound, mostly) goes through onPress, or the neck's own handler
    (setupNeckTaps): never a bare 'pointerdown' listener, which fires as soon
    as a finger lands, swipe or not. The few 'pointerdown' listeners left
-   only watch (the chord list's drag, the sheet's drag, the scroll check,
-   keeping the screen on, the install card's count).
+   only watch (the chord list's drag and its × and +, the sheet's drag,
+   starting the audio, the keyboard focus, keeping the screen on, the
+   install card's count).
    ========================================================================== */
 
 /* ==========================================================================
@@ -42,7 +43,8 @@ const SHARP_NAMES = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A
    piano's (7 and 5 an octave); the Uniso: 97, from C0 (12) to C8, a 6-6
    whole-tone keyboard (`wholeTone`: 6 white keys an octave, C D E F♯ G♯
    A♯, and 6 black keys, C♯ D♯ F G A B, one between each two whites). No
-   tuning, capo or groups; a chord's shapes are its notes close together,
+   tuning or capo; its scale groups are an octave each (keyboardGroups);
+   a chord's shapes are its notes close together,
    one place on the keyboard after another (pianoShapes), written as key
    numbers counted from its lowest key (the piano's 0 to 87). */
 const PIANO_LOW = 21;
@@ -63,7 +65,7 @@ const INSTRUMENTS = [
 ];
 /* Other tunings, for the instruments that have common ones; the first is the
    standard tuning. `flats`: write its notes with flats (E♭ standard). `short`:
-   for the Neck tab on phones, when the name is too long for it. */
+   for the Setup tab on phones, when the name is too long for it. */
 const TUNINGS = {
   guitar7: [
     { id: 'standard', name: 'Standard', strings: [35, 40, 45, 50, 55, 59, 64] },
@@ -261,8 +263,8 @@ const DEGREE_NAMES = {
   '#9': 'Augmented 9th', 11: 'Perfect 11th', 13: 'Major 13th',
   b6: 'Minor 6th', '#11': 'Augmented 11th', b13: 'Minor 13th',
 };
-// (as many as a chord can have notes: the namer's readings run to seven,
-// a 13th with its tensions, and a piano key can be any of them)
+// (as many as a chord can have notes: the namer's readings run to twelve,
+// every note, and its bass can be any of them)
 const INVERSION_NAMES = ['Root position', '1st inversion', '2nd inversion', '3rd inversion', ...[4, 5, 6, 7, 8, 9, 10, 11].map((n) => `${n}th inversion`)];
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 const TRIAD_TYPES = ['maj', 'min', 'dim', 'aug'];
@@ -430,8 +432,9 @@ const degreeOffset = (deg) => (deg === 'R' ? 0 : (Number(deg.replace(/\D/g, ''))
    interval badges have it: double sharps and flats where the degree needs
    one (Cdim7 is C E♭ G♭ B𝄫, E7♯9 is E G♯ B D F𝄪), as in scales (G♯
    harmonic minor has F𝄪) */
-// (forcedRoot: its root as the scale shown names it, or its other name,
-// picked: B♯ D𝄪 F𝄪)
+// (forcedRoot: its root as the scale shown names it, or as picked: its
+// other name, B♯ D𝄪 F𝄪, or the name a link wrote it with, F𝄪dim; see
+// chordSpelling)
 function spellChord(rootPc, def, forcedRoot = null) {
   return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), false, forcedRoot, false, chordTie());
 }
@@ -448,9 +451,10 @@ function chordTie() {
 /* ==========================================================================
    2. Chord shape finder
    1) Every playable shape is generated: within a 4-fret window, each string
-      is muted, open (near the nut) or fretted on a chord tone, and the shape
-      must sound every required tone (the 5th may be left out of 4+ note
-      chords, the 9th out of 11th and 13th chords), have the chosen bass
+      is muted, open (near the nut; anywhere as a last resort) or fretted
+      on a chord tone, and the shape must sound every required tone (the
+      5th may be left out of 4+ note chords, the 9th out of 11th and 13th
+      chords), have the chosen bass
       note, need at most 4 fingers and keep muted strings sensible.
    2) Each shape is described by a few measured features (strings sounding,
       muted strings, fingers, barre, stretch, open strings, position...).
@@ -462,7 +466,7 @@ function chordTie() {
    ========================================================================== */
 const SHAPE_SPAN = 4;      // frets covered by the hand
 const MAX_FINGERS = 4;
-const OPEN_MAX_POS = 5;    // open strings only combine with shapes that start at fret ≤ 5
+const OPEN_MAX_POS = 5;    // open strings only combine with shapes that start at fret ≤ 5 (but as a last resort: relaxed 2)
 const SHAPE_WEIGHTS = {
   sound: 0.25,        // per sounding string
   opt: 2.75,          // optional tone (5th, or 9th of 11/13 chords) present
@@ -859,12 +863,12 @@ function pickShapes(found, weights, chart = null) {
 }
 
 const tabOf = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(' ');
-/* Compact tab for tight spaces: "x32010", spaced only when a fret has two digits */
 /* Where a shape sits, as players say it: "open" for an open-position shape
    (open strings, nothing above fret 4), else "fret N", its lowest fretted
    fret (counted from the capo, like the tab). */
 const shapePlace = (shape) => (shape.pos === 0 || (shape.frets.includes(0) && openPosition(shape.frets))
   ? 'open' : `fret ${shape.pos}`);
+/* Compact tab for tight spaces: "x32010", spaced only when a fret has two digits */
 const shortTab = (shape) => shape.frets.map((f) => (f < 0 ? 'x' : f)).join(shape.frets.some((f) => f > 9) ? ' ' : '');
 
 /* A chord's shapes on the piano: its notes close together, as written (a
@@ -909,14 +913,14 @@ function homeShape(shapes, root, inversion) {
 }
 
 /* ==========================================================================
-   Chord types beyond the menus' (named in Name a chord). Any set of notes
-   gets a name: above a root, each interval takes its usual role (3rd,
-   5th, 7th, 9th, 11th, 13th, or an altered one: ♭9, ♯11...) and the symbol
-   is written the usual way (C7(♯11), Cmaj9, Cm(add9), C7sus4, C(no3)).
-   Two notes are named after their interval (C(M3): C and the major 3rd
-   above). Such a chord is a type like the others (its shapes, spelling,
-   chip, link, save), its id its intervals: "i-3-5-b7-s11" (# as s, the
-   root left out).
+   Chord names: one namer (describeChord) for the menus' chords and for
+   any other set of notes (Name a chord). Above a root, each interval
+   takes its usual role (3rd, 5th, 7th, 9th, 11th, 13th, or an altered
+   one: ♭9, ♯11...) and the symbol is written the usual way (C7(♯11),
+   Cmaj9, Cm(add9), C7sus4, C(no3)). Two notes are named after their
+   interval (C(M3): C and the major 3rd above). A chord beyond the menus'
+   is a type like the others (its shapes, spelling, chip, link, save),
+   its id its intervals: "i-3-5-b7-s11" (# as s, the root left out).
    ========================================================================== */
 const DEGREE_STEPS = { R: 0, b2: 1, 2: 2, b3: 3, 3: 4, 4: 5, b5: 6, 5: 7, '#5': 8, b6: 8, 6: 9, bb7: 9, b7: 10, 7: 11,
   b9: 13, 9: 14, '#9': 15, 11: 17, '#11': 18, b13: 20, 13: 21 };
@@ -967,8 +971,9 @@ function describeChord(degrees) {
   else { core = ''; words = sus ? '' : 'Chord'; }
   for (const x of ['3', 'b3', sev, '5', sus]) used.add(x);   // (one 7th: the other, if any, added)
   if (sus) words = `${words}${words ? ', s' : 'S'}uspended ${sus === '4' ? '4th' : '2nd'}`;
-  // Added notes (no 7th), then altered ones, then a missing 3rd (every
-  // note said: C E G♯ A is C6(♯5), not Caug)
+  // Added notes (those its core does not say: Cadd9, C13(add11)), then
+  // altered ones, then a missing 3rd (every note said: C E G♯ A is
+  // C6(♯5), not Caug)
   const adds = ['6', '9', '11', '13'].filter((x) => d.has(x) && !used.has(x));
   const alts = ['b5', '#5', 'b7', 'b9', '#9', '#11', 'b13'].filter((x) => d.has(x) && !used.has(x));
   // (an altered note sounding with its natural one is added, not altered:
@@ -1154,20 +1159,20 @@ function defaultState() {
     leftHanded: false,                // mirror the neck
     octaves: false,
     muteTaps: false,                  // Name a chord: notes placed are silent
-    tuning: {},                       // tuning id per instrument ('custom': your own)
+    tuning: {},                       // tuning id per instrument ('custom': your own; 'saved:…': a saved one, see savedId)
     capo: {},                         // fret of the capo per instrument (none: left out)
     custom: {},                       // your own tuning per instrument: open string pitches
     saved: {},                        // saved tunings per instrument: [{ name, strings }]
-    chord: { on: true, root: 0, type: 'maj', letter: null },   // off: type null (see chordOff); letter: its root's other name, picked (see chordSpelling)
-    list: [],                         // the chord list, as built [{ root, type, inversions, shapes }], shared by all instruments
+    chord: { on: true, root: 0, type: 'maj', letter: null },   // off: type null (see chordOff); letter: the letter its root is written with, picked (its other name) or a link's (F𝄪dim; see chordSpelling)
+    list: [],                         // the chord list, as built [{ root, type, bass, letter, inversions, shapes, used }], shared by all instruments
     recent: [],                       // the last chords used that are not in it (RECENT_KEEP kept, RECENT_MAX shown), newest first
     drawn: [],                        // custom shapes (Name a chord): [{ root, type, neck, frets }], newest last (see listShapes)
     inversion: { ...DEFAULT_INVERSION },  // per instrument
     shape: null,                      // index in the shape list, this visit only (null: the chord's home shape, homeShape)
     loose: false,                     // the chord on screen is a link's, on a shape its chip does not have: shown apart from it (see applyLink)
-    scale: { on: true, root: 0, type: 'major', letter: null },   // off: type null (see scaleOff); letter: as the chord's
-    share: { neck: true, chord: true, scale: true, list: true },
-    folded: { chord: false, scale: false },   // wide screens: a panel folded to its title row   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
+    scale: { on: true, root: 0, type: 'major', letter: null },   // off: type null (see scaleOff); letter: its root's other name, picked (see scaleSpelling)
+    share: { neck: true, chord: true, scale: true, list: true },   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
+    folded: { chord: false, scale: false },   // wide screens: a panel folded to its title row
   };
 }
 
@@ -1239,7 +1244,7 @@ function loadState(saved) {
       const r = e && readChord(e.chord);
       if (!r || !r.def) return null;
       const bass = Number.isInteger(e.bass) && e.bass >= 0 && e.bass < r.def.steps.length ? e.bass : undefined;
-      const letter = pickedLetter(r.root, r.def, readName(e.name), chordNameAs);   // (its root's other name, picked: see keepLetter)
+      const letter = pickedLetter(r.root, r.def, readName(e.name), chordNameAs);   // (its root's name when not its usual one: picked, or a link's; see keepLetter)
       return { root: r.root, type: r.def.id, bass, used: Number(e.used) || 0, inversions: readInversions(e.inversions || e.voicings), shapes: readShapes(e.shapes), ...(letter === null ? {} : { letter }) };   // (inversions: saved before as "voicings")
     };
     const known = (r) => [...s.list, ...s.recent].some((x) => sameEntry(x, r));
@@ -1276,7 +1281,7 @@ function loadState(saved) {
    in B major, E♭m in E♭ major, both "Ds-min"; else two tabs with different
    scales would see one chip as two, and save it back and forth) */
 const savedChord = (root, type) => `${noteToken(plainNote(root, false))}-${type}`;
-// (with its root's name when it is the other one, picked: see keepLetter)
+// (with its root's name when not its usual one: see keepLetter)
 const savedEntry = (r) => ({ chord: savedChord(r.root, r.type), bass: r.bass, ...(chordNameAs(r.root, r.letter) ? { name: noteToken(chordNameAs(r.root, r.letter)) } : {}), inversions: r.inversions, shapes: r.shapes });
 // A state's shared parts as saved (see saveState): settings, saved tunings,
 // the chord list and custom shapes
@@ -1473,10 +1478,11 @@ function readName(text) {   // "A", "Bb", "Fs" (or "F#", "F♯") → the note as
 }
 const readNote = (text) => { const n = readName(text); return n ? n.pc : null; };   // → its pitch class, or null
 /* A root's name as read (a link, saved settings): its letter, null when
-   it is not a name of that root. Whether it is the usual one or the other
-   one (the Alternative root switch on) depends on where it shows (the
-   Flats setting, the scale shown), so that is settled then, when it shows:
-   see settleLetters, keepLetter. */
+   it is not a name of that root (as: a scale's two names, rootAs; a
+   chord's, any with up to three sharps or flats, chordNameAs). Whether it
+   is the usual one or not (the Alternative root switch on) depends on
+   where it shows (the Flats setting, the scale shown), so that is settled
+   then, when it shows: see settleLetters, keepLetter. */
 function pickedLetter(root, def, name, as = rootAs) {   // (as: chordNameAs for a chord's)
   return name && def && name.pc === mod12(root) && as(root, name.letter) ? name.letter : null;
 }
@@ -1590,7 +1596,7 @@ function readShapes(value) {
    that "voicing". */
 const NONE = 'none';   // a link's chord or scale: none on the neck it was shared from
 const LINK_KEYS = ['instrument', 'tuning', 'capo', 'inversion', 'voicing', 'chord', 'scale', 'list'];
-const INVERSIONS = [...INVERSION_NAMES.keys()].map(String).concat('any');   // a bass note (any of a chord's, up to seven: see INVERSION_NAMES), or any
+const INVERSIONS = [...INVERSION_NAMES.keys()].map(String).concat('any');   // a bass note (any of a chord's, up to twelve: see INVERSION_NAMES), or any
 /* A chord of the link with its shape, when not the first one and only with
    the neck (a custom shape always: it is not among the shapes found where
    the link opens). The chord on screen and a chip of the list: the name,
@@ -1753,7 +1759,7 @@ function applyLink(search, parts = null, fresh = false) {
       // its shape, for the neck it was shared with (without it, the first),
       // in the inversion that lists it: the link's, the default, or another
       const entry = newEntry(c.root, c.def.id, Number.isInteger(c.bass) ? c.bass : undefined);
-      const letter = otherLetter(c.root, c.def, c.letter);   // (its root's other name, as shared: under the scale now shown, see above)
+      const letter = otherLetter(c.root, c.def, c.letter);   // (its root's name as shared, when not its usual one: under the scale now shown, see above)
       if (letter !== null) entry.letter = letter;
       const tries = [linkInversion, DEFAULT_INVERSION[state.instrument], ...INVERSIONS].filter((v) => INVERSIONS.includes(v));
       const listed = (v) => listShapes(c.root, c.def, inversionFor(c.def, v)).some((shape) => fretsText(shape.frets) === c.frets);
@@ -1834,11 +1840,12 @@ function applyLink(search, parts = null, fresh = false) {
 /* Opened from a link: a popup says what it holds and what it would replace,
    and you load all of it or only some (the chord, the chord list, the
    scale). It loads straight away when there is nothing of yours to lose: a
-   first visit, or when no row would say Replaces, Removes or Clears: for
-   the chord and the scale, you have none or the link holds the same; the
-   link's list keeps every chord already in the list; the link's neck (if it has one)
-   is yours already. Until you choose, your own
-   neck is shown and the address keeps the link. */
+   first visit, or when no row would say Replaces, Reorders, Removes or
+   Clears: for the chord and the scale, you have none or the link holds the
+   same (the chord's shape too); the link's list keeps every chord already
+   in the list, in its order, on its shape; the link's neck (if it has one)
+   is yours already. Until you choose, your own neck is shown and the
+   address keeps the link. */
 let pendingLink = null;   // { search, preview, has, parts, same: the parts that change nothing }
 function startLink(search) {
   const p = new URLSearchParams(search);
@@ -1950,11 +1957,11 @@ function openLinkPopup() {
 }
 /* One row per part: the switch (a tick instead when nothing would change),
    its name, a tag for what Load does with it (Replaces, Adds, Removes,
-   Clears, Not loaded, No change), and what is on the neck now → what the link has: the
-   one you end up with bright, the other struck through (or just what
-   changes, see neckDiff). Chords show as
-   chips, so a long list wraps chip by chip; the link's part goes under the
-   current one when both do not fit on a line. */
+   Reorders, Clears, Not loaded, No change), and what is on the neck now →
+   what the link has: the one you end up with bright, the other struck
+   through (or just what changes, see neckDiff). Chords show as chips, so
+   a long list wraps chip by chip; the link's part goes under the current
+   one when both do not fit on a line. */
 const lkEmpty = (v) => (Array.isArray(v) ? !v.length : !v);
 // A chord name in a popup's chip, which breaks (when it must: a long name on
 // a narrow screen) before its brackets and bass, and after its commas:
@@ -2154,10 +2161,10 @@ function linkSummary({ neck = true, chord = true, scale = true, recent = false }
 const listNames = () => state.list.map(entrySymbol);
 
 /* Share: a popup shows what is on the neck, one row per part that is set
-   (the neck, the chord, the chord list, the scale), each switched in or out of the
-   link (all but the chord list the first time, then as you last left
+   (the neck, the chord, the chord list, the scale), each switched in or
+   out of the link (all of them the first time, then as you last left
    them), then shares it: the phone's share sheet, or the link copied (the
-   Share button says so for a moment). */
+   Share button says so for a moment); Copy text copies the words alone. */
 // Drawn 1 unit left of centre: its two dots on the right make it look right-heavy otherwise
 const SHARE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 0)"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></g></svg>';
 const DONE_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -2315,8 +2322,9 @@ function cappedInstrument() {
 }
 /* Spelling of the selected chord / scale (or, for pickers, of any root and
    type). Each is written as the easier key (see spellScale), or from its
-   root's other name when the Alternative root switch has it: letter, the
-   root's letter so picked (null: none). A choice that the type now writes
+   root's other name when the Alternative root switch has it (a chord's,
+   also the name a link wrote it with: F𝄪dim): letter, the root's letter
+   so picked (null: none). A choice that the type now writes
    anyway is no choice any more (see settleLetters). A chord whose root
    the selected scale has borrows the scale's name for it, so the ii chord
    of D♭ major is E♭m, not D♯m (its own choice kept for when there is no
@@ -2349,8 +2357,9 @@ function chordSpelling(rootPc, def, letter = null) {
 const stringNumber = (s) => instrument().strings.length - s;   // 1 = string nearest the floor
 
 /* The inversion set for this instrument, or its default (root position on
-   guitar and bass, any bass note on the others) when the chord has no such
-   bass note (a 3rd inversion on a triad) */
+   the guitars, the basses and the keyboards, any bass note on the others:
+   DEFAULT_INVERSION) when the chord has no such bass note (a 3rd inversion
+   on a triad); an interval, always root position */
 function inversionFor(def, v = state.inversion[state.instrument]) {
   if (def.span) return '0';   // (an interval: its root below, "any bass note" too: turned over, it is another interval; a tritone, the same span)
   return v === 'any' || (/^\d+$/.test(v) && Number(v) < def.steps.length) ? v : DEFAULT_INVERSION[state.instrument];
@@ -2410,10 +2419,9 @@ function currentScale() {
 function chordOff() { state.chord.on = false; state.chord.type = null; state.loose = false; openEntry = null; resetInversion(); }   // and its chip is final
 function scaleOff() { state.scale.on = false; state.scale.type = null; }
 
-/* Change the chord and show its first shape. */
-/* A new chord type (or no chord) starts from the default inversions: an
-   inversion is chosen for a chord, not kept for the next one. A new root
-   keeps it (the same chord, moved). A chip brings back its own. */
+/* A new chord (another root or type, or no chord) starts from the default
+   inversions: an inversion is chosen for a chord, not kept for the next
+   one. A chip brings back its own. */
 const resetInversion = () => { state.inversion = { ...DEFAULT_INVERSION }; };
 /* A chord picked from the menus (or a triad): its first shape. A new chord
    (another root or type) starts from each instrument's default inversion
@@ -2782,17 +2790,18 @@ function trackChord() {
   if (!fromChip) rememberShape(entry);   // picked from the menus: its first shape
   keepLetter(entry);
 }
-/* A chip carries its root's name only when it is the other one (the
-   Alternative root switch): that of the chord on screen, its chord, as it
-   was last picked (see settleLetters) */
+/* A chip carries its root's name only when it is not its usual one (the
+   Alternative root switch, or a link's F𝄪dim): that of the chord on
+   screen, its chord, as it was last picked (see settleLetters) */
 function keepLetter(entry) {
   if (!entry) return;
   const letter = otherLetter(state.chord.root, findChord(state.chord.type), state.chord.letter);   // (not yet settled, see pickedLetter)
   if (letter === null) delete entry.letter;
   else entry.letter = letter;
 }
-// (a chord root's letter as read or picked, when it is its other name here,
-// the Alternative root: else null, its usual name, nothing to keep)
+// (a chord root's letter as read or picked, when it is not its usual name
+// here (its other one, the Alternative root; a link's F𝄪): else null,
+// nothing to keep)
 const otherLetter = (root, def, letter) => (Number.isInteger(letter) && def && chordNameAs(root, letter) && letter !== spellChord(root, def).root.letter ? letter : null);
 /* A root's other name, picked, that its scale or chord type writes anyway
    (D♯ picked for D♯ major, then minor: D♯ minor is the easier key) is no
@@ -3172,7 +3181,8 @@ const groupSpan = (g, capo) => (g.keys ? `${groupKeyName(g.keys[0])} to ${groupK
 /* A keyboard's scale groups: an octave each, from the scale's root to the
    next (both in it: played root to root), every one the keyboard holds,
    low to high, with its notes' middle (mid, MIDI: see pickGroup). Shown by
-   dimming the notes past it (no outline). */
+   a bar over its keys' far ends (.group-bar, see renderPiano), no note
+   dimmer. */
 function keyboardGroups(inst, sc) {
   const groups = [];
   for (let m = inst.low + mod12(sc.root - inst.low); m + 12 < inst.low + inst.keys; m += 12) {
@@ -3739,7 +3749,7 @@ function strumFrets(frets) {
    Escape) leaves everything as it was, the chord on screen or none.
    The naming works on the notes, not the frets (see nameChord).
    ========================================================================== */
-let naming = null;   // { frets: per string, -1 muted; pick: the name picked (0: the most likely); root: the root picked with the arrows, or null; letter: its root's other name, picked (Alternative root), or null }
+let naming = null;   // { frets: per string, -1 muted; pick: the name picked (0: the most likely); root: the root picked with the arrows, or null; letter: its root's other name, picked (Alternative root), or null; letterRoot: the root, a pitch class, that letter names }
 // The names of the notes placed, one per root, the most likely first
 function namerReadings() {
   const sc = currentScale();
@@ -3916,8 +3926,6 @@ function renderNamer() {
   els.namerPlay.disabled = els.namerClear.disabled = !notes.length;
   els.namerPrev.disabled = els.namerNext.disabled = readings.length < 2;
   els.namerMute.setAttribute('aria-pressed', String(Boolean(state.muteTaps)));
-  // Alternative root, as the chord panel's: off with no name yet, for D, G
-  // and A (one name), and for a root the scale shown names
   // The moves: off where the notes cannot go further (or there are none)
   const what = instrument().piano ? 'key' : 'fret';
   els.namerUp.disabled = !namerMoved(namerUpStep());
@@ -3928,6 +3936,8 @@ function renderNamer() {
     el.title = text;
     el.setAttribute('aria-label', text);
   }
+  // Alternative root, as the chord panel's: off with no name yet, for D, G
+  // and A (one name), and for a root the scale shown names
   const free = r && !scaleRootName(r.root) && otherRoot(r.root, ownChordSpelling(r.root, r.def).root);
   els.namerAlt.disabled = !free;
   els.namerAlt.setAttribute('aria-pressed', String(Boolean(free && namerLetter(r) !== null)));
@@ -4171,7 +4181,8 @@ function draw() {
   // wide screens: the neck sideways), see revealFocus: the chord when its
   // shape changes (picked, stepped, a chip, an inversion...), the scale
   // group when one is picked or the scale changes. Not while naming: the
-  // neck stays where the notes are being placed.
+  // neck stays where the notes are being placed (moved past the edge of
+  // the view, it follows them: see namerMove).
   if (naming) return;
   const { neckKey, chordKey, scaleKey, first, sameNeck } = seen;
   // The piano, as it comes on screen (opened on it, or picked): its chord's
@@ -4475,11 +4486,6 @@ function placeSettings() {
   }
 }
 
-/* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
-   [{ label, items: [{ value, label, sub }] }]; the chosen value goes to onPick.
-   An optional `note` is a line of help under the tiles: the legend of the
-   teal dot on the tiles that fit the scale. When no tile has the dot, it
-   says so instead (`noteNone`), without a dot. */
 /* Custom tuning: a popup with each string laid out as on the neck (phones:
    columns, the lowest string on the left, mirrored left-handed; wide
    screens: rows, the highest string on top), each a semitone up or down at
@@ -4487,7 +4493,7 @@ function placeSettings() {
    in the accent colour, and its string number turns into a button that puts
    that string back; tapping a note plays it. Landing on a preset (Drop
    D...) names it. Nothing changes on the neck (nor in what is saved) until
-   Done, which puts the tuning on the neck (a preset's notes: that preset);
+   Select, which puts the tuning on the neck (a preset's notes: that preset);
    Cancel (Escape, a tap outside) leaves the one you had. It starts from the
    custom tuning, or the one on the neck. */
 let tune = null;   // { draft: open string pitches }
@@ -4500,7 +4506,7 @@ function tuneSet(strings) {
   tune.draft = strings;
   keepFocus(renderTuneEdit);   // the + or − just used keeps the focus
 }
-// Done: the tuning on the neck
+// Select: the tuning on the neck
 function applyTune(strings) {
   const id = state.instrument;
   const preset = matchTuning(id, strings);
@@ -4654,7 +4660,7 @@ function deleteTuning() {
   if (els.picker.open) openTuningMenu();   // the menu, without it
 }
 
-// Done puts it on the neck; Cancel leaves what you had
+// Select puts it on the neck; Cancel leaves what you had
 function closeTuneEdit(keep) {
   const t = tune;
   tune = null;
@@ -4670,6 +4676,14 @@ const X_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="no
 const BOOKMARK_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg>';
 const EDIT_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg>';
 let pickerRemove = null;
+/* Picker popup: tiles to tap instead of a long dropdown list. `groups` is
+   [{ label, items: [{ value, label, sub, tag, icon, cls, title, style,
+   remove }] }]; the chosen value goes to onPick; `layout`: the grid's
+   class ('roots': the 12 notes). An item with `remove` (its words) has an
+   × beside its tile, which hands its value to onRemove (a saved tuning).
+   An optional `note` is a line of help under the tiles: the legend of the
+   teal dot on the tiles that fit the scale. When no tile has the dot, it
+   says so instead (`noteNone`), without a dot. */
 function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null }) {
   const dots = groups.some((g) => g.items.some((it) => it.cls === 'fits'));
   const legend = !note ? '' : dots || !noteNone ? `<p class="picker-note">${esc(note)}</p>` : `<p class="picker-note empty">${esc(noteNone)}</p>`;
@@ -4736,15 +4750,13 @@ function peekPicker() {
 function closePicker() {
   if (els.picker.close) els.picker.close(); else els.picker.removeAttribute('open');
 }
-/* The 12 roots, each spelled as it would be for the given chord or scale type,
-   with the other name of the black keys below (D♭ / C♯), as the neck may
-   use either; `fits(pc)` marks the roots whose chord fits the scale */
 /* The root menus (chord, scale): each pitch with its names, the one a
    pick writes it with on top (C♯ minor, D♭ major; both as easy, F♯ / G♭
    major: as the Flats setting has it, a chord's as the scale shown leans,
    see chordTie; no type yet: as the Flats setting has it), the other under
    it (the Alternative root); a name the scale shown gives a chord's root,
-   alone. */
+   alone. `fits(pc)` marks the roots whose chord fits the scale (or, with
+   no chord, that are in it). */
 const rootItems = (lines, fits = () => false) => [{ items: SHARP_NAMES.map((_, pc) => {
   const [first, second] = lines(pc);
   return { value: pc, label: noteText(first), sub: second ? noteText(second) : '', cls: [second ? 'two' : '', fits(pc) ? 'fits' : ''].join(' ').trim() };
@@ -4785,10 +4797,7 @@ const fitsNote = (sc) => (sc && sc.def.steps.length < 12 ? `Every note is in ${s
 const rootNote = (sc) => (sc && sc.def.steps.length < 12 ? `In ${scaleInText(sc)}` : '');
 const inScale = (pc, sc) => Boolean(sc && sc.def.steps.length < 12 && sc.set.has(pc));
 
-/* Shrink the text of a fixed-size box until it fits on one line (long chord
-   symbols like C♯m(maj7)). Measured on a canvas, so it also works while the
-   box is hidden (a closed sheet on phones). */
-let measureCtx = null;
+let measureCtx = null;   // (the canvas fitText and fitSymbol measure on)
 /* Words that may not fit their place: the first of their forms that does
    (the whole, then shorter ones: "Diminished 5th", "Dim. 5th"); none does:
    the shortest (in a smaller font first, given a min), cut with "…". The forms stay on it (data-fits), to fit
@@ -4818,9 +4827,12 @@ const refitWords = (root = document) => root.querySelectorAll('[data-fits]').for
 const fitsAttr = (forms) => `data-fits="${esc(JSON.stringify([...new Set(forms)]))}"`;
 // Shorter words for the long ones of chord and interval names
 const SHORT_WORDS = [[/Half-diminished/g, 'Half-dim.'], [/Minor-major/g, 'Min-maj'], [/Diminished/g, 'Dim.'], [/Augmented/g, 'Aug.'],
-  [/Dominant/g, 'Dom.'], [/Suspended/g, 'Sus.'], [/Perfect/g, 'Perf.'], [/Major/g, 'Maj.'], [/Minor/g, 'Min.'], [/ flat /g, ' ♭'], [/ sharp /g, ' ♯']];
+  [/Dominant/g, 'Dom.'], [/Suspended/g, 'Sus.'], [/Perfect/g, 'Perf.'], [/Major/g, 'Maj.'], [/Minor/g, 'Min.']];
 const shortWords = (text) => SHORT_WORDS.reduce((t, [re, to]) => t.replace(re, to), text);
 
+/* Shrink the text of a fixed-size box until it fits on one line (long chord
+   symbols like C♯m(maj7)). Measured on a canvas, so it also works while the
+   box is hidden (a closed sheet on phones). */
 function fitText(el, min = 0) {   // (min: no smaller than this, the rest cut with "…" by styles.css)
   el.style.fontSize = '';
   const cs = getComputedStyle(el);
@@ -5306,7 +5318,7 @@ const MUTE_ICON = '<svg class="ico mute-ico" viewBox="0 0 24 24" aria-hidden="tr
    last note (a to b), and its outline's (da to db: further, to meet the
    string before or after, see handGroups). A banjo's drone is left out: groups are played on the long
    strings.
-   Returns [{ id, bars: [{ s, a, b }] }]. */
+   Returns [{ id, bars: [{ s, a, b, da, db }] }]. */
 const groupsCache = { key: null, groups: [] };
 function scaleGroups(inst, sc, capo) {
   const L = sc.def.steps.length;
@@ -5439,8 +5451,6 @@ function handGroups(inst, sc, capo, order, reach) {
     }
     return passed;
   };
-  // What a group itself costs: 2 for one fret too wide (see the costs
-  // above), 2 for each note passed over
   // Two strings side by side in a group (q and the one before), the
   // second's notes from fret a to b, the first's outline from pa to pb:
   // their outlines, made to share a fret where the notes don't (the
@@ -5462,6 +5472,8 @@ function handGroups(inst, sc, capo, order, reach) {
     }
     return null;
   };
+  // What a group itself costs: 2 for one fret too wide (see the costs
+  // above), 2 for each note passed over
   const groupCost = (span, passed) => 2 * Math.max(0, span - reach.group) ** 3 + 2 * passed;
 
   // The groups, with at least minLen notes a string and no wider than
@@ -5887,15 +5899,16 @@ function renderNeck(ch, sc) {
 }
 
 /* A keyboard (the piano, the Uniso): its keys, low to high (phones: from
-   the top down, the keys' fronts on the left by the octave numbers; wide
-   screens: from left to right, the octave numbers above). Each key's note
-   is a pill as on the neck: on a white key in the part in front of the
-   black keys, on a black key near its front. Sizes and places are in
-   styles.css, from each key's place among the white keys (--i: a white
-   key's own, a black key's the white key it starts on), the same on both
-   keyboards (a white key as wide, a black key as narrow and short): the
-   Uniso's black keys one between each two white keys, its C and F keys
-   grey (.marked), as its own are. The octave's number sits by its C. */
+   the top down, the keys' fronts on the left, the octave numbers on the
+   right; wide screens: from left to right, the octave numbers above). Each
+   key's note is a pill as on the neck: on a white key in the part in front
+   of the black keys, on a black key near its front. Sizes and places are
+   in styles.css, from each key's place among the white keys (--i: a white
+   key's own, a black key's the white key it starts on), the same shapes on
+   both keyboards (a black key as narrow and short, for its white keys),
+   the Uniso's keys a little wider on wide screens (for a note inside a
+   black key): its black keys one between each two white keys, its C and F
+   keys grey (.marked), as its own are. The octave's number sits by its C. */
 const BLACK_PCS = new Set([1, 3, 6, 8, 10]);
 const keysText = (inst) => `${inst.keys} keys, ${[inst.low, inst.low + inst.keys - 1].map((m) => pitchText(m, plainNote(m))).join(' to ')}`;   // ("88 keys, A0 to C8")
 function renderPiano(ch, sc) {
@@ -5978,8 +5991,8 @@ function renderPiano(ch, sc) {
    then, its frets (or white keys) a little wider, the notes as they are,
    to scroll at least SCROLL_MIN: a scroll that shows something. Measured
    at its own width first (each fret at least --cell-w, each white key
-   36px), from the frets' (keys') widths as they are, whatever makes it
-   scroll. On every draw and whenever the neck or its panel changes size. */
+   36px, the Uniso's 46px), from the frets' (keys') widths as they are,
+   whatever makes it scroll. On every draw and whenever the neck or its panel changes size. */
 const SCROLL_MIN = 102;   // px: two frets (2 × --cell-w)
 function fitScroll() {
   const neck = els.neck;
@@ -6372,7 +6385,7 @@ function renderScalePanel(sc, ch) {
   els.scaleClear.disabled = !sc;
   // The chromatic scale has every note: nothing to hide or to group
   els.tglScaleOnly.disabled = els.tglScaleGroups.disabled = !sc || sc.def.steps.length >= 12;
-  els.tglScaleGroups.title = instrument().piano ? 'Show the scale an octave at a time, the notes past it dimmer, and step from one to the next'
+  els.tglScaleGroups.title = instrument().piano ? 'Mark the scale an octave at a time, with a bar over its keys, and step from one to the next'
     : 'Outline the scale in hand-sized groups, a few notes per string, and step from one to the next';
   renderGroupLine(sc, ch);
 
@@ -6658,12 +6671,11 @@ function init() {
   sharedBase = storedShared();
   const { root, type } = state.chord;
   const chips = [...state.list, ...state.recent];
-  // the chord on screen as its chip remembers it (inversion, shape): the chip
-  // it was saved as (saved before: its only chip)
-  // (no bass saved with it: the root, as a link's; saved before chips had
-  // a bass: its only chip, whatever its bass)
-  // (shown apart from its chip, see applyLink: on the shape it had, in the
-  // inversion saved, while this neck lists it)
+  // The chord on screen: shown apart from its chip (see applyLink), on the
+  // shape it had, in the inversion saved, while this neck lists it; else as
+  // its chip remembers it (inversion, shape): the chip it was saved as (no
+  // bass saved with it: the root, as a link's; saved before chips had a
+  // bass: its only chip, whatever its bass)
   const looseAt = state.chord.on && state.looseFrets ? currentChord().shapes.findIndex((sh) => fretsText(sh.frets) === state.looseFrets) : -1;
   if (looseAt >= 0) Object.assign(state, { shape: looseAt, loose: true });
   else if (state.chord.on) recallChip(chips.find((r) => sameEntry(r, { root, type, bass: state.chordBass ?? 0 })) || chips.find((r) => r.root === root && r.type === type));
@@ -6739,12 +6751,15 @@ function init() {
     if (card.dataset.key !== undefined) flashKey(card.dataset.key); else flashCell(card.dataset.s, card.dataset.f);
     keepChord();
   });
+  // Space: strums the chord, or plays the group shown when the keys step
+  // the groups (keysOnGroups; see the keys below)
+  const strumOrPlay = () => (keysOnGroups() ? playGroup() : strum());
   // Strum buttons sound on press, like a plucked string. A click from the
   // keyboard (Enter, or Space on a button reached with Tab) still strums.
-  // With no chord, the dock's button plays the scale group shown.
-  const strumOrPlay = () => (keysOnGroups() ? playGroup() : strum());
-  // (on touch screens, as the neck's notes: a swipe to scroll that starts
-  // on them plays nothing, onPress)
+  // The dock's button plays what its stepper shows (ui.dockMode): the
+  // chord, or the scale group; the groups' own stepper's, the group. (On
+  // touch screens, as the neck's notes: a swipe to scroll that starts on
+  // them plays nothing, onPress)
   for (const btn of [els.chordStrum, els.dockStrum, els.quickGroupPlay]) {
     const act = btn === els.dockStrum ? () => (ui.dockMode === 'group' ? playGroup() : strum()) : btn === els.quickGroupPlay ? playGroup : strum;
     onPress(btn, null, act);
@@ -6825,7 +6840,6 @@ function init() {
   els.listClear.addEventListener('click', (e) => { if (e.target === els.listClear) closeClearRecent(); });
 
   // Dock (phones): shape bar, tabs and the sheet they open
-  // (no chord: the scale's groups)
   // The dock's stepper: the chord's shapes or the scale's groups, as it shows (renderDock)
   const dockGroups = () => ui.dockMode === 'group';
   els.dockPrev.addEventListener('click', () => (dockGroups() ? selectGroup(ui.group - 1) : stepShape(-1)));
@@ -6860,7 +6874,6 @@ function init() {
   window.addEventListener('resize', () => { if (els.picker.open) peekPicker(); }, { passive: true });
   els.neck.parentElement.addEventListener('scroll', queueStrip, { passive: true });
 
-  // Root alone never turns a chord or scale on: "None" in the type menu means off
   // Moving the capo keeps the chord and shows its first shape from the capo
   els.capoSelect.addEventListener('click', () => openPicker({
     title: 'Capo', layout: 'roots', value: capo(),
@@ -6887,7 +6900,8 @@ function init() {
     if (wasOpen) revealFocus();
   };
 
-  // Root and type buttons open the picker popup
+  // Root and type buttons open the picker popup. Root alone never turns a
+  // chord or scale on: "None" in the type menu means off
   els.chordRoot.addEventListener('click', () => openPicker({
     title: 'Chord root', layout: 'roots', value: state.chord.root,
     note: state.chord.on ? fitsNote(currentScale()) : rootNote(currentScale()),
@@ -6957,7 +6971,7 @@ function init() {
     if (handler) handler(pick.dataset.value);
   });
   els.pickerClose.addEventListener('click', closePicker);
-  // About popup: opened from the header, closed like the picker
+  // Share popup: opened from the header
   els.shareOpen.addEventListener('click', openShare);
   els.shareClose.addEventListener('click', closeShare);
   els.share.addEventListener('click', (e) => { if (e.target === els.share) closeShare(); });
@@ -6980,6 +6994,7 @@ function init() {
   onPress(els.scalePlay, null, playScale);
   // A note of the Notes row: heard on press (a swipe to scroll the row plays nothing)
   onPress(els.scaleNotes, '.scale-note', (note) => playScaleNote(Number(note.dataset.i)));
+  // About popup: opened from the header, closed like the picker
   els.aboutOpen.addEventListener('click', () => { if (els.about.showModal) els.about.showModal(); else els.about.setAttribute('open', ''); });
   const closeAbout = () => { if (els.about.close) els.about.close(); else els.about.removeAttribute('open'); };
   els.aboutClose.addEventListener('click', closeAbout);
@@ -7024,8 +7039,8 @@ function init() {
   });
 
   // ← / → cycle through the shapes, Space strums, Escape closes the open
-  // sheet. With no chord, ← / → step through the scale's groups and Space
-  // plays the one shown. Space strums as soon as it is pressed, once per press. It is left
+  // sheet. With no chord, or the groups last acted on (keysOnGroups), ← / →
+  // step through the scale's groups and Space plays the one shown. Space strums as soon as it is pressed, once per press. It is left
   // to a focused button only when you are moving around with the keyboard
   // (Tab): a button that has the focus after a click or a tap (Strum, a
   // switch, or the menu button a popup hands the focus back to) would
@@ -7227,7 +7242,7 @@ if (typeof module !== 'undefined') {
     ALL_CHORDS, findChord, chordTones, findShapes, pianoShapes, barresFor, fingersFor, tabOf,
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,
     ALL_SCALES, spellScale, spellChord, rootNames, noteText, pitchText, plainNote,
-    readChord, noteToken, ownChordSpelling, describeChord,
+    readChord, noteToken, ownChordSpelling,
     nameChord, describeChord, customChord, chordOf, degreesOver,
     scaleGroups, groupsFor: scaleGroups, REACH, MAX_FINGERS, mergeShared, loadState, sharedForm, SAVE_VERSION };
 }

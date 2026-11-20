@@ -75,8 +75,8 @@
   --root-w: 84px;        /* the Root menus */
   --chip-h: 32px;
   --pill-h: 22px;
-  --tab-h: 54px;
-  --recent-h: 30px;      /* the dock's row of recent chords (phones): slim, a fixed height */         /* dock tabs (phones): a fixed height, see --dock-h */
+  --tab-h: 54px;         /* dock tabs (phones): a fixed height, see --dock-h */
+  --recent-h: 30px;      /* the dock's row of chords, the list and the recent ones (phones): slim, a fixed height */
 
   /* Neck geometry (vertical on phones) */
   --label-w: 28px;       /* fret numbers column */
@@ -143,7 +143,7 @@ dialog, button { -webkit-user-select: none; user-select: none; }
 .np-head, .about-body { -webkit-user-select: text; user-select: text; }
 input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 
-body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord: no shape bar */
+body:has(#dockShapeBar[hidden]) { --dock-shape-h: 0px; }   /* no chord, nor scale groups: no shape bar */
 body:has(#dockRecent[hidden]) { --dock-recent-h: 0px; }   /* no chord in the list or the recent ones: no row */
 /* Name a chord: its rows in their place, at their heights (see .namer) */
 body.naming:has(#namer) { --dock-recent-h: calc(var(--recent-h) + var(--sp-2)); --dock-shape-h: calc(var(--control-h) + var(--sp-1)); }
@@ -521,9 +521,10 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .chord-bar .field.grow { flex-basis: 0; }
 .chord-bar .field.grow.inversion { order: 2; flex-basis: 100%; }
 .bar .push-right { margin-left: 0; }
-/* Scale switches. Phones: Root, Type and ✕ on the first row, the two
-   switches as equal buttons on a row of their own. Wide screens: everything
-   on one row, switches next to Deselect. */
+/* Scale bar. Phones: Root, Type and ✕ on the first row, the two
+   switches as equal buttons on a row of their own. Wide screens: Root,
+   Type, Play and Deselect on one row, the switches on the panel's title
+   row (see there). */
 .scale-bar .field.root { order: 1; }
 .scale-bar .field.scale-type { order: 2; }
 .scale-bar .deselect { order: 3; }
@@ -700,7 +701,7 @@ button, a { scroll-margin: 6px; }
 .pill-toggle[aria-pressed="true"] .pill-dot { background: var(--accent); }
 .pill-toggle[aria-pressed="true"] .pill-dot::after { transform: translateX(12px); }
 
-/* Status pill (shape counter) */
+/* Status pill (the shape count, the group count) */
 .status {
   display: inline-flex;
   align-items: center;
@@ -720,7 +721,7 @@ button, a { scroll-margin: 6px; }
 .status.warn { color: var(--warn); border-color: var(--warn); }
 .status.warn::before { background: var(--warn); }
 
-/* Chips: shapes, triads and recent chords (one style, pink when selected) */
+/* Chips: shapes, groups, triads, the chord list and recent chords (one style, pink when selected) */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -751,7 +752,7 @@ button, a { scroll-margin: 6px; }
    script.js places the cells; the .vertical class switches the drawing.
    ========================================================================== */
 .neck-panel { margin: var(--sp-2) var(--gutter) 0; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
-.neck-head { display: none; }   /* phones: the instrument menu is above the neck, the settings in the Neck tab */
+.neck-head { display: none; }   /* phones: the instrument menu is above the neck, the settings in the Setup tab */
 .neck-panel h2 { font-size: var(--fs-md); }
 .neck-scroll { overflow-x: auto; overflow-y: hidden; }
 /* Left-handed: the neck's grid is laid out right to left, which mirrors it
@@ -997,8 +998,8 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 
 /* Piano (script.js): 88 keys, placed from each key's place among the white
    keys (--i; 52 white keys, --whites). The Uniso (.whole-tone): 97 keys,
-   49 white, the same sizes, a black key between each two white keys, its
-   C and F keys grey (.marked). Wide screens: from left to right,
+   49 white, the same shapes (a little wider across: see below), a black
+   key between each two white keys, its C and F keys grey (.marked). Wide screens: from left to right,
    the octave numbers above the keys' far ends, the keys as wide as the
    panel allows but never narrower than --wk; phones: the same keyboard
    turned a quarter turn, from the top down, the keys' near ends on the left
@@ -1028,9 +1029,9 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 .key.white { background: var(--key-white); box-shadow: inset 0 0 0 0.5px var(--key-edge); }
 .key.black { background: var(--key-black); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pk-grey) 30%, transparent); }
 .key.marked { background: var(--key-grey); }
+.neck.piano .note.scale-root, .neck.piano .note.chord.root { box-shadow: 0 0 0 2px var(--bg); }   /* a root's ring as on the neck: dark between it and the note (the keys are lighter) */
 /* A plain note on a black key: the pill's outline brighter, to stand out
    from the key as it does from the neck */
-.neck.piano .note.scale-root, .neck.piano .note.chord.root { box-shadow: 0 0 0 2px var(--bg); }   /* a root's ring as on the neck: dark between it and the note (the keys are lighter) */
 .key.black .note.plain { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pk-grey) 50%, var(--kbd-bg)); }
 .oct-label {
   position: absolute;
@@ -1082,8 +1083,6 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 .neck.piano.whole-tone.horizontal .oct-label { left: calc(var(--i) * var(--wk) + var(--bk) / 2); width: calc(var(--wk) - var(--bk)); }
 .neck.piano.whole-tone.horizontal .oct-label.first { left: calc(var(--i) * var(--wk)); width: calc(var(--wk) - var(--bk) / 2); }
 .neck.piano.whole-tone.horizontal .oct-label.last { width: calc(var(--wk) - var(--bk) / 2); }
-/* Phones: the keys down the page, as long as the panel allows, which goes
-   no wider than keys --kl long need (the page shows round it) */
 /* Phones: a neck's strings no further apart than --col-max however wide the
    screen, the panel no wider than they need (the page shows round it).
    --strings: set by script.js. */
@@ -1093,6 +1092,8 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
   max-width: calc(var(--label-w) + var(--strings, 6) * var(--col-max) + 2 * var(--sp-3) + 2px);   /* (its padding and border) */
   margin-inline: auto;
 }
+/* Phones: the keys down the page, as long as the panel allows, which goes
+   no wider than keys --kl long need (the page shows round it) */
 .neck-panel:has(> .neck-scroll > .neck.piano.vertical) {
   --kl: 340px;     /* the longest a white key gets (a phone fills its width) */
   --oct-w: 18px;   /* the octave numbers' column */
@@ -1196,7 +1197,6 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 }
 .group-layer path { fill: none; stroke-width: 2; stroke-linejoin: round; }
 .group-layer .g-a { stroke: var(--scale); }   /* the group picked */
-/* A note lights up in amber while it sounds */
 /* A note that sounds pops, and an amber ring spreads from it. The ring is
    its own layer on top (::after), so the note keeps its look (its border,
    ring, colours) all along. */
@@ -1345,8 +1345,8 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   border-top: 1px solid var(--divider);
 }
 .line > .label { flex: 1 0 100%; }   /* phones: label on its own line */
-/* Phones: the dock's shape bar shows and cycles the shapes, so the chord
-   panel leaves out its own shape row and counter */
+/* Phones: the dock's shape bar shows and cycles the shapes (and the
+   groups), so the panels leave out their own shape row and counts */
 .shapes-line, .chord-count, .group-count { display: none; }
 .line .btn.small { flex: none; }
 .group-line[hidden] { display: none; }
@@ -1493,7 +1493,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   border-top: 1px solid var(--divider);
 }
 
-/* Recent chords: a slim row of chips that scrolls sideways if it must */
+/* The chord list and the recent chords: a slim row of chips that scrolls sideways if it must */
 .dock-recent { display: flex; align-items: center; gap: 6px; height: var(--recent-h); margin-bottom: var(--sp-2); }   /* clear of the buttons below */
 .dock-recent[hidden] { display: none; }
 .recent-chips {
@@ -1652,10 +1652,10 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   cursor: pointer;
 }
 .recent-clear .ico { width: 15px; height: 15px; }
-.recent-line { display: none; }   /* phones: the dock has the recent chords */
+.recent-line { display: none; }   /* phones: the dock has the chord list and the recent chords */
 .quick-bar { display: none; }   /* phones: the dock is the quick bar */
 .dock-shape { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-1); }
-.dock-shape[hidden] { display: none; }   /* no chord selected: only the tabs */
+.dock-shape[hidden] { display: none; }   /* no chord selected, nor scale groups: only the tabs */
 .dock-shape-info {
   flex: 1;
   min-width: 0;
@@ -1673,7 +1673,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   cursor: pointer;
 }
 .dock-symbol {
-  flex: 0 1 auto;   /* (its whole width first; less only past the room there is: fitText then shrinks its font) */
+  flex: 0 1 auto;   /* (its whole width first; less only past the room there is: fitInfo then shrinks its font) */
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -1689,7 +1689,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 }
 .dock-symbol:empty { display: none; }
 .dock-symbol .tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0.35em 0; margin: -0.35em 0; }   /* (the padding keeps j and brackets whole, as .inst-name) */   /* (past the smallest size: cut short, the whole name in its tooltip) */
-.dock-shape.groups .dock-symbol { background: var(--scale); color: var(--scale-text); }   /* no chord: the scale's groups */
+.dock-shape.groups .dock-symbol { background: var(--scale); color: var(--scale-text); }   /* stepping the scale's groups */
 .dock-tab { flex: 1 1 0; display: grid; min-width: 2.6em; line-height: 1.2; font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
 .dock-tab > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Its lines trimmed to their capitals and baseline (as .pill-label), so
@@ -1699,9 +1699,9 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   .dock-tab { row-gap: 5px; }
   .dock-tab > * { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
 }
-.dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* shape number above the tab */
+.dock-count { font: 600 var(--fs-xs)/1.3 var(--font); color: var(--muted); }   /* the shape's (or group's) number above the tab */
 .dock-msg { font: 500 var(--fs-sm)/1.3 var(--font); color: var(--muted); }
-.dock-words { font-family: var(--font); }   /* a group's frets: words, not tab */
+.dock-words { font-family: var(--font); }   /* a group's frets, a keyboard shape's notes: words, not tab */
 
 /* Name a chord. Phones: its bar takes the place of the chord list, the
    shape bar and the tabs, each row at the height of the one it replaces
@@ -1783,7 +1783,7 @@ body.naming .neck-panel { border-color: var(--accent); }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 12px;   /* (a swatch's: the Neck tab has none, its rows line up with the others all the same) */
+  min-height: 12px;   /* (a swatch's: the Setup tab has none, its rows line up with the others all the same) */
   font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1874,7 +1874,8 @@ body.naming .neck-panel { border-color: var(--accent); }
 }
 
 /* ==========================================================================
-   Picker popup (roots, chord types, scale types): tap a tile to choose
+   Picker popup (every menu: instrument, tuning, capo, roots, chord and
+   scale types, inversion): tap a tile to choose
    ========================================================================== */
 .picker {
   width: min(560px, calc(100vw - 24px));
@@ -1916,7 +1917,7 @@ body.naming .neck-panel { border-color: var(--accent); }
 /* While a popup is open the page behind it stays put (the gutter keeps a
    desktop scrollbar's room, so nothing shifts) */
 html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
-/* Section heading with a thin line running to the right */
+/* The line under the tiles: the teal dot's legend (see .pick.fits) */
 .picker-note { display: flex; align-items: center; gap: 7px; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--muted); }
 .picker-note::before { flex: none; }
 .picker-note.empty::before { display: none; }   /* no tile has the dot: no dot to explain */
@@ -2147,11 +2148,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .h1-sub { display: inline; }
   .btn.deselect { width: auto; padding: 0 14px; }
   .btn-label { display: inline; }
-  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }
+  .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
   .btn.side-action { width: auto; padding: 0 14px; }   /* the bookmark and "Save", the copy icon and "Text" */
   /* A long tuning name (a saved one) is cut short in the neck's header */
   #tuningSelect { max-width: 220px; }
-  .neck-title .inst-tuning { max-width: 220px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
+  .neck-title .inst-tuning { max-width: 220px; }
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }
@@ -2222,9 +2223,9 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   body.naming .sheet { display: block; }
   body.naming #panelChord, body.naming .triads-line { display: none; }   /* (a triad would change the chord) */
 
+  .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button, its panel with no card (no chord, no scale): scrolled to its top, with this room above (see showPanel) */
   /* Room for it: the list on its own row, the steppers under it, side by
      side (one row when there is room, below) */
-  .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button scrolls its panel to the top, with this room above */
   .quick-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--sp-3) var(--sp-4); }
   .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; --row-lift: calc((var(--sp-3) - 3px) / 2); }   /* (the quick bar's padding: see .scroll-hint) */
   /* The two steppers share their row, half each, a thin line between them

@@ -75,7 +75,8 @@ test('one note in octaves is an interval of its span', () => {
 
 /* What a general name says (C7(♯9), Cm6(♯11), Csus4add9...): the degrees it
    needs, and those it may leave out without saying (the 5th; the 9th and
-   11th under a 13th, the 9th under an 11th) */
+   11th under a 13th, but a major 3rd's 13th says its 11th, C13(add11);
+   the 9th under an 11th) */
 const ALTERED = { '♭5': 'b5', '♯5': '#5', '♭7': 'b7', '♭9': 'b9', '♯9': '#9', '♯11': '#11', '♭13': 'b13' };
 const NAME = /^(dim7|m7♭5|dim|aug7|aug|m\(maj(7|9|11|13)\)|maj(7|9|11|13)|m(7|9|11|13)|(7|9|11|13)|m6\/9|6\/9|m6|6|m|5|)(sus[24])?(add(?:6|9|11|13))?(?:\((.*)\))?$/;
 function says(name) {
