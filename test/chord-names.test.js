@@ -3,18 +3,20 @@
    menu doesn't have, like C6(♯5)) says every note it is given. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { ALL_CHORDS, nameChord, spellChord, noteText, degreesOver, chordOf, describeChord } = require('../web/script.js');
+const { ALL_CHORDS, nameChord, spellChord, noteText, degreesOver, chordOf, describeChord, intervalOf, intervalDegree } = require('../web/script.js');
 
 const mod12 = (n) => ((n % 12) + 12) % 12;
 const symbol = (r) => {
   const spell = spellChord(r.root, r.def, false);
   return noteText(spell.root) + r.def.symbol + (r.bassIndex ? `/${noteText(spell.notes[r.bassIndex])}` : '');
 };
-// A chord's notes, its inversion's note in the bass (an octave below the rest)
+// A chord's notes, its inversion's note in the bass (an octave below the
+// rest; a two-note chord's close above it: a power chord's 5th past the
+// octave is a 12th, C3 G4 a C(P12))
 const voiced = (root, def, inversion) => {
   const bass = 48 + mod12(root + def.steps[inversion]);
   const rest = def.steps.filter((_, i) => i !== inversion).map((step) => {
-    let m = 60 + mod12(root + step);
+    let m = (def.steps.length > 2 ? 60 : 48) + mod12(root + step);
     while (m <= bass) m += 12;
     return m;
   });
@@ -62,7 +64,25 @@ test('two notes over an octave apart are named by their distance', () => {
   assert.strictEqual(symbol(nameChord([60, 77])[0]), 'C(P11)');
   assert.strictEqual(symbol(nameChord([48, 74])[0]), 'C(M16)');
   assert.strictEqual(symbol(nameChord([60, 62])[0]), 'C(M2)');
-  assert.strictEqual(symbol(nameChord([60, 79])[0]), 'C5');   // (a 12th of root and 5th: still a power chord)
+  assert.strictEqual(symbol(nameChord([60, 79])[0]), 'C(P12)');   // (a 12th: the interval, a power chord's 5th is within the octave)
+  assert.strictEqual(symbol(nameChord([48, 60, 67])[0]), 'C5');   // (C4 G4 over C3: a power chord, its root doubled below)
+  assert.strictEqual(symbol(nameChord([60, 67])[0]), 'C5');
+});
+
+/* Two notes, any doubled at octaves: the interval from the lowest to the
+   other's lowest; each note labelled by its distance from the lowest */
+test('two notes, doubled, are named from the lowest to the other note\'s lowest', () => {
+  assert.strictEqual(symbol(nameChord([60, 74, 86])[0]), 'C(M9)');   // (C4 D5 D6: 14 and 26 semitones, a 9th and its octave)
+  assert.strictEqual(symbol(nameChord([60, 72, 74])[0]), 'C(M9)');   // (C4 C5 D5: the root doubled)
+  assert.strictEqual(symbol(nameChord([60, 62, 74])[0]), 'C(M2)');   // (C4 D4 D5: a 2nd, its D doubled)
+  assert.strictEqual(symbol(nameChord([48, 72, 74])[0]), 'C(M16)');
+  assert.strictEqual(symbol(nameChord([60, 61, 73, 85])[0]), 'C(m2)');
+  const label = (midis) => midis.map((m) => intervalDegree(intervalOf(midis), m - Math.min(...midis))).join(' ');
+  assert.strictEqual(label([60, 74, 86]), 'R 9 16');
+  assert.strictEqual(label([60, 72, 74]), 'R 8 9');
+  assert.strictEqual(label([60, 62, 74]), 'R 2 9');
+  assert.strictEqual(label([48, 60, 72]), 'R 8 15');
+  assert.strictEqual(label([60, 63, 75, 84]), 'R b3 b10 15');
 });
 
 test('one note in octaves is an interval of its span', () => {

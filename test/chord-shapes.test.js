@@ -70,8 +70,9 @@ for (const inst of INSTRUMENTS.filter((i) => i.piano)) test(`${inst.name} shapes
    every one two strings can play within a hand's reach (an open string
    anywhere; a banjo's drone open only) has shapes, and each shape plays
    just that interval, its root below (the banjo's drone counted when it
-   rings: E(m10), E3 under its open g, G4). */
-const { customChord } = require('../web/script.js');
+   rings: E(m10), E3 under its open g, G4), and is named so by Name a
+   chord (a 5th within the octave: the power chord). */
+const { customChord, nameChord, intervalOf } = require('../web/script.js');
 const INTERVALS = [
   ...['b2', '2', 'b3', '3', '4', 's4', 'b5', '5', 's5', 'b6', '6', 'bb7', 'b7', '7'].map((d) => `i-${d}`),
   ...['min', 'maj', 'perf', 'aug'].flatMap((q) => [...Array(16).keys()].map((k) => `i-${q}${k + 9}`)),
@@ -94,6 +95,9 @@ test('every playable interval has shapes, and each is that interval', () => {
             const ok = mod12(low) === root && Math.max(...midis) - low === def.span
               && (def.steps.length === 1 || new Set(midis).size === 2);
             if (!ok) bad.push(`${at}: ${fr.join(' ')} is not the interval`);
+            const named = nameChord(midis)[0];
+            if ((intervalOf(midis) || {}).id !== def.id || !named || named.root !== root
+              || named.def.id !== (def.id === 'i-5' ? 'p5' : def.id)) bad.push(`${at}: ${fr.join(' ')} is named ${named ? named.def.id : 'nothing'}`);
           }
           if (shapes.length) continue;
           const playable = inst.strings.some((_, a) => inst.strings.some((__, b) => a !== b && frets(a).some((x) => frets(b).some((y) => {
