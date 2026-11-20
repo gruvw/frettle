@@ -3,7 +3,7 @@
    menu doesn't have, like C6(♯5)) says every note it is given. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { ALL_CHORDS, nameChord, spellChord, noteText, degreesOver, chordOf } = require('../web/script.js');
+const { ALL_CHORDS, nameChord, spellChord, noteText, degreesOver, chordOf, describeChord } = require('../web/script.js');
 
 const mod12 = (n) => ((n % 12) + 12) % 12;
 const symbol = (r) => {
@@ -76,7 +76,7 @@ test('one note in octaves is an interval of its span', () => {
 /* What a general name says (C7(♯9), Cm6(♯11), Csus4add9...): the degrees it
    needs, and those it may leave out without saying (the 5th; the 9th and
    11th under a 13th, the 9th under an 11th) */
-const ALTERED = { '♭5': 'b5', '♯5': '#5', '♭9': 'b9', '♯9': '#9', '♯11': '#11', '♭13': 'b13' };
+const ALTERED = { '♭5': 'b5', '♯5': '#5', '♭7': 'b7', '♭9': 'b9', '♯9': '#9', '♯11': '#11', '♭13': 'b13' };
 const NAME = /^(dim7|m7♭5|dim|aug7|aug|m\(maj(7|9|11|13)\)|maj(7|9|11|13)|m(7|9|11|13)|(7|9|11|13)|m6\/9|6\/9|m6|6|m|5|)(sus[24])?(add(?:6|9|11|13))?(?:\((.*)\))?$/;
 function says(name) {
   const m = NAME.exec(name);
@@ -85,7 +85,8 @@ function says(name) {
   const need = new Set(['R']);
   const may = new Set(['5']);
   const third = (t) => { if (!sus) need.add(t); };
-  const seventh = (t, s, top) => { third(t); need.add(s); if (top !== '7') need.add(top); for (const x of ['9', '11']) if (Number(x) < Number(top)) may.add(x); };
+  // (below the top extension, its 9th and 11th may be left out, but a 13th over a major 3rd says its 11th: C13(add11))
+  const seventh = (t, s, top) => { third(t); need.add(s); if (top !== '7') need.add(top); for (const x of ['9', '11']) if (Number(x) < Number(top) && !(x === '11' && top === '13' && t === '3')) may.add(x); };
   if (core === 'dim7') ['b3', 'b5', 'bb7'].forEach((x) => need.add(x));
   else if (core === 'm7♭5') ['b3', 'b5', 'b7'].forEach((x) => need.add(x));
   else if (core === 'dim') ['b3', 'b5'].forEach((x) => need.add(x));
@@ -103,7 +104,7 @@ function says(name) {
   if (add) need.add(add.slice(3));
   for (const x of more ? more.split(',') : []) {
     if (x === 'no3') need.delete('3');
-    else if (x.startsWith('add')) need.add(x.slice(3));
+    else if (x.startsWith('add')) need.add(ALTERED[x.slice(3)] || x.slice(3));   // (add♭9: beside the 9th, see describeChord)
     else if (ALTERED[x]) need.add(ALTERED[x]);
     else return null;
   }
@@ -124,4 +125,13 @@ test('a general name says every note, and no other', () => {
     if (!said || unsaid.length || wrong.length) bad.push(`${degrees.join(' ')}: C${def.symbol}`);
   }
   assert.deepStrictEqual(bad, []);
+});
+
+/* One namer: the menus' chords are named as any other (C7(♭9), not C7♭9
+   beside Name a chord's C7(♭9,♯9)), all but the power chord, a chord of its
+   own rather than the interval C(P5). */
+test('the menus name their chords as the namer does', () => {
+  const differ = ALL_CHORDS.filter((def) => def.id !== 'p5').map((def) => [def.id, def.symbol, def.name, describeChord(def.degrees)])
+    .filter(([, symbol, name, g]) => symbol !== g.symbol || name !== g.name).map(([id, symbol, name, g]) => `${id}: C${symbol} "${name}", not C${g.symbol} "${g.name}"`);
+  assert.deepStrictEqual(differ, []);
 });

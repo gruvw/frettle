@@ -8,7 +8,7 @@
    pitch but D, G and A has: so every key signature can be shown. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { ALL_SCALES, ALL_CHORDS, spellScale, spellChord, rootNames, noteText } = require('../web/script.js');
+const { ALL_SCALES, ALL_CHORDS, spellScale, spellChord, rootNames, noteText, readChord, noteToken, ownChordSpelling } = require('../web/script.js');
 
 const NATURAL = [0, 2, 4, 5, 7, 9, 11];   // C D E F G A B
 const mod12 = (n) => ((n % 12) + 12) % 12;
@@ -109,4 +109,26 @@ test('familiar spellings', () => {
   assert.strictEqual(scale(1, 'major', other(1)), 'D♭ E♭ F G♭ A♭ B♭ C');   // (D♭: its other name)
   assert.strictEqual(scale(1, 'major', rootNames(1)[0]), 'C♯ D♯ E♯ F♯ G♯ A♯ B♯');
   assert.strictEqual(scale(11, 'major', other(11)), 'C♭ D♭ E♭ F♭ G♭ A♭ B♭');
+});
+
+/* A link writes a chord's root as Share shows it, which can be a scale's
+   name for it (F𝄪 in G♯ harmonic minor, B♯ in C♯ major): read with no
+   scale, the chord keeps it (the C♯-shared-as-D♭ and F𝄪dim-opened-as-Gdim
+   bugs). Every note every scale writes, from either name of its root, as
+   a chord's root in a link, reads back written the same. */
+test('a chord shared under any scale reads back with its root as written', () => {
+  const bad = [];
+  const def = ALL_CHORDS.find((d) => d.id === 'dim');
+  for (const scale of ALL_SCALES.filter((d) => d.steps.length < 12)) {
+    for (let root = 0; root < 12; root++) {
+      for (const name of rootNames(root).filter(Boolean)) {
+        for (const n of spellScale(root, scale, name).notes) {
+          const read = readChord(`${noteToken(n)}-${def.id}`);
+          const back = read && ownChordSpelling(read.root, read.def, read.letter).root;
+          if (!back || back.letter !== n.letter || back.acc !== n.acc) bad.push(`${noteText(name)} ${scale.id}: ${noteText(n)}dim read as ${back ? noteText(back) : 'nothing'}dim`);
+        }
+      }
+    }
+  }
+  assert.deepStrictEqual([...new Set(bad)], []);
 });
