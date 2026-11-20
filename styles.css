@@ -1559,15 +1559,18 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 .dock-recent .recent-chips { gap: 5px; }
 .dock-recent .chip.recent { padding: 0 10px; }
 .dock-recent li.on .chip.recent, .dock-recent li.trail .chip.recent { padding-right: 6px; }
-/* The chord on screen: its chip and an × to remove it, as one pink pill */
+/* The chord on screen: its chip and an × to remove it, as one pink pill
+   (the ×, and the recent chords' +: 24px, a finger's least, 3 to 4px in
+   from the chip's edges; 22px with a pointer, in a 28px chip, see the wide
+   screens' rules) */
 .recent-chips li.on { display: flex; align-items: center; border-radius: var(--r-pill); background: var(--chord); }
 .recent-chips li.on .chip { padding-right: 6px; background: transparent; }   /* the pill paints it: a short chip's own, tighter rounding would show at the left end */
 .recent-remove {
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   margin-right: 4px;
   padding: 0;
   border: 0;
@@ -1597,8 +1600,8 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   margin-right: 4px;
   padding: 0;
   border: 0;
@@ -1721,6 +1724,11 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 .namer-mute[aria-pressed="true"] .sound-off { display: block; }
 .namer-mute[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .btn.small.namer-mute { width: var(--chip-h); padding: 0; }
+/* Phones with less room for the title (fitNamer): "Name" (.short), then
+   its pencil alone (.brief), the words still read out whole; the buttons
+   never narrower */
+.namer-head .btn { flex: none; }
+.namer.short .namer-title .tx-more, .namer.brief .namer-title .tx { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }   /* (as .sr-only) */
 .btn.small.namer-move { flex: none; width: var(--chip-h); padding: 0; }   /* (the shape moved a fret: an arrow, no word) */
 .namer-move .ico { width: 16px; height: 16px; }
 .namer-result { display: flex; align-items: center; gap: 6px; height: var(--control-h); }
@@ -1815,6 +1823,16 @@ body.naming .neck-panel { border-color: var(--accent); }
   transition: transform 220ms ease, visibility 0s linear 220ms;
 }
 .sheet.open { transform: none; visibility: visible; transition: transform 220ms ease; }
+/* Very short screens (500px or less: a phone on its side): the neck left
+   above would leave the sheet little room (374px tall: 29px to scroll;
+   320px: none), so it opens to the full height above the dock bar, which
+   keeps its tabs and handle */
+@media (max-height: 500px) {
+  .sheet {
+    max-height: calc(100vh - var(--dock-h));    /* older browsers */
+    max-height: calc(100dvh - var(--dock-h));
+  }
+}
 /* Under the handle, which is taller than the corners are round, so the
    scrollbar never runs into them */
 .sheet-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -2070,6 +2088,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
   .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
   body { --dock-h: 0px; }   /* no dock bar: the panels are part of the page */
+  .recent-remove, .recent-pin { width: 22px; height: 22px; }   /* (in a 28px chip; see .recent-remove) */
   :root {
     --gutter: 20px;
     --control-h: 36px;
