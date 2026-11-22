@@ -6037,7 +6037,7 @@ function renderPiano(ch, sc) {
     const pc = mod12(midi);
     const black = isBlack(pc);
     const octave = Math.floor(midi / 12) - 1;
-    if (pc === 0) html.push(`<span class="oct-label${octave === 4 ? ' mid' : ''}${k === 0 ? ' first' : ''}${k === inst.keys - 1 ? ' last' : ''}" style="--i:${white}" title="Octave ${octave}${octave === 4 ? ', middle C' : ''}">${tx(String(octave))}</span>`);   // (at each C: the piano's few keys of octave 0 go without)
+    if (pc === 0) html.push(`<span class="oct-label${octave === 4 ? ' mid' : ''}${k === 0 ? ' first' : ''}${k === inst.keys - 1 ? ' last' : ''}" style="--i:${white}" title="Octave ${octave}${octave === 4 ? ', middle C' : ''}">${tx(String(octave))}${octave === 4 ? '<i></i>' : ''}</span>`);   // (middle C's: a dot by it, as an inlay fret's number)   // (at each C: the piano's few keys of octave 0 go without)
     let cls = 'note';
     let n = plainNote(pc, keyFlats);
     let deg = null;

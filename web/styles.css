@@ -1042,7 +1042,8 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
   font-weight: 600;
   color: var(--muted);
 }
-.oct-label.mid { color: var(--text); }   /* middle C's octave */
+.oct-label.mid { color: var(--text); gap: 4px; }   /* middle C's octave */
+.oct-label i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }   /* middle C's dot, as an inlay fret's (see .ruler i) */
 /* Wide screens: the keys across */
 .neck.piano.horizontal {
   --wk: max(var(--wk-min, 36px), calc(100cqw / var(--whites)));   /* a white key's width: 36px (room for two neighbours' notes, a root's ring round one), more only where the panel is wider than the 52 keys need (or a little more to scroll more than a few pixels: --wk-min, see fitScroll) */
@@ -1131,6 +1132,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
   height: calc(var(--wk) - var(--bk) / 2);
 }
 .neck.piano.vertical .oct-label.last { height: var(--wk); }
+.neck.piano.vertical .oct-label i { display: none; }   /* as a neck's: the bright number marks middle C (see .neck.vertical .ruler i) */
 .neck.piano.whole-tone.vertical .oct-label { top: calc(var(--i) * var(--wk) + var(--bk) / 2); height: calc(var(--wk) - var(--bk)); }
 .neck.piano.whole-tone.vertical .oct-label.first { top: calc(var(--i) * var(--wk)); height: calc(var(--wk) - var(--bk) / 2); }
 .neck.piano.whole-tone.vertical .oct-label.last { height: calc(var(--wk) - var(--bk) / 2); }
