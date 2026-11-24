@@ -334,15 +334,47 @@ function plainNote(pc, flats) {
   return spellAs(pc, LETTER_PC.indexOf(mod12(pc + (flats ? 1 : -1))));
 }
 
+/* Names from capo: with a capo on a fretted neck and that switch on (one
+   setting for all instruments, on by default), everything is named by the
+   note played above the capo, as song sheets write it ("Capo 2: G", the G
+   shape, sounding A): spelled from the played note (what sounds less the
+   capo), with every rule as usual (the easier key, Flats, the scale's
+   names), then kept by the pitch that sounds. So a spelling's notes keep
+   the pitch class that sounds (pc), with the played note's letter and sign
+   (acc), and its names are looked up by what sounds, as everywhere else;
+   only names change, never what is stored or played (links and saved
+   settings write what sounds: atShift(0)). Keyboards have no capo: named
+   as they sound. nameShift(): the capo named from, or 0 */
+let shiftOverride = null;   // (a shift to name under for a moment: see atShift)
+const nameShift = () => shiftOverride ?? (state && state.nameFromCapo && !findInstrument(state.instrument).piano ? capo() : 0);
+function atShift(k, fn) {
+  const was = shiftOverride;
+  shiftOverride = k;
+  try { return fn(); } finally { shiftOverride = was; }
+}
+// (a note named under shift k: from the played pitch class to the one that sounds, or back with -k)
+const shiftNote = (n, k) => (n && mod12(k) ? { ...n, pc: mod12(n.pc + k) } : n);
+function shiftSpelling(sp, k) {
+  if (!mod12(k)) return sp;
+  const names = new Map();
+  for (const [pc, n] of sp.names) names.set(mod12(pc + k), shiftNote(n, k));
+  return { ...sp, root: shiftNote(sp.root, k), notes: sp.notes.map((n) => shiftNote(n, k)), names };
+}
+// (a loose note, with no key to follow: natural, or as flats asks; its
+// octave, as named: a played note's)
+const freeNote = (pc, flats) => { const k = nameShift(); return shiftNote(plainNote(pc - k, flats), k); };
+const pitchName = (midi, n) => pitchText(midi - nameShift(), n);
+
 /* A pitch's names as a root: the main one (natural, or sharp) and its
    other one (D, G and A have none): C (B♯), C♯ (D♭), E (F♭), F (E♯),
    B (C♭). A scale or chord is written from the main one or the other, as
    the easier key, or as picked (the Alternative root switch). */
 function rootNames(pc) {
-  pc = mod12(pc);
-  if (!LETTER_PC.includes(pc)) return [plainNote(pc, false), plainNote(pc, true)];
+  const k = nameShift();
+  pc = mod12(pc - k);
+  if (!LETTER_PC.includes(pc)) return [plainNote(pc, false), plainNote(pc, true)].map((n) => shiftNote(n, k));
   const letter = LETTER_PC.indexOf(pc);
-  return [spellAs(pc, letter), [spellAs(pc, (letter + 6) % 7), spellAs(pc, (letter + 1) % 7)].find((n) => Math.abs(n.acc) === 1) || null];
+  return [spellAs(pc, letter), [spellAs(pc, (letter + 6) % 7), spellAs(pc, (letter + 1) % 7)].find((n) => Math.abs(n.acc) === 1) || null].map((n) => shiftNote(n, k));
 }
 // (the name of that root with this letter: null when it has none so)
 const rootAs = (pc, letter) => (Number.isInteger(letter) ? rootNames(pc).find((n) => n && n.letter === letter) || null : null);
@@ -352,8 +384,9 @@ const rootAs = (pc, letter) => (Number.isInteger(letter) ? rootNames(pc).find((n
 // rootAs; what Share shows is what a link opens)
 const chordNameAs = (pc, letter) => {
   if (!Number.isInteger(letter)) return null;
-  const n = spellAs(pc, letter);
-  return Math.abs(n.acc) <= 3 ? n : null;
+  const k = nameShift();
+  const n = spellAs(pc - k, letter);
+  return Math.abs(n.acc) <= 3 ? shiftNote(n, k) : null;
 };
 // (its name other than this one: null for D, G and A)
 const otherRoot = (pc, name) => rootNames(pc).find((n) => n && n.letter !== name.letter) || null;
@@ -396,6 +429,10 @@ function spellKey(rootPc, steps, offsets, preferFlats, forcedRoot = null, minorK
    has it when both are as easy (F♯ or G♭ major), or from the root given (its
    other name, chosen: C♯ major, with its 7 sharps) */
 function spellScale(rootPc, def, root = null) {
+  const k = nameShift();
+  return shiftSpelling(playedScale(rootPc - k, def, shiftNote(root, -k)), k);
+}
+function playedScale(rootPc, def, root) {
   if (def.steps.length >= 12) return spellChromatic(rootPc, def, root);
   const offsets = (SCALE_LETTERS[def.id] || [1, 2, 3, 4, 5, 6, 7]).map((d) => d - 1);
   // A scale with a ♭2 and a ♭6 is read in a minor key, whatever its 3rd:
@@ -436,7 +473,8 @@ const degreeOffset = (deg) => (deg === 'R' ? 0 : (Number(deg.replace(/\D/g, ''))
 // other name, B♯ D𝄪 F𝄪, or the name a link wrote it with, F𝄪dim; see
 // chordSpelling)
 function spellChord(rootPc, def, forcedRoot = null) {
-  return spellKey(rootPc, def.steps, def.degrees.map(degreeOffset), false, forcedRoot, false, chordTie());
+  const k = nameShift();
+  return shiftSpelling(spellKey(rootPc - k, def.steps, def.degrees.map(degreeOffset), false, shiftNote(forcedRoot, -k), false, chordTie()), k);
 }
 // (a chord's root with both names as easy, F♯ / G♭ major, D♯ / E♭ minor:
 // as the scale shown leans, the flat one in a flat key (F major's G♭), the
@@ -1207,23 +1245,26 @@ function defaultState() {
     leftHanded: false,                // mirror the neck
     octaves: false,
     muteTaps: false,                  // Name a chord: notes placed are silent
+    nameFromCapo: true,               // with a capo, names as played above it (see nameShift)
     tuning: {},                       // tuning id per instrument ('custom': your own; 'saved:…': a saved one, see savedId)
     capo: {},                         // fret of the capo per instrument (none: left out)
     custom: {},                       // your own tuning per instrument: open string pitches
     saved: {},                        // saved tunings per instrument: [{ name, strings }]
-    chord: { on: true, root: 0, type: 'maj', letter: null },   // off: type null (see chordOff); letter: the letter its root is written with, picked (its other name) or a link's (F𝄪dim; see chordSpelling)
+    chord: { on: true, root: 0, type: 'maj', letter: null, letterAt: 0 },   // off: type null (see chordOff); letter: the letter its root is written with, picked (its other name) or a link's (F𝄪dim; see chordSpelling), under the naming shift letterAt (see letterOf)
     list: [],                         // the chord list, as built [{ root, type, bass, letter, inversions, shapes, used }], shared by all instruments
     recent: [],                       // the last chords used that are not in it (RECENT_KEEP kept, RECENT_MAX shown), newest first
     drawn: [],                        // custom shapes (Name a chord): [{ root, type, neck, frets }], newest last (see listShapes)
     inversion: { ...DEFAULT_INVERSION },  // per instrument
     shape: null,                      // index in the shape list, this visit only (null: the chord's home shape, homeShape)
     loose: false,                     // the chord on screen is a link's, on a shape its chip does not have: shown apart from it (see applyLink)
-    scale: { on: true, root: 0, type: 'major', letter: null },   // off: type null (see scaleOff); letter: its root's other name, picked (see scaleSpelling)
+    scale: { on: true, root: 0, type: 'major', letter: null, letterAt: 0 },   // off: type null (see scaleOff); letter: its root's other name, picked (see scaleSpelling), under letterAt (see letterOf)
     share: { neck: true, chord: true, scale: true, list: true },   // what the Share popup puts in the link (list: the chord list; once 'recent', off by default, so an old saved choice is not read)
     folded: { chord: false, scale: false },   // wide screens: a panel folded to its title row
   };
 }
 
+// The settings that are switches, saved for all instruments and tabs
+const PREF_SWITCHES = ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded', 'muteTaps', 'nameFromCapo'];
 /* Saved settings, in two parts: how you like to see things (prefs), and
    what is on the neck (work: the neck, chord, scale and chord list, the
    parts a link can hold, written the same way as in a link). Each value is
@@ -1246,7 +1287,7 @@ function loadState(saved) {
     if (!saved || saved.v !== SAVE_VERSION) return s;
     const prefs = saved.prefs || {};
     const work = saved.work || {};
-    for (const k of ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded', 'muteTaps']) {
+    for (const k of PREF_SWITCHES) {
       if (typeof prefs[k] === 'boolean') s[k] = prefs[k];
     }
     for (const k of Object.keys(s.share)) {
@@ -1282,18 +1323,19 @@ function loadState(saved) {
       if (INVERSIONS.includes(v)) s.inversion[id] = v;
     }
     const chord = readChord(work.chord);
-    if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id, letter: chord.letter } : { on: false, root: chord.root, type: null, letter: null };
+    if (chord) s.chord = chord.def ? { on: true, root: chord.root, type: chord.def.id, ...readPlayed(chord, work.chordName, work.chordNameAt, chordNameAs) } : { on: false, root: chord.root, type: null, ...letterPair(null) };
     s.chordBass = chord && chord.def ? chord.bass : null;   // (which of its chips was on screen: see init)
     s.looseFrets = chord && chord.def && chord.frets ? chord.frets : null;   // (a chord shown apart from its chip: its shape, see init)
     const scale = readScale(work.scale);
-    if (scale) s.scale = scale.def ? { on: true, root: scale.root, type: scale.def.id, letter: scale.letter } : { on: false, root: scale.root, type: null, letter: null };
+    if (scale) s.scale = scale.def ? { on: true, root: scale.root, type: scale.def.id, ...readPlayed(scale, work.scaleName, work.scaleNameAt, rootAs) } : { on: false, root: scale.root, type: null, ...letterPair(null) };
     // (its bass: saved since chips are told apart by it; as saved before, worked out in init)
     const entry = (e) => {
       const r = e && readChord(e.chord);
       if (!r || !r.def) return null;
       const bass = Number.isInteger(e.bass) && e.bass >= 0 && e.bass < r.def.steps.length ? e.bass : undefined;
-      const letter = pickedLetter(r.root, r.def, readName(e.name), chordNameAs);   // (its root's name when not its usual one: picked, or a link's; see keepLetter)
-      return { root: r.root, type: r.def.id, bass, used: Number(e.used) || 0, inversions: readInversions(e.inversions || e.voicings), shapes: readShapes(e.shapes), ...(letter === null ? {} : { letter }) };   // (inversions: saved before as "voicings")
+      const at = readShift(e.nameAt);   // (its root's name when not its usual one: picked, or a link's, see keepLetter; under that naming shift, see letterOf)
+      const letter = pickedLetter(r.root, r.def, readName(e.name), chordNameAs, at);
+      return { root: r.root, type: r.def.id, bass, used: Number(e.used) || 0, inversions: readInversions(e.inversions || e.voicings), shapes: readShapes(e.shapes), ...entryPair(letterPair(letter, at)) };   // (inversions: saved before as "voicings")
     };
     const known = (r) => [...s.list, ...s.recent].some((x) => sameEntry(x, r));
     // As saved before there were recent chords, every chord kept was in the
@@ -1330,13 +1372,18 @@ function loadState(saved) {
    scales would see one chip as two, and save it back and forth) */
 const savedChord = (root, type) => `${noteToken(plainNote(root, false))}-${type}`;
 // (with its root's name when not its usual one: see keepLetter)
-const savedEntry = (r) => ({ chord: savedChord(r.root, r.type), bass: r.bass, ...(chordNameAs(r.root, r.letter) ? { name: noteToken(chordNameAs(r.root, r.letter)) } : {}), inversions: r.inversions, shapes: r.shapes });
+// (under the naming shift it was picked in, when not 0: see letterOf)
+const savedEntry = (r) => {
+  const at = Number.isInteger(r.letter) ? r.letterAt || 0 : 0;
+  const name = atShift(at, () => chordNameAs(r.root, r.letter));
+  return { chord: savedChord(r.root, r.type), bass: r.bass, ...(name ? { name: noteToken(name), ...(at ? { nameAt: at } : {}) } : {}), inversions: r.inversions, shapes: r.shapes };
+};
 // A state's shared parts as saved (see saveState): settings, saved tunings,
 // the chord list and custom shapes
 function sharedForm(s) {
-  const { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded } = s;
+  const { share, folded } = s;
   return copyJSON({
-    prefs: { flats, allTones, octaves, scaleOnly, scaleGroups, leftHanded, muteTaps, share, folded },
+    prefs: { ...Object.fromEntries(PREF_SWITCHES.map((k) => [k, s[k]])), share, folded },
     saved: Object.fromEntries(Object.entries(s.saved).filter(([, list]) => list.length)
       .map(([id, list]) => [id, list.map((t) => ({ name: t.name, tuning: customText(t.strings) }))])),
     list: s.list.map(savedEntry),
@@ -1359,9 +1406,11 @@ function savedForm() {
       capo: state.capo,
       inversion: state.inversion,   // (each instrument's, as its menu shows it: a reload shows it again, not as worked out anew)
       // (with its bass: which of its chips it is; shown apart from it, its shape too)
-      chord: shown ? chordBassText(shown.root, shown.def, shown.bassIndex, state.chord.letter) + (state.loose && shown.shape ? `.${fretsText(shown.shape.frets)}` : '')
+      chord: shown ? chordBassText(shown.root, shown.def, shown.bassIndex, state.chord) + (state.loose && shown.shape ? `.${fretsText(shown.shape.frets)}` : '')
         : noteToken(plainNote(state.chord.root, false)),
+      ...playedFields('chord', shown && playedName(state.chord, shown.root, chordNameAs)),
       scale: state.scale.on ? scaleText(state.scale.root, findScale(state.scale.type)) : noteToken(plainNote(state.scale.root, false)),
+      ...playedFields('scale', state.scale.on && playedName(state.scale, state.scale.root, rootAs)),
       list: shared.list,
       recent: state.recent.map((r) => ({ ...savedEntry(r), used: order.indexOf(r) })),
       drawn: shared.drawn,
@@ -1470,7 +1519,7 @@ function adoptShared(saved) {
   const keep = was && was.shape ? fretsText(was.shape.frets) : null;
   const inUse = drawnInUse();
   const drawnBefore = state.drawn;
-  for (const k of ['flats', 'allTones', 'octaves', 'scaleOnly', 'scaleGroups', 'leftHanded', 'muteTaps']) state[k] = s[k];
+  for (const k of PREF_SWITCHES) state[k] = s[k];
   state.share = s.share;
   state.folded = s.folded;
   // A saved tuning on screen that another tab removed: kept as a custom one
@@ -1495,7 +1544,7 @@ function adoptShared(saved) {
   // (its root's name as its chip now has it: picked in another tab, the
   // most recent; nothing saved here for it, see keepLetter)
   const entry = recentEntry();
-  if (entry && state.list.includes(entry)) state.chord.letter = entry.letter ?? null;
+  if (entry && state.list.includes(entry)) Object.assign(state.chord, pairOf(entry));
 }
 // Another tab saved (or this one comes back): the shared parts as stored now
 function syncShared() {
@@ -1531,8 +1580,29 @@ const readNote = (text) => { const n = readName(text); return n ? n.pc : null; }
    is the usual one or not (the Alternative root switch on) depends on
    where it shows (the Flats setting, the scale shown), so that is settled
    then, when it shows: see settleLetters, keepLetter. */
-function pickedLetter(root, def, name, as = rootAs) {   // (as: chordNameAs for a chord's)
-  return name && def && name.pc === mod12(root) && as(root, name.letter) ? name.letter : null;
+// (at: the naming shift the name is written under, see letterOf: a name as
+// played above a capo; 0, as everything else is written, as it sounds)
+function pickedLetter(root, def, name, as = rootAs, at = 0) {   // (as: chordNameAs for a chord's)
+  return atShift(at, () => (name && def && mod12(name.pc + at) === mod12(root) && as(root, name.letter) ? name.letter : null));
+}
+// (a naming shift as read: a capo's fret, else 0)
+const readShift = (v) => (Number.isInteger(v) && v > 0 && v <= MAX_CAPO ? v : 0);
+/* A root's name picked under a capo (see letterOf), as saved or shared:
+   apart from the name as it sounds (which a reader with no capo, or the
+   switch off, or an older Frettle, reads), the name as played and the capo:
+   { name, at }, null for none. Read back (readPlayed) only as a name of
+   that root under that capo. */
+function playedName(x, root, as) {
+  const at = x && Number.isInteger(x.letter) ? x.letterAt || 0 : 0;
+  const n = at ? atShift(at, () => as(root, x.letter)) : null;
+  return n ? { name: noteToken(n), at } : null;
+}
+const playedFields = (key, played) => (played ? { [`${key}Name`]: played.name, [`${key}NameAt`]: played.at } : {});
+// (read: { letter, letterAt }, the one as played if it is one, else the one as it sounds)
+function readPlayed(read, name, at, as) {
+  const shift = readShift(at);
+  const played = shift ? pickedLetter(read.root, read.def, readName(name), as, shift) : null;
+  return played !== null ? letterPair(played, shift) : letterPair(read.letter, 0);
 }
 const fretsText = (frets) => frets.map((f) => (f < 0 ? 'x' : f)).join('-');
 const FRETS_RE = /^(x|\d{1,2})(-(x|\d{1,2}))*$/;
@@ -1546,17 +1616,20 @@ function readPair(text) {
 // picked (letter) or as usual, so it reads the same with another scale or
 // none (a link's: as on screen, see shownChordText);
 // a scale: its root as it writes it, its Alternative root as it is)
-const chordText = (root, def, letter = null) => `${noteToken(ownChordSpelling(root, def, letter).root)}-${def.id}`;
+// (all as it sounds: atShift(0); x: what has its root's name picked, see letterOf)
 // A chord with its bass note when not the root ("C-maj*E", C/E), as chips are told apart
-const chordBassText = (root, def, bass, letter = null) => chordText(root, def, letter) + (bass ? `*${noteToken(ownChordSpelling(root, def, letter).notes[bass])}` : '');
+const chordBassText = (root, def, bass, x = null) => atShift(0, () => {
+  const spell = ownChordSpelling(root, def, letterOf(x));
+  return `${noteToken(spell.root)}-${def.id}${bass ? `*${noteToken(spell.notes[bass])}` : ''}`;
+});
 // (a link's: spelled as on screen, the scale's name for its root too, as
 // the Share popup shows it: C♯ in C♯ major is "Cs-maj", read with no scale
 // as C♯, its Alternative root on; see pickedLetter)
-const shownChordText = (root, def, bass, letter = null) => {
-  const spell = chordSpelling(root, def, letter);
+const shownChordText = (root, def, bass, x = null) => atShift(0, () => {
+  const spell = chordSpelling(root, def, letterOf(x));
   return `${noteToken(spell.root)}-${def.id}${bass ? `*${noteToken(spell.notes[bass])}` : ''}`;
-};
-const scaleText = (root, def) => `${noteToken(scaleSpelling(root, def).root)}-${def.id}`;
+});
+const scaleText = (root, def) => atShift(0, () => `${noteToken(scaleSpelling(root, def).root)}-${def.id}`);
 // → { root, def (null: none), frets ('' without a shape), bass (its place
 // in the chord's notes; null: not said) }, or null when wrong
 function readChord(text) {
@@ -1677,11 +1750,11 @@ function plainInversion(root, def, bass) {
 }
 function chordToken(neck) {
   const ch = currentChord();
-  return shownChordText(ch.root, ch.def, ch.bassIndex, state.chord.letter) + (neck ? shapeToken(ch.root, ch.def, ch, ch.bassIndex) : '');
+  return shownChordText(ch.root, ch.def, ch.bassIndex, state.chord) + (neck ? shapeToken(ch.root, ch.def, ch, ch.bassIndex) : '');
 }
 function listToken(entry, neck) {
   const def = findChord(entry.type);
-  return shownChordText(entry.root, def, entry.bass, entry.letter) + (neck ? shapeToken(entry.root, def, chipShape(entry), entry.bass) : '');
+  return shownChordText(entry.root, def, entry.bass, entry) + (neck ? shapeToken(entry.root, def, chipShape(entry), entry.bass) : '');
 }
 
 /* What the link holds: the neck (instrument, tuning, capo), the chord, the
@@ -1697,13 +1770,20 @@ function linkParams({ neck = true, chord = true, scale = true, recent = false } 
   }
   // No chord on the neck: the link says so (loaded, it clears theirs); one
   // left out (its switch off): not in the link (theirs stays). The scale too.
+  // (a root's name picked as played above the capo, see letterOf: apart,
+  // for whoever opens it with that capo named from it; see playedName)
+  const played = (x, root, as) => { const n = neck && capo() ? playedName(x, root, as) : null; return n && n.at === capo() ? n.name : ''; };
   if (!state.chord.on) p.set('chord', NONE);
   else if (chord) p.set('chord', chordToken(neck));
+  if (state.chord.on && chord && played(state.chord, state.chord.root, chordNameAs)) p.set('chordas', played(state.chord, state.chord.root, chordNameAs));
   if (recent && state.list.length) {
     p.set('list', state.list.map((r) => listToken(r, neck)).join('_'));
+    const names = state.list.map((r) => played(r, r.root, chordNameAs));
+    if (names.some(Boolean)) p.set('listas', names.join('_'));
   }
   if (!state.scale.on) p.set('scale', NONE);
   else if (scale) p.set('scale', scaleText(state.scale.root, findScale(state.scale.type)));
+  if (state.scale.on && scale && played(state.scale, state.scale.root, rootAs)) p.set('scaleas', played(state.scale, state.scale.root, rootAs));
   return p;
 }
 
@@ -1760,9 +1840,12 @@ function applyLink(search, parts = null, fresh = false) {
     state.tuning[state.instrument] = preset ? preset.id : strings ? 'custom' : readTuning(state.instrument, p.get('tuning')) || 'standard';
   }
   if (neck) setCapo(readCapo(p.get('capo') || 0, state.instrument) || 0);
+  // (a root's name picked under the link's capo, named from it: as played,
+  // apart; see playedName)
+  const linkShift = readShift(Number(p.get('capo')));
   const chord = readChord(p.get('chord'));
   const linkChord = take('chord') && chord && chord.def;
-  if (linkChord) { state.chord = { on: true, root: chord.root, type: chord.def.id, letter: chord.letter }; state.loose = false; }
+  if (linkChord) { state.chord = { on: true, root: chord.root, type: chord.def.id, ...readPlayed(chord, p.get('chordas'), linkShift, chordNameAs) }; state.loose = false; }
   else if (take('chord') && (fresh || p.get('chord') === NONE)) chordOff();
   if (neck && linkChord) {
     // Its bass note (D-maj*Fs, its shape's, or the root), as without the neck
@@ -1784,7 +1867,7 @@ function applyLink(search, parts = null, fresh = false) {
     state.inversion[state.instrument] = kept ? kept.inversion : DEFAULT_INVERSION[state.instrument];
   }
   const scale = readScale(p.get('scale'));
-  if (take('scale') && scale && scale.def) state.scale = { on: true, root: scale.root, type: scale.def.id, letter: scale.letter };
+  if (take('scale') && scale && scale.def) state.scale = { on: true, root: scale.root, type: scale.def.id, ...readPlayed(scale, p.get('scaleas'), linkShift, rootAs) };
   else if (take('scale') && (fresh || p.get('scale') === NONE)) scaleOff();
   state.shape = null;
   const ch = neck && linkChord && chord.frets ? currentChord() : null;
@@ -1801,14 +1884,14 @@ function applyLink(search, parts = null, fresh = false) {
   // now in the list.
   if (take('recent') && p.has('list')) {
     const list = [];
-    for (const item of p.get('list').split('_')) {
+    const played = (p.get('listas') || '').split('_');
+    for (const [i, item] of p.get('list').split('_').entries()) {
       const c = readChord(item);
       if (!c || !c.def || list.length >= LIST_MAX) continue;
       // its shape, for the neck it was shared with (without it, the first),
       // in the inversion that lists it: the link's, the default, or another
       const entry = newEntry(c.root, c.def.id, Number.isInteger(c.bass) ? c.bass : undefined);
-      const letter = otherLetter(c.root, c.def, c.letter);   // (its root's name as shared, when not its usual one: under the scale now shown, see above)
-      if (letter !== null) entry.letter = letter;
+      setPair(entry, otherPair(c.root, c.def, readPlayed(c, played[i], linkShift, chordNameAs)));   // (its root's name as shared, when not its usual one: under the scale now shown, see above)
       const tries = [linkInversion, DEFAULT_INVERSION[state.instrument], ...INVERSIONS].filter((v) => INVERSIONS.includes(v));
       const listed = (v) => listShapes(c.root, c.def, inversionFor(c.def, v)).some((shape) => fretsText(shape.frets) === c.frets);
       let inversion = c.frets && neck && tries.find(listed);
@@ -1839,8 +1922,7 @@ function applyLink(search, parts = null, fresh = false) {
       const own = [...state.list, ...state.recent].find((r) => sameEntry(r, entry));
       if (own) {
         const merged = { ...own, shapes: { ...own.shapes }, inversions: { ...own.inversions } };
-        delete merged.letter;   // (its root's name, as the link's list has it)
-        if (entry.letter !== undefined) merged.letter = entry.letter;
+        setPair(merged, pairOf(entry));   // (its root's name, as the link's list has it)
         if (neck) {
           const at = chipShape(entry);
           const shape = at.shapes[at.index];
@@ -1931,7 +2013,7 @@ function linkPreview(search, has, parts = null) {
   const mine = state;
   const mySetup = setupKey();
   const myChord = chordLine(currentChord());
-  const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index], chordSpelling(r.root, findChord(r.type), r.letter)) : ''; };
+  const shapeOf = (r) => { const at = chipShape(r); return at.shapes[at.index] ? shapeShort(at.shapes[at.index], chordSpelling(r.root, findChord(r.type), letterOf(r))) : ''; };
   // (your chips' shapes, worked out on your own state: the link's custom
   // shapes are not yours)
   const yourShapes = new Map(mine.list.map((r) => [r, shapeOf(r)]));
@@ -1953,7 +2035,7 @@ function linkPreview(search, has, parts = null) {
     const piano = Boolean(instrument().piano);
     const remembered = (own, def, inversion) => {   // (its shape kept for this neck and inversion, or null)
       const text = own && own.shapes && own.shapes[shapeContext(def, inversion)];
-      return text ? shapeShort({ frets: readFrets(text), piano }, chordSpelling(own.root, def, own.letter)) : null;
+      return text ? shapeShort({ frets: readFrets(text), piano }, chordSpelling(own.root, def, letterOf(own))) : null;
     };
     // Your saved chips whose shape the link's list changes: { name: [yours, the link's] }
     const listShapes = {};
@@ -2199,12 +2281,15 @@ function linkSummary({ neck = true, chord = true, scale = true, recent = false }
   const ch = chord ? currentChord() : null;
   const sc = scale ? currentScale() : null;
   const tuned = [tuningName(inst), capo() ? `capo ${capo()}` : ''].filter(Boolean).join(', ');
+  // (named from the capo, see nameShift: the capo said, as a song sheet
+  // says it, with the neck left out too)
   const setup = neck ? `${inst.name}${tuned ? ` (${tuned})` : ''}` : '';
+  const lead = !neck && nameShift() ? `Capo ${nameShift()}: ` : '';
   const scaleText = sc && `${sc.rootName} ${scaleTitle(sc.def)}${/ scale$/.test(scaleTitle(sc.def)) ? '' : ' scale'}`;   // (not "whole tone scale scale")
   const what = ch && sc ? `${ch.symbol} over ${scaleText}` : sc ? scaleText : ch ? `${ch.symbol} chord` : '';
   const chords = (recent ? listNames() : []).join(', ');
-  if (!what) return setup && chords ? `${setup}: ${chords}` : setup || chords;
-  return [[setup, what].filter(Boolean).join(' '), chords && `Chords: ${chords}`].filter(Boolean).join('\n');
+  if (!what) return setup && chords ? `${setup}: ${chords}` : setup || (chords && lead + chords);
+  return lead + [[setup, what].filter(Boolean).join(' '), chords && `Chords: ${chords}`].filter(Boolean).join('\n');
 }
 const listNames = () => state.list.map(entrySymbol);
 
@@ -2377,7 +2462,7 @@ function cappedInstrument() {
    the selected scale has borrows the scale's name for it, so the ii chord
    of D♭ major is E♭m, not D♯m (its own choice kept for when there is no
    such scale); another root, its own. */
-function scaleSpelling(rootPc, def, letter = mod12(rootPc) === mod12(state.scale.root) ? state.scale.letter : null) {
+function scaleSpelling(rootPc, def, letter = mod12(rootPc) === mod12(state.scale.root) ? letterOf(state.scale) : null) {
   const auto = spellScale(rootPc, def);
   const picked = rootAs(rootPc, letter);
   return picked && picked.letter !== auto.root.letter ? spellScale(rootPc, def, picked) : auto;
@@ -2437,7 +2522,7 @@ function currentChord() {
   const root = state.chord.root;
   const inversion = inversionFor(def);
   const tones = chordTones(root, def);
-  const spell = chordSpelling(root, def, state.chord.letter);
+  const spell = chordSpelling(root, def, letterOf(state.chord));
   const key = [state.instrument, instrument().strings.join(','), capo(), root, def.id, inversion, drawnFrets(root, def.id).join(' ')].join('|');   // (the instrument too: two with the same strings, another neck: its frets, its reach)
   if (shapeCache.key !== key) {
     const shapes = listShapes(root, def, inversion);
@@ -2454,7 +2539,7 @@ function currentChord() {
     interval: def.span ? def : null,   // (its notes labelled by their distance, see shapeDegree)
     spell,
     rootName: noteText(spell.root),
-    symbol: chordName(root, def, bassIndex, state.chord.letter),   // ("C/E": see chordName)
+    symbol: chordName(root, def, bassIndex, letterOf(state.chord)),   // ("C/E": see chordName)
   };
 }
 
@@ -2484,7 +2569,7 @@ const resetInversion = () => { state.inversion = { ...DEFAULT_INVERSION }; };
 function updateChord(patch) {
   const out = menuOutcome('root' in patch ? patch.root : state.chord.root, findChord('type' in patch ? patch.type : state.chord.type));
   if (out.fresh) resetInversion();
-  Object.assign(state.chord, patch, { on: true, letter: out.letter });
+  Object.assign(state.chord, patch, { on: true }, out.pair);
   state.loose = false;
   state.shape = menuShape(out.entry);
   menuPick = 'root' in patch ? ('type' in patch ? 'both' : 'root') : 'type' in patch ? 'type' : 'other';
@@ -2512,10 +2597,10 @@ function menuOutcome(root, def) {
     bass = shapes.length ? bassIndexOf(root, def, shapes[homeShape(shapes, root, inversion)]) : 0;
   }
   const entry = chipEntry(root, def.id, bass);
-  let letter = newRoot ? null : state.chord.letter;
-  if (fresh && entry) letter = entry.letter ?? null;
-  letter = settledLetter(letter, root, spellChord(root, def).root, chordNameAs);
-  return { fresh, inversion, bass, entry, letter };
+  let pair = newRoot ? letterPair(null) : pairOf(state.chord);
+  if (fresh && entry) pair = pairOf(entry);
+  pair = settledPair(pair, root, () => spellChord(root, def).root, chordNameAs);
+  return { fresh, inversion, bass, entry, letter: letterOf(pair), pair };   // (letter: as it shows, see letterOf)
 }
 
 /* A chord picked from the menus that has a chip already (the list's, a
@@ -2639,7 +2724,7 @@ function chordName(root, def, bassIndex = 0, letter = null) {
   return noteText(spell.root) + def.symbol + (bassIndex ? `/${noteText(spell.notes[bassIndex])}` : '');
 }
 // A chord of the list (or a recent one), named with its bass note: C, C/E
-const entrySymbol = (r) => chordName(r.root, findChord(r.type), r.bass, r.letter ?? null);
+const entrySymbol = (r) => chordName(r.root, findChord(r.type), r.bass, letterOf(r));
 /* The bass of a chip saved before chips had one: as it showed then, on
    this neck (the inversion and shape it was last used with here, or the
    default) */
@@ -2657,10 +2742,10 @@ function legacyBass(r) {
    place ("fret 3"). The piano: its notes, low to high, as the chord on
    screen spells them ("C4 E4 G4"), and its lowest one ("C4"). */
 // (spell: the chord's spelling the key is named in; the chord on screen's by default)
-const chordOnSpell = () => (state.chord.on ? chordSpelling(state.chord.root, findChord(state.chord.type), state.chord.letter) : null);
+const chordOnSpell = () => (state.chord.on ? chordSpelling(state.chord.root, findChord(state.chord.type), letterOf(state.chord)) : null);
 const pianoName = (k, spell = chordOnSpell()) => {
   const m = instrument().low + k;
-  return pitchText(m, (spell && spell.names.get(mod12(m))) || plainNote(m, state.flats));
+  return pitchName(m, (spell && spell.names.get(mod12(m))) || freeNote(m, state.flats));
 };
 const shapeTab = (shape, spell = chordOnSpell()) => (shape.piano ? shape.frets.map((k) => pianoName(k, spell)).join(' ') : tabOf(shape));
 const shapeShort = (shape, spell) => (shape.piano ? shapeTab(shape, spell) : shortTab(shape));
@@ -2793,6 +2878,64 @@ function changeNeck(change) {
   state.inversion[state.instrument] = want;
   state.shape = null;
 }
+/* The capo moved, named from it (Names from capo, a fretted neck; see
+   nameShift): the shapes stay, and so do their names; what sounds moves.
+   Everything kept as it sounds moves with it: the chord and the scale
+   (their roots, and a name picked for them, see letterOf), the chord list
+   and the recent chords (a chip's shapes on this neck carried to the new
+   capo; on other necks forgotten, they played the chord before: their
+   first shapes there), this neck's custom shapes (copied: another tab may
+   still play the old one), Name a chord's root picked. The shape on screen
+   stays where the new capo has it. With the switch off, or no capo moved,
+   the chords stay as they sound, as with any other neck change. */
+function moveCapo(c) {
+  const from = capo();
+  const d = c - from;
+  if (!d || !state.nameFromCapo || instrument().piano) { changeNeck(() => setCapo(c)); return; }
+  const was = state.chord.on ? currentChord() : null;
+  const keep = was && was.shape ? fretsText(was.shape.frets) : null;
+  changeNeck(() => {
+    moveWork(d, from);
+    setCapo(c);
+  });
+  const now = keep !== null && state.chord.on ? currentChord() : null;
+  const at = now ? now.shapes.findIndex((sh) => fretsText(sh.frets) === keep) : -1;
+  if (at >= 0) state.shape = at;
+}
+function moveWork(d, from) {
+  const strings = String(instrument().strings);
+  const up = (pc) => mod12(pc + d);
+  // (a name picked: to the shift it now names from; one past any capo, gone)
+  const moved = (x) => {
+    const at = (x.letterAt || 0) + d;
+    return Number.isInteger(x.letter) && at >= 0 && at <= MAX_CAPO ? letterPair(x.letter, at) : letterPair(null);
+  };
+  for (const x of [state.chord, state.scale]) Object.assign(x, { root: up(x.root) }, moved(x));
+  const here = `${strings}|${from}|`;
+  for (const r of [...state.list, ...state.recent]) {
+    r.root = up(r.root);
+    setPair(r, moved(r));
+    r.shapes = Object.fromEntries(Object.entries(r.shapes || {}).filter(([k]) => k.startsWith(here))
+      .map(([k, frets]) => [`${strings}|${from + d}|${k.slice(here.length)}`, frets]));
+  }
+  for (const x of state.drawn.filter((x) => x.neck === `${strings}|${from}`)) {
+    const copy = { root: up(x.root), type: x.type, neck: `${strings}|${from + d}`, frets: x.frets };
+    state.drawn = state.drawn.filter((y) => !(y.root === copy.root && y.type === copy.type && y.neck === copy.neck && y.frets === copy.frets));
+    state.drawn.push(copy);
+  }
+  state.drawn = state.drawn.slice(-DRAWN_MAX);
+  if (naming) {
+    if (naming.root !== null) naming.root = up(naming.root);
+    if (naming.letter !== null) Object.assign(naming, { letterRoot: up(naming.letterRoot) }, moved(naming));
+  }
+}
+// The capo menu's switch, on its title row as a panel's switches are, what
+// it does in its tooltip
+function capoSwitch() {
+  const what = 'Name chords, scales and notes by the shapes played above the capo, as song sheets do (off: as they sound)';
+  return `<button type="button" id="tglNameFromCapo" class="pill-toggle" data-toggle aria-pressed="${state.nameFromCapo}" title="${esc(what)}">` +
+    '<span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Names from capo</span></button>';
+}
 function rememberShape(entry = recentEntry()) {
   const ch = currentChord();
   if (!entry || !ch || !ch.shape) return;
@@ -2863,28 +3006,48 @@ function trackChord() {
    screen, its chord, as it was last picked (see settleLetters) */
 function keepLetter(entry) {
   if (!entry) return;
-  const letter = otherLetter(state.chord.root, findChord(state.chord.type), state.chord.letter);   // (not yet settled, see pickedLetter)
-  if (letter === null) delete entry.letter;
-  else entry.letter = letter;
+  setPair(entry, otherPair(state.chord.root, findChord(state.chord.type), pairOf(state.chord)));   // (not yet settled, see pickedLetter)
 }
 // (a chord root's letter as read or picked, when it is not its usual name
 // here (its other one, the Alternative root; a link's F𝄪): else null,
 // nothing to keep)
 const otherLetter = (root, def, letter) => (Number.isInteger(letter) && def && chordNameAs(root, letter) && letter !== spellChord(root, def).root.letter ? letter : null);
+// (... under the naming shift it was picked in, see letterOf)
+const otherPair = (root, def, pair) => letterPair(atShift(pair.letterAt, () => otherLetter(root, def, pair.letter)), pair.letterAt);
+/* A root's name picked (the Alternative root) or read (a link's F𝄪dim) is
+   a letter, kept with the naming shift it was picked under (letterAt: 0,
+   named as it sounds; a capo, named from it: see nameShift). It names that
+   root under that shift only: G♭ picked with capo 3, named from it, is
+   the A that sounds, which no other shift writes with a G (G𝄪 with no
+   capo); there, the root's usual name, the pick kept for when that shift
+   is back (the switch turned on again, the instrument with that capo).
+   Moving the capo, named from it, moves it along (see moveCapo). */
+const letterOf = (x) => (x && Number.isInteger(x.letter) && (x.letterAt || 0) === nameShift() ? x.letter : null);
+const letterPair = (letter, at = nameShift()) => (Number.isInteger(letter) ? { letter, letterAt: at } : { letter: null, letterAt: 0 });
+const pairOf = (x) => letterPair(x && Number.isInteger(x.letter) ? x.letter : null, (x && x.letterAt) || 0);
+// (a chip's: only when it has one, letterAt only when not 0)
+const entryPair = (pair) => (pair.letter === null ? {} : { letter: pair.letter, ...(pair.letterAt ? { letterAt: pair.letterAt } : {}) });
+function setPair(entry, pair) {
+  delete entry.letter;
+  delete entry.letterAt;
+  Object.assign(entry, entryPair(pair));
+}
 /* A root's other name, picked, that its scale or chord type writes anyway
    (D♯ picked for D♯ major, then minor: D♯ minor is the easier key) is no
    choice any more: the switch goes off, the name stays. Same for one that
    is not a name of that root. A chord keeps its own under a scale that
    names its root (see chordSpelling). */
 const settledLetter = (letter, root, auto, as = rootAs) => (Number.isInteger(letter) && as(root, letter) && letter !== auto.letter ? letter : null);
+// (one picked under another naming shift: kept as it is, for that shift, see letterOf)
+const settledPair = (pair, root, auto, as = rootAs) => (pair.letter === null || pair.letterAt !== nameShift() ? pair : letterPair(settledLetter(pair.letter, root, auto(), as)));
 function settleLetters() {
-  const keep = settledLetter;
-  state.scale.letter = state.scale.on ? keep(state.scale.letter, state.scale.root, spellScale(state.scale.root, findScale(state.scale.type)).root) : null;
-  state.chord.letter = state.chord.on ? keep(state.chord.letter, state.chord.root, spellChord(state.chord.root, findChord(state.chord.type)).root, chordNameAs) : null;
+  const keep = settledPair;
+  Object.assign(state.scale, state.scale.on ? keep(pairOf(state.scale), state.scale.root, () => spellScale(state.scale.root, findScale(state.scale.type)).root) : letterPair(null));
+  Object.assign(state.chord, state.chord.on ? keep(pairOf(state.chord), state.chord.root, () => spellChord(state.chord.root, findChord(state.chord.type)).root, chordNameAs) : letterPair(null));
   // Name a chord's, as the chord's (Flats on: G♭ the usual name, picked or not)
-  if (naming && naming.letter !== null) {
+  if (naming && naming.letter !== null && naming.letterAt === nameShift()) {
     const r = namerReadings()[naming.pick];
-    if (!r || naming.letterRoot !== mod12(r.root) || keep(naming.letter, r.root, ownChordSpelling(r.root, r.def).root) === null) naming.letter = null;
+    if (!r || naming.letterRoot !== mod12(r.root) || settledLetter(naming.letter, r.root, ownChordSpelling(r.root, r.def).root) === null) naming.letter = null;
   }
 }
 
@@ -2894,7 +3057,7 @@ function keepChord() { openEntry = null; }   // strummed, cycled, its notes play
 function playChip(entry) {
   if (!entry) return;
   keepChord();
-  state.chord = { on: true, root: entry.root, type: entry.type, letter: entry.letter ?? null };
+  state.chord = { on: true, root: entry.root, type: entry.type, ...pairOf(entry) };
   state.loose = false;
   recallChip(entry, true);   // as it was last used: its inversion and shape
   chipPick = true;
@@ -3143,7 +3306,7 @@ function closeReset() {
 }
 function resetAll() {
   closeReset();
-  if (capo()) { ui.groupAt = null; changeNeck(() => setCapo(0)); }   // (as No capo in its menu: back to the first group)
+  if (capo()) { ui.groupAt = null; moveCapo(0); }   // (as No capo in its menu: back to the first group; named from it, the chord list keeps its names, see moveCapo)
   chordOff();
   scaleOff();
   ui.tab = null;   // (phones: the sheet closes, as on Deselect)
@@ -3818,7 +3981,7 @@ function strumFrets(frets) {
    Escape) leaves everything as it was, the chord on screen or none.
    The naming works on the notes, not the frets (see nameChord).
    ========================================================================== */
-let naming = null;   // { frets: per string, -1 muted; pick: the name picked (0: the most likely); root: the root picked with the arrows, or null; letter: its root's other name, picked (Alternative root), or null; letterRoot: the root, a pitch class, that letter names }
+let naming = null;   // { frets: per string, -1 muted; pick: the name picked (0: the most likely); root: the root picked with the arrows, or null; letter: its root's other name, picked (Alternative root), or null; letterRoot: the root, a pitch class, that letter names; letterAt: the naming shift it was picked under (see letterOf) }
 // The names of the notes placed, one per root, the most likely first
 function namerReadings() {
   const sc = currentScale();
@@ -3827,7 +3990,7 @@ function namerReadings() {
 const ORDINALS = { 5: '5th', 9: '9th' };
 const readingSymbol = (r) => chordName(r.root, r.def, r.bassIndex, namerLetter(r));
 // (the root's other name, picked for the name picked: its letter, or null)
-const namerLetter = (r) => (naming && r && naming.letter !== null && naming.letterRoot === mod12(r.root) ? naming.letter : null);
+const namerLetter = (r) => (naming && r && naming.letter !== null && naming.letterRoot === mod12(r.root) && naming.letterAt === nameShift() ? naming.letter : null);
 // (a name with another root picked: the root's usual name again)
 function namerSettle() {
   const r = namerReadings()[naming.pick];
@@ -3844,7 +4007,7 @@ function namerChord() {
 function openNamer() {
   if (naming) return;
   const ch = currentChord();
-  naming = { frets: ch && ch.shape ? ch.shape.frets.slice() : instrument().strings.map(() => -1), pick: 0, root: null, letter: null, letterRoot: null };
+  naming = { frets: ch && ch.shape ? ch.shape.frets.slice() : instrument().strings.map(() => -1), pick: 0, root: null, letter: null, letterRoot: null, letterAt: 0 };
   // Its notes named as the chord on screen is, as if its root were picked
   // with the arrows (D♭maj7sus4(♭9)/E𝄫 stays that, not the likeliest name
   // for those notes): its type with its bass, else its type, else its root
@@ -3856,7 +4019,7 @@ function openNamer() {
       .map((test) => readings.findIndex(test)).find((i) => i >= 0);
     if (at !== undefined) {
       Object.assign(naming, { pick: at, root: readings[at].root });
-      if (Number.isInteger(state.chord.letter)) Object.assign(naming, { letter: state.chord.letter, letterRoot: mod12(ch.root) });
+      if (letterOf(state.chord) !== null) Object.assign(naming, { letter: letterOf(state.chord), letterRoot: mod12(ch.root), letterAt: nameShift() });
     }
   }
   stopGroup();
@@ -3885,7 +4048,7 @@ function closeNamer(select) {
   if (reading) {
     const { root, def } = reading;
     if (!state.chord.on || state.chord.type !== def.id) resetInversion();   // as a chord picked from the menus
-    state.chord = { on: true, root, type: def.id, letter: letter };
+    state.chord = { on: true, root, type: def.id, ...letterPair(letter) };
     state.loose = false;
     // Its bass note's inversion ("Any bass note" stays so)
     if (state.inversion[state.instrument] !== 'any') state.inversion[state.instrument] = String(reading.bassIndex);
@@ -4388,7 +4551,7 @@ function renderRecent() {
   const sc = currentScale();
   const chip = (r, i, pinned) => {
     const def = findChord(r.type);
-    const spell = chordSpelling(r.root, def, r.letter);
+    const spell = chordSpelling(r.root, def, letterOf(r));
     const on = r === shown;
     const name = entrySymbol(r);
     const num = listNumeral(sc, r.root, def);   // (a chord of the scale on one of its triads: "ii")
@@ -4762,6 +4925,7 @@ function closeTuneEdit(keep) {
 }
 
 let pickerPick = null;
+let pickerToggle = null;
 const X_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>';
 const BOOKMARK_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg>';
 const EDIT_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 19.5h4l11-11-4-4-11 11v4z"/><path d="M14 6l4 4"/></svg>';
@@ -4774,10 +4938,13 @@ let pickerRemove = null;
    An optional `note` is a line of help under the tiles: the legend of the
    teal dot on the tiles that fit the scale. When no tile has the dot, it
    says so instead (`noteNone`), without a dot. */
-function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null }) {
+// (tools: a switch on the title row, as a panel's, which leaves the menu
+// open: its html, with data-toggle; onToggle, what a tap on it does)
+function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null, tools = '', onToggle = null }) {
   const dots = groups.some((g) => g.items.some((it) => it.cls === 'fits'));
   const legend = !note ? '' : dots || !noteNone ? `<p class="picker-note">${esc(note)}</p>` : `<p class="picker-note empty">${esc(noteNone)}</p>`;
   els.pickerTitle.textContent = title;
+  els.pickerTools.innerHTML = tools;
   els.pickerBody.innerHTML = groups.map((g) =>
     (g.label ? `<div class="label picker-label">${esc(g.label)}</div>` : '') +
     `<div class="picker-grid ${layout}">${g.items.map((it) => {
@@ -4797,6 +4964,7 @@ function openPicker({ title, groups, value, layout = '', note = '', noteNone = '
   ).join('') + legend;
   pickerPick = onPick;
   pickerRemove = onRemove;
+  pickerToggle = onToggle;
   const fresh = !els.picker.open;   // (else the same menu again, a tile removed: it stays where it was)
   const kept = els.pickerBody.scrollTop;
   if (fresh) { if (els.picker.showModal) els.picker.showModal(); else els.picker.setAttribute('open', ''); }
@@ -4846,8 +5014,10 @@ function closePicker() {
    see chordTie; no type yet: as the Flats setting has it), the other under
    it (the Alternative root); a name the scale shown gives a chord's root,
    alone. `fits(pc)` marks the roots whose chord fits the scale (or, with
-   no chord, that are in it). */
-const rootItems = (lines, fits = () => false) => [{ items: SHARP_NAMES.map((_, pc) => {
+   no chord, that are in it). From C, as named: with a capo named from,
+   the C played first (what it sounds, its value). */
+const rootItems = (lines, fits = () => false) => [{ items: SHARP_NAMES.map((_, i) => {
+  const pc = mod12(i + nameShift());
   const [first, second] = lines(pc);
   return { value: pc, label: noteText(first), sub: second ? noteText(second) : '', cls: [second ? 'two' : '', fits(pc) ? 'fits' : ''].join(' ').trim() };
 }) }];
@@ -5805,6 +5975,12 @@ function renderNeck(ch, sc) {
   // (notes named: as the scale's key leans, else the chord's; neither, or
   // no name picked yet in Name a chord: the Flats setting, or a flat tuning's)
   const keyFlats = sc ? sc.spell.flats : ch && ch.spell.flats !== undefined ? ch.spell.flats : state.flats || Boolean(inst.tuning && inst.tuning.flats);
+  // (behind a capo named from, see nameShift: as they sound, since nothing
+  // there is played above it, as the tuning names the strings; sharps or
+  // flats as the key that sounds leans)
+  const shift = nameShift();
+  const soundFlats = !shift ? keyFlats : atShift(0, () => (sc ? scaleSpelling(sc.root, sc.def).flats
+    : state.chord.on && !naming ? chordSpelling(state.chord.root, findChord(state.chord.type), letterOf(state.chord)).flats : keyFlats));
   const onlyScale = Boolean(sc && state.scaleOnly);
   const groups = sc && state.scaleGroups ? scaleGroups(inst, sc, c) : [];
   // Another instrument (or the capo taken off, see its picker): back to the
@@ -5828,8 +6004,9 @@ function renderNeck(ch, sc) {
   // first cell, faded with it). That is the bottom-left of the band on the
   // horizontal neck and its top-left on the vertical one. An octave can make
   // two separate bands (a ukulele's high G, a banjo's drone): each gets its
-  // number. C4 = middle C, as on the piano.
-  const octaveOf = (s, f) => Math.floor(fretPitch(inst, s, f) / 12) - 1;
+  // number. C4 = middle C, as on the piano. (Named from a capo: as the
+  // notes are, played above it, see nameShift.)
+  const octaveOf = (s, f) => Math.floor((fretPitch(inst, s, f) - (f < nut(s) ? 0 : shift)) / 12) - 1;
   const octaveLabels = new Set();
   if (state.octaves) {
     // Scanning string by string, fret by fret, the first cell met of a band
@@ -5903,7 +6080,8 @@ function renderNeck(ch, sc) {
       // Each pill is spelled by its role: chord notes as in the chord, scale
       // notes as in the scale, other notes in the key's direction
       let cls = 'note';
-      let n = plainNote(pc, keyFlats);
+      const behind = f < nut(s);
+      let n = behind ? plainNote(pc, soundFlats) : freeNote(pc, keyFlats);
       let deg = null;
       let badge = '';   // chord notes: interval in a small corner badge, note name in the pill
 
@@ -5943,11 +6121,11 @@ function renderNeck(ch, sc) {
       // play: its note, not its ×, see .ungrouped)
       if (grouped.size && !/ (chord|ghost)\b/.test(cls) && (cls.includes(' scale') ? !grouped.has(key) : cls.includes(' off') || cls.includes(' named'))) cls += ' ungrouped';
       const text = noteText(n);
-      let title = `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}`;
+      let title = `${behind ? pitchText(midi, n) : pitchName(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}`;
       if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
       if (f < nut(s)) title += `, behind the ${stop}`;
       if (cls.includes(' mute')) {
-        title = cls.includes(' named') ? `${pitchText(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}, not played` : `String ${num} not played`;
+        title = cls.includes(' named') ? `${pitchName(midi, n)}${deg ? ` (${degreeName(deg)})` : ''}, ${where}, not played` : `String ${num} not played`;
         if (cls.includes(' off-key')) title += `, not in ${scaleInText(sc)}`;
       }
       const octave = octaveOf(s, f);
@@ -6269,6 +6447,8 @@ function roundedPath(pts, r) {
   return `${parts.join(' ')}Z`;
 }
 
+// (named from the capo: what it sounds as, named as with no capo)
+const soundsAs = (name) => `Capo ${nameShift()}, <span class="np-tail">sounds as ${esc(name)}</span>`;
 function renderChordPanel(ch, sc) {
   // (its root's name: the scale's, when it has that root; else the one used
   // and its other one; no type yet, both)
@@ -6279,7 +6459,7 @@ function renderChordPanel(ch, sc) {
   // A, or a root the scale names
   const other = ch && !named && otherRoot(ch.root, ch.spell.root);
   els.tglChordAlt.disabled = !other;
-  els.tglChordAlt.setAttribute('aria-pressed', String(Boolean(other && Number.isInteger(state.chord.letter))));
+  els.tglChordAlt.setAttribute('aria-pressed', String(Boolean(other && letterOf(state.chord) !== null)));
   fitWords(els.chordType, ch ? [...new Set([ch.def.name, shortWords(ch.def.name)])] : ['None'], 12);   // ("Half-dim. 7th" when the whole name does not fit)
 
   // No chord: the bass the next one gets, without a note to name yet
@@ -6352,13 +6532,18 @@ function renderChordPanel(ch, sc) {
   const aliases = (CHORD_ALIASES[ch.def.id] || []).map((a) => rootName + a + slash);
   els.chordAlt.textContent = aliases.length ? `=\u00a0${aliases.join(', ')}` : '';   // (the = never alone at a line's end)
   // With a capo, name the shape to play: the chord moved down by the capo
-  // (no shape: nothing to play)
-  const c = ch.shape ? capo() : 0;
+  // (no shape: nothing to play); named from the capo (see nameShift), the
+  // name is the shape's, so what it sounds like instead, as named with no
+  // capo (see soundsAs)
+  const fromCapo = nameShift() > 0;
+  const c = ch.shape || fromCapo ? capo() : 0;
   els.chordCapo.hidden = !c;
-  const moved = c ? spellChord(ch.root - c, ch.def) : null;   // (as its key writes it: a shape, not a chord of the scale)
-  const shapeName = c ? noteText(moved.root) + ch.def.symbol + (ch.bassIndex ? `/${noteText(moved.notes[ch.bassIndex])}` : '') : '';
+  const moved = c && !fromCapo ? spellChord(ch.root - c, ch.def) : null;   // (as its key writes it: a shape, not a chord of the scale)
+  const shapeName = moved ? noteText(moved.root) + ch.def.symbol + (ch.bassIndex ? `/${noteText(moved.notes[ch.bassIndex])}` : '') : '';
+  const sounds = fromCapo ? atShift(0, () => chordName(ch.root, ch.def, ch.bassIndex, letterOf(state.chord))) : '';
   // (one idea: wrapped, the comma stays and the second half moves whole)
-  els.chordCapo.innerHTML = c ? `With capo ${c}, <span class="np-tail">play the ${esc(shapeName)} shape</span>` : '';
+  els.chordCapo.innerHTML = !c ? '' : fromCapo ? soundsAs(sounds)
+    : `With capo ${c}, <span class="np-tail">play the ${esc(shapeName)} shape</span>`;
   els.tonesLabel.textContent = 'Shape notes, bass to top';
 
   // With a scale shown: does the chord fit it, and if not, which notes do not
@@ -6366,7 +6551,7 @@ function renderChordPanel(ch, sc) {
   els.chordKey.hidden = !outside;
   if (outside) {
     const key = scaleInText(sc);
-    const num = chordNumeral(sc, ch.root, ch.def, state.chord.letter);   // ("Every note is in C major (ii)", "Outside C major (♭VII): B♭")
+    const num = chordNumeral(sc, ch.root, ch.def, letterOf(state.chord));   // ("Every note is in C major (ii)", "Outside C major (♭VII): B♭")
     const keyNum = `${esc(key)}${num ? ` (${esc(num)})` : ''}`;
     els.chordKey.classList.toggle('out', outside.length > 0);
     // (the notes kept together: on two lines, the break comes after the colon)
@@ -6407,7 +6592,7 @@ function renderChordPanel(ch, sc) {
   const offKey = offKeyTest(sc);
   els.chordTones.innerHTML = notes.map((x) => {
     const deg = shapeDegree(ch, x.midi, notes[0].midi);   // (an octave's: R, 8, 15...)
-    const name = pitchText(x.midi, ch.spell.names.get(mod12(x.midi)));
+    const name = pitchName(x.midi, ch.spell.names.get(mod12(x.midi)));
     const open = c && !startFret(inst, x.s) ? 'capo' : 'open';   // a banjo's drone rings open past its spike
     const loc = inst.piano ? `key ${x.k + 1}` : x.f === 0 ? `str ${stringNumber(x.s)}, ${open}` : `str ${stringNumber(x.s)}, fr ${x.f}`;
     const where = inst.piano ? `data-key="${x.k}"` : `data-s="${x.s}" data-f="${shapeNeckFret(inst, x.s, x.f, c)}"`;
@@ -6469,7 +6654,7 @@ function renderScalePanel(sc, ch) {
   // no type yet, both names as the menu lists them ("C♯ / D♭")
   els.scaleRoot.textContent = rootLabel(state.scale.root, sc && sc.spell.root);
   els.tglScaleAlt.disabled = !sc || !otherRoot(sc.root, sc.spell.root);
-  els.tglScaleAlt.setAttribute('aria-pressed', String(Boolean(sc && Number.isInteger(state.scale.letter))));
+  els.tglScaleAlt.setAttribute('aria-pressed', String(Boolean(sc && letterOf(state.scale) !== null)));
   // (shorter when the whole name does not fit: "Major (Ionian)", "Major")
   fitWords(els.scaleType, sc ? [...new Set([sc.def.name, sc.def.name.replace(/ \(.*\)$/, ''), sc.def.short])] : ['None'], 12);
   els.scaleClear.disabled = !sc;
@@ -6487,6 +6672,7 @@ function renderScalePanel(sc, ch) {
     els.scaleName.textContent = 'No scale selected';
     els.scaleMeta.textContent = 'Pick a scale type to see its notes.';
     els.scaleAlt.textContent = '';
+    els.scaleCapo.hidden = true;
     els.scaleNotes.innerHTML = '<li class="empty-text" style="grid-row:1">The notes of the scale appear here.</li>';
     els.scaleTriads.innerHTML = '<span class="empty-text">The triads that fit the scale appear here.</span>';
     return;
@@ -6503,6 +6689,10 @@ function renderScalePanel(sc, ch) {
   const relatives = relativeScales(sc);
   // ("♪ = A natural minor": the same notes, as the chord's "= CM, Cmaj"; ♪ and = kept together, never alone at a line's end)
   els.scaleAlt.innerHTML = relatives.length ? `♪\u00a0=\u00a0<span class="np-tail">${relatives.map((r) => `<span class="np-item">${esc(r)}</span>`).join(', ')}</span>` : '';
+  // Named from a capo (see nameShift): what it sounds like, as the chord's
+  const sounds = nameShift() ? atShift(0, () => `${noteText(scaleSpelling(sc.root, sc.def).root)} ${scaleTitle(sc.def)}`) : '';
+  els.scaleCapo.hidden = !sounds;
+  els.scaleCapo.innerHTML = sounds ? soundsAs(sounds) : '';
 
   // Notes with their interval on top, and the step to the next note below
   const pill = (deg) => `<span class="scale-deg" aria-hidden="true">${tx(deg === '1' ? 'R' : deg)}</span>`;
@@ -6697,7 +6887,7 @@ function relativeScales(sc) {
     // (each root as the scale writes it, so C♯ major's are A♯ minor and E♯
     // Phrygian, as each of those writes itself; a double sharp or flat,
     // which no root's name has, plainly: G𝄪 as A)
-    const plain = (n) => (Math.abs(n.acc) > 1 ? plainNote(n.pc, n.acc < 0) : n);
+    const plain = (n) => (Math.abs(n.acc) > 1 ? freeNote(n.pc, n.acc < 0) : n);
     return roots.length ? `${roots.map((n) => noteText(plain(n))).join(' ')} ${RELATIVE_NAMES[id] || scaleTitle(def)}` : null;
   }).filter(Boolean);
 }
@@ -6708,11 +6898,11 @@ function relativeScales(sc) {
 function init() {
   for (const id of ['instrumentPicker', 'tuningSelect', 'neck', 'tglOctaves', 'tglFlats', 'tglLefty', 'tglAllTones',
     'chordRoot', 'chordType', 'chordInversion', 'chordClear', 'chordSymbol', 'chordName', 'chordMeta', 'chordPosition', 'chordShapeNote',
-    'chordAlt', 'chordCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'chordMissing', 'shapeCount', 'groupCount', 'shapePrev', 'shapeNext', 'shapeList',
+    'chordAlt', 'chordCapo', 'scaleCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'chordMissing', 'shapeCount', 'groupCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'tglScaleAlt', 'tglChordAlt', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
-    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
+    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
@@ -6869,7 +7059,7 @@ function init() {
     const r = namerReadings()[naming.pick];
     const other = r && otherRoot(r.root, ownChordSpelling(r.root, r.def).root);
     if (!other) return;
-    Object.assign(naming, namerLetter(r) !== null ? { letter: null, letterRoot: null } : { letter: other.letter, letterRoot: mod12(r.root) });
+    Object.assign(naming, namerLetter(r) !== null ? { letter: null, letterRoot: null, letterAt: 0 } : { letter: other.letter, letterRoot: mod12(r.root), letterAt: nameShift() });
     render();
   });
   // Alternative root: the root's other name for the scale, or for the chord
@@ -6878,14 +7068,14 @@ function init() {
     const sc = currentScale();
     const other = sc && otherRoot(sc.root, sc.spell.root);
     if (!other) return;
-    state.scale.letter = Number.isInteger(state.scale.letter) ? null : other.letter;
+    Object.assign(state.scale, letterPair(letterOf(state.scale) !== null ? null : other.letter));
     render();
   });
   els.tglChordAlt.addEventListener('click', () => {
     const ch = currentChord();
     const other = ch && !scaleRootName(ch.root) && otherRoot(ch.root, ch.spell.root);
     if (!other) return;
-    state.chord.letter = Number.isInteger(state.chord.letter) ? null : other.letter;
+    Object.assign(state.chord, letterPair(letterOf(state.chord) !== null ? null : other.letter));
     keepLetter(recentEntry());
     render();
   });
@@ -6965,7 +7155,10 @@ function init() {
   els.neck.parentElement.addEventListener('scroll', queueStrip, { passive: true });
 
   // Moving the capo keeps the chord and shows its first shape from the capo
-  els.capoSelect.addEventListener('click', () => openPicker({
+  // (named from the capo: the same shape and name, see moveCapo). Under the
+  // the title, the Names from capo switch (see capoSwitch): a tap on it
+  // leaves the menu open
+  const openCapo = () => openPicker({
     title: 'Capo', layout: 'roots', value: capo(),
     groups: [
       { items: [{ value: 0, label: 'No capo', cls: 'none', style: 'grid-column: 1 / -1' }] },
@@ -6973,12 +7166,20 @@ function init() {
         { length: maxCapo(state.instrument) },
         (_, i) => ({ value: i + 1, label: String(i + 1) })) },
     ],
+    tools: capoSwitch(),
     onPick: (v) => {
       if (!Number(v) && capo()) ui.groupAt = null;   // (the capo taken off: back to the first group)
-      changeNeck(() => setCapo(Number(v)));
+      moveCapo(Number(v));
       render();
     },
-  }));
+    onToggle: () => {   // (only the switch changes in the menu: the rest stays as it is, focus too)
+      state.nameFromCapo = !state.nameFromCapo;
+      render();
+      const sw = els.pickerTools.querySelector('#tglNameFromCapo');
+      if (sw) sw.setAttribute('aria-pressed', String(state.nameFromCapo));
+    },
+  });
+  els.capoSelect.addEventListener('click', openCapo);
 
   // Clearing the chord or the scale also closes its panel on phones
   const clearChord = () => { chordOff(); ui.tab = null; render(); };
@@ -7045,7 +7246,7 @@ function init() {
       return [used, otherRoot(pc, used)];
     }),
     onPick: (v) => {
-      if (Number(v) !== state.scale.root) state.scale.letter = null;
+      if (Number(v) !== state.scale.root) Object.assign(state.scale, letterPair(null));
       state.scale.root = Number(v);
       render();
     },
@@ -7077,6 +7278,7 @@ function init() {
     if (handler) handler(pick.dataset.value);
   });
   els.pickerClose.addEventListener('click', closePicker);
+  els.pickerTools.addEventListener('click', (e) => { if (e.target.closest('[data-toggle]') && pickerToggle) pickerToggle(); });
   // Share popup: opened from the header
   els.shareOpen.addEventListener('click', openShare);
   els.shareClose.addEventListener('click', closeShare);
@@ -7109,7 +7311,7 @@ function init() {
   els.picker.addEventListener('click', (e) => { if (e.target === els.picker) closePicker(); });
   els.chordInversion.addEventListener('click', () => {
     const def = findChord(state.chord.type);
-    const spell = chordSpelling(state.chord.root, def, state.chord.letter);
+    const spell = chordSpelling(state.chord.root, def, letterOf(state.chord));
     openPicker({
       title: 'Inversion', value: inversionFor(def),
       groups: [{ items: [   // (one section: no heading)

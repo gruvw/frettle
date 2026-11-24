@@ -533,7 +533,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 @media (max-width: 359px) { .chord-bar .switch-row, .scale-bar .switch-row { grid-template-columns: 1fr; } }
 .pill-toggle.namer-open { color: var(--text); }   /* (a button, not a switch: never dimmed like one that is off) */
 .namer-open .ico { flex: none; width: 16px; height: 16px; color: var(--accent); }
-.switch-row .pill-toggle, .panel-head > .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
+.switch-row .pill-toggle, .panel-head > .pill-toggle, .picker-tools > .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
 /* Buttons that open a picker popup, styled as menus */
 .select-btn {
@@ -1903,6 +1903,14 @@ body.naming .neck-panel { border-color: var(--accent); }
   border-bottom: 1px solid var(--divider);
 }
 .picker-head .btn { border-color: transparent; color: var(--muted); }
+/* A menu's switch (the capo's Names from capo): on the title row, by the ×, as a panel's */
+.picker-tools { display: flex; margin-left: auto; }
+.picker-tools:empty { display: none; }
+/* (narrow phones: no room for it by the title and the ×, on a line of its own under them, on the right, as panels' switches wrap) */
+@media (max-width: 359px) {
+  .picker-head:has(.picker-tools:not(:empty)) { flex-wrap: wrap; row-gap: var(--sp-1); padding-bottom: var(--sp-3); }
+  .picker-tools { order: 3; flex-basis: 100%; justify-content: flex-end; }
+}
 .picker-body {
   display: grid;
   gap: var(--sp-2);
