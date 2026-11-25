@@ -645,6 +645,7 @@ const TUNER_HIGH = 108;     // C8, its last
 const TUNER_REST = 60;      // middle C: where it rests until a note is heard
 const IN_TUNE = 4;          // cents either way that count as in tune
 const TUNER_HOLD = 700;     // ms a note stays after it fades out
+const TUNER_SETTLE = 200;   // ms after a pluck its cents are not shown (see tunerFrame)
 const FINE_PX = 5;          // the fine strip: px per cent
 const hzMidi = (hz) => 69 + 12 * Math.log2(hz / 440);
 const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
@@ -698,7 +699,48 @@ function yinScratch(n) {
   if (!yinBuffers.has(n)) yinBuffers.set(n, { re: new Float64Array(n), im: new Float64Array(n), re2: new Float64Array(n), im2: new Float64Array(n), energy: new Float64Array(n + 1), d: new Float64Array(n / 2 + 1), dn: new Float64Array(n / 2 + 1) });
   return yinBuffers.get(n);
 }
+/* Read twice: the whole sound, then only its low part. A stiff string
+   (a thick unwound one: a guitar's G, a ukulele's G) has its overtones a
+   little sharp of whole multiples, loud as it is plucked: read whole,
+   the note reads up to 20 cents sharp for its first few hundred ms. So
+   the first reading says which note it is, the second, the sound kept to
+   its fundamental and 2nd harmonic (FILTER_OVER times the first reading),
+   within a third of it, how in tune. x: twice the samples read, the
+   older half only there for the filter to have settled by the newer (from
+   silence, its first ms would ring, and read off). */
+const FILTER_OVER = 2.5;
 function detectPitch(x, rate, minHz = 25, maxHz = 4200) {
+  const half = x.length / 2;
+  const rough = yinPitch(x.subarray(half), rate, minHz, maxHz);
+  if (!rough) return null;
+  const fine = yinPitch(lowPass(x, rate, rough.hz * FILTER_OVER).subarray(half), rate, rough.hz / 1.25, rough.hz * 1.25);
+  return fine ? { hz: fine.hz, clarity: rough.clarity } : rough;
+}
+// (low-passed: two Butterworth sections, -24 dB an octave past `cutoff`)
+const lowBuffers = new Map();
+function lowPass(x, rate, cutoff) {
+  if (!lowBuffers.has(x.length)) lowBuffers.set(x.length, new Float64Array(x.length));
+  const y = lowBuffers.get(x.length);
+  const w = Math.tan((Math.PI * Math.min(cutoff, rate * 0.45)) / rate);
+  for (let pass = 0; pass < 2; pass++) {
+    const q = pass ? 1.3066 : 0.5412;   // (a 4th-order Butterworth's two sections)
+    const norm = 1 / (1 + w / q + w * w);
+    const [b0, b1, a1, a2] = [w * w * norm, 2 * w * w * norm, 2 * (w * w - 1) * norm, (1 - w / q + w * w) * norm];
+    let x1 = 0;
+    let x2 = 0;
+    let y1 = 0;
+    let y2 = 0;
+    const src = pass ? y : x;
+    for (let i = 0; i < x.length; i++) {   // (plain numbers: this runs 16 000 times a frame)
+      const v = src[i];
+      const out = b0 * v + b1 * x1 + b0 * x2 - a1 * y1 - a2 * y2;
+      x2 = x1; x1 = v; y2 = y1; y1 = out;
+      y[i] = out;
+    }
+  }
+  return y;
+}
+function yinPitch(x, rate, minHz, maxHz) {
   const n = x.length;
   const tauMax = Math.min(Math.floor(rate / minHz), Math.floor(n / 2));
   const tauMin = Math.max(2, Math.floor(rate / maxHz));
@@ -739,8 +781,13 @@ function detectPitch(x, rate, minHz = 25, maxHz = 4200) {
   return hz >= minHz && hz <= maxHz ? { hz, clarity: 1 - dn[best] } : null;
 }
 const TUNER_START = 0.002;   // the least level (RMS, about -54 dBFS) a note can start at
-const TUNER_TAIL = 0.0007;   // ... it is followed down to, fading (about -63 dBFS)
+const TUNER_TAIL = 0.0001;   // ... it is followed down to, fading (about -80 dBFS; or twice the room's level, if more)
 const TUNER_STEADY = 3;      // readings in a row, close together, before a note shows
+const TUNER_MEDIAN = 7;      // the readings a note's pitch is the median of (about 120 ms)
+const EASE_SMALL_MS = 120;   // the needle easing to a pitch near it, within EASE_NEAR (time to go two thirds of the way)
+const EASE_BIG_MS = 45;      // ... to one further: a new note
+const EASE_NEAR = 0.12;      // (semitones)
+const TUNER_STILL = 0.01;    // (semitones: a cent, see tunerFrame)
 /* A pitch heard in these samples, as a midi number with its fraction, or
    null. A note starts as a string does, with an attack: well above the
    room's own level (learnt between notes, quickly down, slowly up; a hum,
@@ -751,8 +798,8 @@ const TUNER_STEADY = 3;      // readings in a row, close together, before a note
 const TUNER_WARM_MS = 300;   // as the microphone starts: the room only listened to (its first samples can be silence)
 function hearPitch(x, rate, minHz, maxHz) {
   let sq = 0;
-  for (let i = 0; i < x.length; i++) sq += x[i] * x[i];
-  const level = Math.sqrt(sq / x.length);
+  for (let i = x.length / 2; i < x.length; i++) sq += x[i] * x[i];   // (the newer half: the one read, see detectPitch)
+  const level = Math.sqrt(sq / (x.length / 2));
   const now = performance.now();
   if (now < tuner.warmUntil) { tuner.floor = tuner.floor === null || !tuner.floor ? level : tuner.floor + (level - tuner.floor) * 0.2; return null; }
   if (tuner.floor === null) tuner.floor = level;
@@ -760,8 +807,9 @@ function hearPitch(x, rate, minHz, maxHz) {
   tuner.levels = [...(tuner.levels || []).slice(-5), level];
   tuner.attack = level > 2 * Math.min(...tuner.levels.slice(0, -1), Infinity);
   const following = tuner.pitch !== null;
-  const gate = following ? Math.max(TUNER_TAIL, tuner.floor * 1.5) : Math.max(TUNER_START, tuner.floor * 3);
-  const found = level >= gate ? detectPitch(x, rate, minHz, maxHz) : null;
+  const start = Math.max(TUNER_START, tuner.floor * 3);
+  tuner.quiet = level < start;   // (too quiet for a note to start: only the note followed is heard, see tunerFrame)
+  const found = level >= (following ? Math.max(TUNER_TAIL, tuner.floor * 2) : start) ? detectPitch(x, rate, minHz, maxHz) : null;
   // (between notes: down at once; up slowly, on what has no pitch and is
   // not well above it, an attack never; under a note, not at all)
   if (!following) {
@@ -785,6 +833,12 @@ const tuner = {
   floor: null,     // the room's own level (see hearPitch; null: not heard yet)
   heardAt: 0,      // when last heard (ms)
   shown: TUNER_REST,   // where the strips are, as drawn (eased toward the pitch)
+  settleUntil: 0,  // (until when a pluck's cents are not shown, see tunerFrame)
+  settleNote: null, settleAim: null,   // (... its note, where the strips wait meanwhile)
+  aim: null,       // (where the strips are going: the pitch, or where they wait, see tunerFrame)
+  sliding: false,  // (... from far: not there yet)
+  heardAim: null,  // (the pitch the strips last went to, heard: not a note waited on, nor middle C at rest)
+  waiting: false,  // (a note just plucked, its cents not shown yet)
   fineNote: null,  // the note the fine strip is drawn around
   drawn: '',       // (what the strips last showed: nothing changed, nothing touched)
   cell: 0, width: 0, fineWidth: 0,   // (sizes, read as it opens and on resize)
@@ -800,7 +854,7 @@ function openTuner() {
   if (inst.piano || els.tuner.open) return;
   tuner.strings = inst.strings.slice();
   // (always as it first was: the strings shown, none picked, on middle C)
-  Object.assign(tuner, { target: null, folded: false, mutedUntil: 0, pitch: null, recent: [], odd: 0, shown: TUNER_REST, fineNote: null, drawn: '', floor: null });
+  Object.assign(tuner, { target: null, folded: false, mutedUntil: 0, pitch: null, recent: [], odd: 0, shown: TUNER_REST, settleUntil: 0, settleNote: null, aim: null, sliding: false, heardAim: null, waiting: false, fineNote: null, drawn: '', floor: null });
   // The strip: every note from C0 to C8, the strings' marked
   els.tunerTape.innerHTML = Array.from({ length: TUNER_HIGH - TUNER_LOW + 1 }, (_, i) => {
     const m = TUNER_LOW + i;
@@ -830,22 +884,28 @@ function measureTuner() {
   tuner.drawn = '';
 }
 /* The microphone, asked for (the browser asks the first time). Refused: for
-   good (the site blocked: only the browser's settings can change that) or
-   for now (the question dismissed: it can be asked again). Its sound kept
-   raw: the processing meant for calls (echo, noise, level) would blur the
-   pitch. */
+   good (the site blocked, or no question shown at all: only the browser's
+   settings can change that) or for now (the question dismissed: it can be
+   asked again). Its sound kept raw: the processing meant for calls (echo,
+   noise, level) would blur the pitch. */
+const MIC_ANSWER_MS = 400;   // (refused sooner than this: no one was asked)
 async function startMic() {
   const token = ++tuner.token;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setTunerStatus('unsupported'); return; }
   const a = audioOut();   // (started in the tap, while the browser allows it)
   setTunerStatus('asking');
   let stream;
+  const asked = performance.now();
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   } catch (err) {
     if (token !== tuner.token) return;
+    // (refused at once: no question was shown, as no one answers one that
+    // fast; the browser will not ask, whatever its permission says: Chrome
+    // after a few dismissed, for a while, or an installed app on Android)
+    const unasked = performance.now() - asked < MIC_ANSWER_MS;
     if (err && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError')) setTunerStatus('nomic');
-    else if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) setTunerStatus(await micBlocked() ? 'blocked' : 'dismissed');
+    else if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) setTunerStatus(await micBlocked() || unasked ? 'blocked' : 'dismissed');
     else setTunerStatus(err && err.name === 'NotSupportedError' ? 'unsupported' : 'error');
     return;
   }
@@ -854,7 +914,7 @@ async function startMic() {
   tuner.stream = stream;
   tuner.source = a.ctx.createMediaStreamSource(stream);
   tuner.analyser = a.ctx.createAnalyser();
-  tuner.analyser.fftSize = a.ctx.sampleRate > 50000 ? 8192 : 4096;
+  tuner.analyser.fftSize = 2 * (a.ctx.sampleRate > 50000 ? 8192 : 4096);   // (the newer half read, the older for detectPitch's filter)
   tuner.source.connect(tuner.analyser);   // (heard only: never played back)
   tuner.buf = new Float32Array(tuner.analyser.fftSize);
   Object.assign(tuner, { floor: null, warmUntil: performance.now() + TUNER_WARM_MS });
@@ -952,12 +1012,8 @@ function tunerFrame(now) {
     // (listening for the strings, from a fifth under the lowest; chromatic: all)
     const low = folded || !tuner.strings.length ? 25 : Math.max(25, midiHz(Math.min(...tuner.strings) - 7));
     heard = hearPitch(tuner.buf, tuner.analyser.context.sampleRate, low, 4200);
+    if (heard !== null && tuner.attack && now >= tuner.settleUntil) Object.assign(tuner, { settleUntil: now + TUNER_SETTLE, settleNote: null });
   }
-  /* A note shows once steady: TUNER_STEADY readings in a row close
-     together (a click, a word, a stray reading moves nothing); one far from
-     them starts a new note, which shows once steady too. Gone quiet, the
-     strips stay where the last note was, dimmed (the next note likely near
-     it): on middle C only before any */
   /* A note's octave is the one heard as it starts (the string plucked
      louder than anything then): until the next attack, a reading whole
      octaves away is that note. A string never jumps an octave as it
@@ -975,6 +1031,16 @@ function tunerFrame(now) {
     const string = (m) => tuner.strings.some((open) => Math.abs(m - open) < 0.6);
     if (!string(heard) && string(heard - 12)) heard -= 12;
   }
+  /* Fading, under where a note can start: only that note (after its
+     octave, as above), however faint; anything else heard then (a hum,
+     the room) is nothing, not a new note */
+  if (heard !== null && tuner.quiet && tuner.pitch !== null && Math.abs(heard - tuner.pitch) > 0.6) heard = null;
+  /* A note shows once steady: TUNER_STEADY readings in a row close
+     together (a click, a word, a stray reading moves nothing), its pitch
+     the median of the last TUNER_MEDIAN; one far from them starts a new
+     note, which shows once steady too. Gone quiet, the strips stay where
+     the last note was, dimmed (the next note likely near it): on middle C
+     only before any */
   if (heard !== null) {
     const med = tuner.recent.length ? median(tuner.recent) : heard;
     if (Math.abs(heard - med) > 0.6) {
@@ -983,16 +1049,44 @@ function tunerFrame(now) {
     } else {
       tuner.odd = 0;
       tuner.recent.push(heard);
-      if (tuner.recent.length > 5) tuner.recent.shift();
+      if (tuner.recent.length > TUNER_MEDIAN) tuner.recent.shift();
     }
     if (tuner.odd === 0 && tuner.recent.length >= TUNER_STEADY) { tuner.pitch = median(tuner.recent); tuner.heardAt = now; }
   } else {
     if (tuner.pitch === null) tuner.recent = [];   // (not steady yet: no note)
     if (tuner.pitch !== null && now - tuner.heardAt > TUNER_HOLD) Object.assign(tuner, { pitch: null, recent: [], odd: 0 });
   }
-  if (tuner.pitch !== null) {
-    tuner.shown += (tuner.pitch - tuner.shown) * 0.35;
-    if (Math.abs(tuner.pitch - tuner.shown) < 0.0005) tuner.shown = tuner.pitch;
+  /* For TUNER_SETTLE after a pluck, its cents are not shown: a string
+     plucked is sharp at first, settling, and its fundamental thrown off
+     by the guitar's body. The note shows at once; its cents as they were
+     (the same note plucked again), or none yet (another: on the note,
+     neither in tune nor which way, see drawTuner) */
+  let aim = tuner.pitch;
+  if (now >= tuner.settleUntil) tuner.waiting = false;
+  else if (tuner.pitch !== null) {
+    const note = Math.round(tuner.pitch);
+    if (note !== tuner.settleNote) {
+      const kept = tuner.heardAim !== null && Math.round(tuner.heardAim) === note;
+      Object.assign(tuner, { settleNote: note, settleAim: kept ? tuner.heardAim : note, waiting: !kept });
+    }
+    aim = tuner.settleAim;
+  }
+  // (still: where the strips are going moves only by more than TUNER_STILL;
+  // a string's own wobble, a cent or so, moves nothing, a peg turned does)
+  if (aim !== null && tuner.aim !== null && !tuner.waiting && Math.round(aim) === Math.round(tuner.aim) && Math.abs(aim - tuner.aim) < TUNER_STILL) aim = tuner.aim;
+  if (aim !== null) tuner.heardAim = tuner.waiting ? null : aim;
+  tuner.aim = aim;
+  // The needle eases there: gently over a few cents, quickly to a new
+  // note; by the time passed, not by frames (a 120 Hz screen as a 60 Hz one)
+  const dt = Math.min(100, now - (tuner.frameAt || now));
+  tuner.frameAt = now;
+  if (aim !== null) {
+    // (sliding: from further than EASE_NEAR until there, within half a cent; see drawTuner)
+    if (Math.abs(aim - tuner.shown) > EASE_NEAR) tuner.sliding = true;
+    else if (Math.abs(aim - tuner.shown) < 0.005) tuner.sliding = false;
+    const ease = Math.abs(aim - tuner.shown) > EASE_NEAR ? EASE_BIG_MS : EASE_SMALL_MS;
+    tuner.shown += (aim - tuner.shown) * (1 - Math.exp(-dt / ease));
+    if (Math.abs(aim - tuner.shown) < 0.0005) tuner.shown = aim;
   }
   drawTuner();
 }
@@ -1001,11 +1095,17 @@ const median = (list) => { const s = [...list].sort((a, b) => a - b); return s.l
 function drawTuner() {
   if (!els.tuner.open || els.tunerView.hidden) return;
   const folded = tunerFolded();
-  const { pitch, shown } = tuner;
-  const near = pitch === null ? null : Math.round(pitch);
+  const { shown } = tuner;
+  // The note, as heard; how far off, as the needle says it, eased (sliding
+  // to a new note: where it is going, not every cent it passes).
+  // In tune once within IN_TUNE, out again only past a cent more: a note
+  // at the edge does not blink
+  const near = tuner.pitch === null ? null : Math.round(tuner.pitch);
+  const pitch = tuner.pitch === null ? null : tuner.sliding ? tuner.aim : shown;
   const cents = pitch === null ? 0 : (pitch - near) * 100;
   const onString = near !== null && (folded || tuner.strings.includes(near));
-  const ok = onString && Math.abs(cents) <= IN_TUNE;
+  const ok = onString && !tuner.waiting && Math.abs(cents) <= IN_TUNE + (tuner.inTune ? 1 : 0);
+  tuner.inTune = ok;
   const target = folded || tuner.target === null ? null : tuner.strings[tuner.target];
   els.tunerTape.style.transform = `translateX(${(tuner.width / 2 - (shown - TUNER_LOW + 0.5) * tuner.cell).toFixed(1)}px)`;
   // The fine strip: around the note nearest to where the strips are
@@ -1051,6 +1151,7 @@ function tunerHint(pitch, near, cents, ok, target) {
   });
   if (tuner.status === 'asking') return say(['Allow the microphone to start']);
   if (pitch === null) return say(tunerFolded() ? ['Play a note'] : target === null ? ['Play a string to tune to it'] : ['Play the ', target, ' string']);
+  if (tuner.waiting) return say([near]);   // (just plucked: its cents to come)
   if (target !== null) {
     const off = (pitch - target) * 100;
     if (Math.abs(off) <= IN_TUNE) return say([target, ' in tune'], 'ok');
