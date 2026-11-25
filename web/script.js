@@ -3585,13 +3585,16 @@ function roomImpulse(sr = SOUND_RATE) {
 
 /* A plucked note's samples, at `sr`, and the playback rate that puts it in
    tune. Self contained (no outside names): it also runs in a worker. */
+// (a plucked note's length, as pluckSamples makes it: written there too, as
+// it is sent on its own to make sounds ahead, see warmUp)
+const pluckSeconds = (midi) => (midi < 48 ? 1.55 : 1.2);
 function pluckSamples(midi, sr) {
   const freq = 440 * 2 ** ((midi - 69) / 12);
   // Averaging each sample with the next one shortens the loop by half a
   // sample, so it sounds at sr / (n - 0.5); playbackRate fixes the rounding
   const n = Math.max(2, Math.floor(sr / freq + 0.5));
   const rate = freq / (sr / (n - 0.5));
-  const seconds = midi < 48 ? 1.55 : 1.2;   // note length (low notes ring a bit longer)
+  const seconds = midi < 48 ? 1.55 : 1.2;   // note length (low notes ring a bit longer; see pluckSeconds)
   const len = Math.floor(sr * seconds);
   const data = new Float32Array(len);
 
@@ -3957,6 +3960,494 @@ function strumFrets(frets) {
     playNote(shapePitch(inst, s, f) + c, delay, 0.45);
     flashCell(s, shapeNeckFret(inst, s, f, c), delay);
   });
+}
+
+/* ==========================================================================
+   Tuner: a popup that listens with the microphone (not on the keyboards).
+   What is heard is always under the needle, in the middle: a strip of
+   notes (C0 to C8) slides under it, the tuning's open strings in purple,
+   the string picked outlined, a note played in tune on one of them green;
+   under it the same strip ten times closer (cents), around the nearest
+   note. Nothing heard yet: the strip rests on middle C, dimmed; once quiet
+   again, dimmed where the last note was. Above them, the tuning's strings:
+   a tap plays one and makes it the target (which way to turn the peg, how
+   far), tapped again, no target. Folded, those go and the tuner is
+   chromatic: any note, no strings marked. It always opens unfolded, no
+   string picked. Without the microphone (refused, none, no way
+   to ask), the strings stay, to tune by ear, and a message says how to get
+   it back in place of the strips.
+   The pitch: YIN (de Cheveigné and Kawahara), its difference function
+   worked out with an FFT, on the last 4096 samples (85 ms at 48 kHz: enough
+   for a 5-string bass's low B), every frame; a median of the last few
+   against stray readings, then eased on screen.
+   ========================================================================== */
+const TUNER_LOW = 12;       // C0, the strip's first note (midi)
+const TUNER_HIGH = 108;     // C8, its last
+const TUNER_REST = 60;      // middle C: where it rests until a note is heard
+const IN_TUNE = 4;          // cents either way that count as in tune
+const TUNER_HOLD = 700;     // ms a note stays after it fades out
+const FINE_PX = 5;          // the fine strip: px per cent
+const hzMidi = (hz) => 69 + 12 * Math.log2(hz / 440);
+const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
+
+// FFT, in place (re, im: a power of two long); inverse: unscaled
+const fftTables = new Map();
+function fft(re, im, inverse = false) {
+  const n = re.length;
+  let t = fftTables.get(n);
+  if (!t) {
+    const bits = Math.round(Math.log2(n));
+    const rev = new Uint32Array(n);
+    for (let i = 0; i < n; i++) { let r = 0; for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b); rev[i] = r; }
+    const cos = new Float64Array(n / 2);
+    const sin = new Float64Array(n / 2);
+    for (let i = 0; i < n / 2; i++) { cos[i] = Math.cos((2 * Math.PI * i) / n); sin[i] = Math.sin((2 * Math.PI * i) / n); }
+    t = { rev, cos, sin };
+    fftTables.set(n, t);
+  }
+  for (let i = 0; i < n; i++) {
+    const j = t.rev[i];
+    if (j > i) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let size = 2; size <= n; size *= 2) {
+    const half = size / 2;
+    const step = n / size;
+    for (let i = 0; i < n; i += size) {
+      for (let j = 0; j < half; j++) {
+        const wr = t.cos[j * step];
+        const wi = inverse ? t.sin[j * step] : -t.sin[j * step];
+        const a = i + j;
+        const b = a + half;
+        const xr = re[b] * wr - im[b] * wi;
+        const xi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi;
+        re[a] += xr; im[a] += xi;
+      }
+    }
+  }
+}
+/* The pitch of a sound (samples, a power of two long, at `rate`): its
+   frequency, and how clear it is (0 to 1), or null (no clear pitch, or
+   none between minHz and maxHz). The difference of the sound with itself
+   shifted by each lag, normalised by its mean so far: the first dip under
+   the threshold is the period (the deepest one past it: an octave too low
+   is never as deep first), between samples by a parabola. */
+const YIN_THRESHOLD = 0.1;   // (lower, a weak fundamental's half-period dip passes for the period: an octave up; higher, more noise does)
+// (its working arrays, kept for the next frame: none made 60 times a second)
+const yinBuffers = new Map();
+function yinScratch(n) {
+  if (!yinBuffers.has(n)) yinBuffers.set(n, { re: new Float64Array(n), im: new Float64Array(n), re2: new Float64Array(n), im2: new Float64Array(n), energy: new Float64Array(n + 1), d: new Float64Array(n / 2 + 1), dn: new Float64Array(n / 2 + 1) });
+  return yinBuffers.get(n);
+}
+function detectPitch(x, rate, minHz = 25, maxHz = 4200) {
+  const n = x.length;
+  const tauMax = Math.min(Math.floor(rate / minHz), Math.floor(n / 2));
+  const tauMin = Math.max(2, Math.floor(rate / maxHz));
+  const w = n - tauMax;   // the window compared
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += x[i];
+  mean /= n;
+  const { re, im, re2, im2, energy, d, dn } = yinScratch(n);   // (energy: running sums of the squares)
+  for (let i = 0; i < n; i++) { re[i] = x[i] - mean; im[i] = 0; re2[i] = i < w ? re[i] : 0; im2[i] = 0; }
+  for (let i = 0; i < n; i++) energy[i + 1] = energy[i] + re[i] * re[i];
+  if (energy[w] <= 1e-12) return null;
+  // r(τ) = Σ x[j] x[j+τ], j < w: the whole sound against its window
+  fft(re, im);
+  fft(re2, im2);
+  for (let i = 0; i < n; i++) {
+    const a = re[i] * re2[i] + im[i] * im2[i];
+    const b = im[i] * re2[i] - re[i] * im2[i];
+    re[i] = a; im[i] = b;
+  }
+  fft(re, im, true);
+  for (let tau = 1; tau <= tauMax; tau++) d[tau] = Math.max(0, energy[w] + energy[tau + w] - energy[tau] - (2 * re[tau]) / n);
+  dn[0] = 1;
+  let sum = 0;
+  for (let tau = 1; tau <= tauMax; tau++) { sum += d[tau]; dn[tau] = sum > 0 ? (d[tau] * tau) / sum : 1; }
+  let best = -1;
+  for (let tau = tauMin; tau < tauMax; tau++) {
+    if (dn[tau] < YIN_THRESHOLD) {
+      while (tau + 1 < tauMax && dn[tau + 1] < dn[tau]) tau++;
+      best = tau;
+      break;
+    }
+  }
+  if (best < 0) return null;
+  const [a, b, c] = [d[best - 1], d[best], d[best + 1]];
+  const curve = a - 2 * b + c;
+  const shift = curve > 0 ? Math.max(-1, Math.min(1, (a - c) / (2 * curve))) : 0;
+  const hz = rate / (best + shift);
+  return hz >= minHz && hz <= maxHz ? { hz, clarity: 1 - dn[best] } : null;
+}
+const TUNER_START = 0.002;   // the least level (RMS, about -54 dBFS) a note can start at
+const TUNER_TAIL = 0.0007;   // ... it is followed down to, fading (about -63 dBFS)
+const TUNER_STEADY = 3;      // readings in a row, close together, before a note shows
+/* A pitch heard in these samples, as a midi number with its fraction, or
+   null. A note starts as a string does, with an attack: well above the
+   room's own level (learnt between notes, quickly down, slowly up; a hum,
+   a fan, a fridge, steady, are learnt too, so never taken for a note, even
+   with a pitch of their own); once it has, it is followed as it fades,
+   down to just above that level. A sound that has not faded to half after
+   TUNER_STEADY_MS is no string (a fridge starting): the room's level, from
+   then on. */
+const TUNER_STEADY_MS = 8000;
+const TUNER_WARM_MS = 300;   // as the microphone starts: the room only listened to (its first samples can be silence)
+function hearPitch(x, rate, minHz, maxHz) {
+  let sq = 0;
+  for (let i = 0; i < x.length; i++) sq += x[i] * x[i];
+  const level = Math.sqrt(sq / x.length);
+  const now = performance.now();
+  if (now < tuner.warmUntil) { tuner.floor = tuner.floor === null || !tuner.floor ? level : tuner.floor + (level - tuner.floor) * 0.2; return null; }
+  if (tuner.floor === null) tuner.floor = level;
+  // (an attack: twice as loud as at any time in the last 100 ms)
+  tuner.levels = [...(tuner.levels || []).slice(-5), level];
+  tuner.attack = level > 2 * Math.min(...tuner.levels.slice(0, -1), Infinity);
+  const following = tuner.pitch !== null;
+  const gate = following ? Math.max(TUNER_TAIL, tuner.floor * 1.5) : Math.max(TUNER_START, tuner.floor * 3);
+  const found = level >= gate ? detectPitch(x, rate, minHz, maxHz) : null;
+  // (between notes: down at once; up slowly, on what has no pitch and is
+  // not well above it, an attack never; under a note, not at all)
+  if (!following) {
+    if (level < tuner.floor) tuner.floor = level;
+    else if (!found && level < tuner.floor * 3) tuner.floor += (level - tuner.floor) * 0.02;
+    Object.assign(tuner, { noteLevel: level, noteAt: now });   // (where the next note starts)
+  } else if (now - tuner.noteAt > TUNER_STEADY_MS && level > tuner.noteLevel / 2) {
+    tuner.floor = level;   // (never fading: no string)
+  }
+  return found ? hzMidi(found.hz) : null;
+}
+
+const tuner = {
+  status: 'off',   // the microphone: 'asking', 'on', 'blocked' (refused for good), 'dismissed' (refused, can ask again), 'nomic', 'unsupported', 'error'
+  token: 0,        // (each start: one overtaken by a close or another start drops its stream)
+  stream: null, source: null, analyser: null, buf: null, raf: 0,
+  target: null,    // the string picked: its index
+  folded: false,   // the strings hidden: chromatic
+  mutedUntil: 0,   // (until when the microphone is not listened to: a string's note playing)
+  strings: [],     // the tuning's open strings (midi), as listed
+  recent: [],      // the last pitches heard (midi), for their median
+  odd: 0,          // readings in a row far from those
+  pitch: null,     // the pitch heard (midi, its fraction), or null
+  floor: null,     // the room's own level (see hearPitch; null: not heard yet)
+  heardAt: 0,      // when last heard (ms)
+  shown: TUNER_REST,   // where the strips are, as drawn (eased toward the pitch)
+  fineNote: null,  // the note the fine strip is drawn around
+  drawn: '',       // (what the strips last showed: nothing changed, nothing touched)
+  cell: 0, width: 0, fineWidth: 0,   // (sizes, read as it opens and on resize)
+};
+const tunerFolded = () => tuner.folded;
+const tunerFlats = (inst) => state.flats || Boolean(inst.tuning && inst.tuning.flats);
+const tunerNote = (m) => pitchText(m, plainNote(m, tunerFlats(instrument())));
+// (... its octave smaller, as everywhere in the tuner: E₂)
+const tunerNoteHtml = (m) => { const n = plainNote(m, tunerFlats(instrument())); return `${esc(noteText(n))}<span class="tuner-oct">${Math.floor((m - n.acc) / 12) - 1}</span>`; };
+const tunerLive = () => tuner.status === 'on' || tuner.status === 'asking';
+function openTuner() {
+  const inst = instrument();
+  if (inst.piano || els.tuner.open) return;
+  tuner.strings = inst.strings.slice();
+  // (always as it first was: the strings shown, none picked, on middle C)
+  Object.assign(tuner, { target: null, folded: false, mutedUntil: 0, pitch: null, recent: [], odd: 0, shown: TUNER_REST, fineNote: null, drawn: '', floor: null });
+  // The strip: every note from C0 to C8, the strings' marked
+  els.tunerTape.innerHTML = Array.from({ length: TUNER_HIGH - TUNER_LOW + 1 }, (_, i) => {
+    const m = TUNER_LOW + i;
+    return `<span class="tn${plainNote(m, false).acc ? ' acc' : ''}" data-m="${m}">${tunerNoteHtml(m)}</span>`;
+  }).join('');
+  if (els.tuner.showModal) els.tuner.showModal(); else els.tuner.setAttribute('open', '');
+  renderTuner();
+  measureTuner();
+  startMic();   // (in the tap: the browser asks now, and the sound may start)
+  cancelAnimationFrame(tuner.raf);
+  tuner.raf = requestAnimationFrame(tunerFrame);
+}
+function closeTuner() {
+  if (els.tuner.open) { if (els.tuner.close) els.tuner.close(); else els.tuner.removeAttribute('open'); }
+  tunerClosed();
+}
+function tunerClosed() {   // (the popup gone, however: the microphone off)
+  stopMic();
+  cancelAnimationFrame(tuner.raf);
+  tuner.status = 'off';
+}
+function measureTuner() {
+  const cell = els.tunerTape.firstElementChild;
+  tuner.cell = cell ? cell.offsetWidth : 48;
+  tuner.width = els.tunerStrip.clientWidth;
+  tuner.fineWidth = els.tunerFine.clientWidth;
+  tuner.drawn = '';
+}
+/* The microphone, asked for (the browser asks the first time). Refused: for
+   good (the site blocked: only the browser's settings can change that) or
+   for now (the question dismissed: it can be asked again). Its sound kept
+   raw: the processing meant for calls (echo, noise, level) would blur the
+   pitch. */
+async function startMic() {
+  const token = ++tuner.token;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setTunerStatus('unsupported'); return; }
+  const a = audioOut();   // (started in the tap, while the browser allows it)
+  setTunerStatus('asking');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (err) {
+    if (token !== tuner.token) return;
+    if (err && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError')) setTunerStatus('nomic');
+    else if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) setTunerStatus(await micBlocked() ? 'blocked' : 'dismissed');
+    else setTunerStatus(err && err.name === 'NotSupportedError' ? 'unsupported' : 'error');
+    return;
+  }
+  if (token !== tuner.token || !els.tuner.open || !a) { stream.getTracks().forEach((t) => t.stop()); if (!a && token === tuner.token) setTunerStatus('unsupported'); return; }
+  wakeAudio();
+  tuner.stream = stream;
+  tuner.source = a.ctx.createMediaStreamSource(stream);
+  tuner.analyser = a.ctx.createAnalyser();
+  tuner.analyser.fftSize = a.ctx.sampleRate > 50000 ? 8192 : 4096;
+  tuner.source.connect(tuner.analyser);   // (heard only: never played back)
+  tuner.buf = new Float32Array(tuner.analyser.fftSize);
+  Object.assign(tuner, { floor: null, warmUntil: performance.now() + TUNER_WARM_MS });
+  setTunerStatus('on');
+}
+function stopMic() {
+  tuner.token++;
+  if (tuner.stream) tuner.stream.getTracks().forEach((t) => t.stop());
+  if (tuner.source) tuner.source.disconnect();
+  Object.assign(tuner, { stream: null, source: null, analyser: null, buf: null, pitch: null, recent: [] });
+}
+// (refused for good: the browser says so; it may not say, then: not for good)
+let micPermission = null;
+async function micBlocked() {
+  try {
+    if (!micPermission) {
+      micPermission = await navigator.permissions.query({ name: 'microphone' });
+      // Changed in the browser's settings while the tuner is open: allowed,
+      // it listens; asking again possible, the button for it
+      micPermission.addEventListener('change', () => {
+        if (!els.tuner.open || tunerLive()) return;
+        if (micPermission.state === 'granted') startMic();
+        else if (micPermission.state === 'prompt') setTunerStatus('dismissed');
+      });
+    }
+    return micPermission.state === 'denied';
+  } catch { return false; }
+}
+function setTunerStatus(status) {
+  tuner.status = status;
+  renderTuner();
+}
+const TUNER_MESSAGES = {   // [what happened, what to do, its button]
+  blocked: ['The microphone is blocked', 'Allow it in your browser’s settings for this site.', ''],
+  dismissed: ['The tuner needs the microphone', '', 'Allow microphone'],
+  nomic: ['No microphone found', '', 'Try again'],
+  unsupported: ['No microphone in this browser', '', ''],
+  error: ['The microphone couldn’t start', '', 'Try again'],
+};
+// The popup's parts, for the microphone's status and the fold
+function renderTuner() {
+  const inst = instrument();
+  const message = TUNER_MESSAGES[tuner.status];
+  const folded = tunerFolded() && !message;   // (no microphone: the strings, to tune by ear)
+  els.tunerFold.hidden = Boolean(message);
+  els.tunerFold.setAttribute('aria-expanded', String(!folded));
+  els.tunerFold.title = folded ? 'Show the strings' : 'Hide the strings: a chromatic tuner';
+  els.tunerFold.setAttribute('aria-label', els.tunerFold.title);
+  els.tunerHead.classList.toggle('folded', folded);
+  // (as the instrument menu shows them: its name, then any tuning but the standard one)
+  els.tunerTuning.innerHTML = folded ? '<span class="inst-name">Chromatic</span>'
+    : `<span class="inst-name">${esc(inst.name)}</span>${tuningName(inst) ? `<span class="inst-tuning">${esc(tuningName(inst))}</span>` : ''}`;
+  els.tunerStrings.hidden = folded;
+  // (its room kept when hidden: the tuning beside the instrument's name
+  // does not jump to the next line as it appears, on a narrow screen)
+  els.tunerClear.style.visibility = folded || tuner.target === null ? 'hidden' : '';
+  // (built once as it opens, then only marked: a press keeps its button, its splash and its focus)
+  const built = tuner.strings.map((m) => tunerNote(m)).join(' ');
+  if (els.tunerStrings.dataset.built !== built) {
+    els.tunerStrings.dataset.built = built;
+    els.tunerStrings.innerHTML = tuner.strings.map((m, s) => `<button type="button" class="tuner-string" data-s="${s}" aria-pressed="false" ` +
+      `title="String ${tuner.strings.length - s}: ${esc(tunerNote(m))}. Tap to hear it and tune to it, again to stop">` +
+      `<span class="tuner-num">${tuner.strings.length - s}</span><span class="tuner-name">${tunerNoteHtml(m)}</span></button>`).join('');
+  }
+  for (const el of els.tunerStrings.children) el.setAttribute('aria-pressed', String(!folded && tuner.target === Number(el.dataset.s)));
+  els.tunerView.hidden = Boolean(message);
+  els.tunerMessage.hidden = !message;
+  if (message) {
+    els.tunerHint.textContent = 'Tap a string to tune to it';   // (by ear)
+    els.tunerHint.className = 'tuner-hint';
+    els.tunerMessageTitle.textContent = message[0];
+    els.tunerMessageText.textContent = message[1];
+    els.tunerMessageText.hidden = !message[1];
+    els.tunerRetry.hidden = !message[2];
+    els.tunerRetry.textContent = message[2];
+  }
+  // (the strings marked on the strip: not when folded)
+  for (const el of els.tunerTape.children) {
+    const m = Number(el.dataset.m);
+    el.classList.toggle('string', !folded && tuner.strings.includes(m));
+    el.classList.toggle('target', !folded && tuner.target !== null && tuner.strings[tuner.target] === m);
+  }
+  tuner.fineNote = null;
+  tuner.drawn = '';
+  drawTuner();
+}
+function tunerFrame(now) {
+  tuner.raf = requestAnimationFrame(tunerFrame);
+  let heard = null;
+  const muted = now < tuner.mutedUntil;   // (a string's note playing: its own sound not heard as yours)
+  if (muted && tuner.pitch !== null) Object.assign(tuner, { pitch: null, recent: [], odd: 0 });
+  if (tuner.analyser && !muted) {
+    tuner.analyser.getFloatTimeDomainData(tuner.buf);
+    const folded = tunerFolded();
+    // (listening for the strings, from a fifth under the lowest; chromatic: all)
+    const low = folded || !tuner.strings.length ? 25 : Math.max(25, midiHz(Math.min(...tuner.strings) - 7));
+    heard = hearPitch(tuner.buf, tuner.analyser.context.sampleRate, low, 4200);
+  }
+  /* A note shows once steady: TUNER_STEADY readings in a row close
+     together (a click, a word, a stray reading moves nothing); one far from
+     them starts a new note, which shows once steady too. Gone quiet, the
+     strips stay where the last note was, dimmed (the next note likely near
+     it): on middle C only before any */
+  /* A note's octave is the one heard as it starts (the string plucked
+     louder than anything then): until the next attack, a reading whole
+     octaves away is that note. A string never jumps an octave as it
+     fades; a reading does: its fundamental fading first (an octave up),
+     or the other strings ringing along, an octave or two under it, longer
+     than it (an octave down). */
+  if (heard !== null && tuner.pitch !== null && !tuner.attack) {
+    const octaves = Math.round((heard - tuner.pitch) / 12);
+    if (octaves && Math.abs(heard - 12 * octaves - tuner.pitch) < 0.6) heard -= 12 * octaves;
+  }
+  /* A note starting an octave above one of the tuning's strings, itself
+     none of them: that string (its fundamental too faint to be heard, as a
+     phone hears a bass's low E). Not when chromatic: no strings to go by. */
+  else if (heard !== null && !tuner.folded) {
+    const string = (m) => tuner.strings.some((open) => Math.abs(m - open) < 0.6);
+    if (!string(heard) && string(heard - 12)) heard -= 12;
+  }
+  if (heard !== null) {
+    const med = tuner.recent.length ? median(tuner.recent) : heard;
+    if (Math.abs(heard - med) > 0.6) {
+      tuner.odd++;
+      if (tuner.odd >= TUNER_STEADY || tuner.pitch === null) { tuner.recent = [heard]; tuner.odd = 0; }
+    } else {
+      tuner.odd = 0;
+      tuner.recent.push(heard);
+      if (tuner.recent.length > 5) tuner.recent.shift();
+    }
+    if (tuner.odd === 0 && tuner.recent.length >= TUNER_STEADY) { tuner.pitch = median(tuner.recent); tuner.heardAt = now; }
+  } else {
+    if (tuner.pitch === null) tuner.recent = [];   // (not steady yet: no note)
+    if (tuner.pitch !== null && now - tuner.heardAt > TUNER_HOLD) Object.assign(tuner, { pitch: null, recent: [], odd: 0 });
+  }
+  if (tuner.pitch !== null) {
+    tuner.shown += (tuner.pitch - tuner.shown) * 0.35;
+    if (Math.abs(tuner.pitch - tuner.shown) < 0.0005) tuner.shown = tuner.pitch;
+  }
+  drawTuner();
+}
+const median = (list) => { const s = [...list].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
+// The strips where they are now, the note heard, the hint
+function drawTuner() {
+  if (!els.tuner.open || els.tunerView.hidden) return;
+  const folded = tunerFolded();
+  const { pitch, shown } = tuner;
+  const near = pitch === null ? null : Math.round(pitch);
+  const cents = pitch === null ? 0 : (pitch - near) * 100;
+  const onString = near !== null && (folded || tuner.strings.includes(near));
+  const ok = onString && Math.abs(cents) <= IN_TUNE;
+  const target = folded || tuner.target === null ? null : tuner.strings[tuner.target];
+  els.tunerTape.style.transform = `translateX(${(tuner.width / 2 - (shown - TUNER_LOW + 0.5) * tuner.cell).toFixed(1)}px)`;
+  // The fine strip: around the note nearest to where the strips are
+  const around = Math.max(TUNER_LOW, Math.min(TUNER_HIGH, Math.round(shown)));
+  if (around !== tuner.fineNote) drawFine(around, folded);
+  els.tunerFineTape.style.transform = `translateX(${(tuner.fineWidth / 2 - (shown * 100 - ((around - 1) * 100 - 50)) * FINE_PX).toFixed(1)}px)`;
+  // What changed since the last frame: the note heard, in tune or not, the target's side
+  const targetX = target === null ? null : tuner.width / 2 + (target - shown) * tuner.cell;
+  const edge = tuner.width * 0.14;
+  const side = targetX === null ? '' : targetX < edge ? 'left' : targetX > tuner.width - edge ? 'right' : '';
+  const hint = tunerHint(pitch, near, cents, ok, target);
+  const key = [near, ok, side, hint.text, tuner.status].join('|');
+  if (key === tuner.drawn) return;
+  tuner.drawn = key;
+  els.tunerView.classList.toggle('idle', pitch === null);
+  els.tunerView.classList.toggle('ok', ok);
+  els.tunerView.dataset.note = near === null ? '' : String(near);
+  for (const el of els.tunerTape.querySelectorAll('.near, .ok')) el.classList.remove('near', 'ok');
+  for (const el of els.tunerFineTape.querySelectorAll('.ok')) el.classList.remove('ok');
+  if (near !== null) {
+    const el = els.tunerTape.querySelector(`[data-m="${near}"]`);
+    if (el) el.classList.add('near', ...(ok ? ['ok'] : []));
+    if (ok) for (const el of els.tunerFineTape.querySelectorAll(`[data-m="${near}"]`)) el.classList.add('ok');   // (its band, its name)
+  }
+  els.tunerLeft.hidden = side !== 'left';
+  els.tunerRight.hidden = side !== 'right';
+  if (side) els[side === 'left' ? 'tunerLeft' : 'tunerRight'].querySelector('.tuner-edge-name').innerHTML = tunerNoteHtml(target);
+  for (const el of els.tunerStrings.children) el.classList.toggle('ok', ok && !folded && tuner.strings[Number(el.dataset.s)] === near);
+  els.tunerHint.innerHTML = hint.html;
+  els.tunerHint.className = `tuner-hint${hint.cls ? ` ${hint.cls}` : ''}`;
+}
+/* The line under the strips: nothing heard yet, what to play; the target
+   picked, which way to turn and how far; else the note heard and how far
+   off it is */
+const ARROW_UP = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
+const ARROW_DOWN = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>';
+function tunerHint(pitch, near, cents, ok, target) {
+  // (text: what it says; html: the same, the notes' octaves smaller)
+  const say = (parts, cls = '', icon = '') => ({
+    text: parts.map((p) => (typeof p === 'number' ? tunerNote(p) : p)).join(''),
+    html: `${icon}<span>${parts.map((p) => (typeof p === 'number' ? tunerNoteHtml(p) : esc(p))).join('')}</span>`,
+    cls,
+  });
+  if (tuner.status === 'asking') return say(['Allow the microphone to start']);
+  if (pitch === null) return say(tunerFolded() ? ['Play a note'] : target === null ? ['Play a string to tune to it'] : ['Play the ', target, ' string']);
+  if (target !== null) {
+    const off = (pitch - target) * 100;
+    if (Math.abs(off) <= IN_TUNE) return say([target, ' in tune'], 'ok');
+    const steps = Math.round(Math.abs(off) / 100);
+    const far = Math.abs(off) < 100 ? `${Math.round(Math.abs(off))} cents` : `${steps} semitone${steps === 1 ? '' : 's'}`;
+    return say([off < 0 ? 'Tune up to ' : 'Tune down to ', target, `, ${far}`], 'turn', off < 0 ? ARROW_UP : ARROW_DOWN);
+  }
+  if (ok) return say([near, ' in tune'], 'ok');
+  const by = Math.round(Math.abs(cents));
+  return say(by ? [near, `, ${by} cent${by === 1 ? '' : 's'} ${cents < 0 ? 'flat' : 'sharp'}`] : [near]);
+}
+// The fine strip around a note: its cents, a tick every 5, numbered every
+// 10, the note's name at 0, the band in tune around it (the strings'
+// purple, the target's outlined, as on the strip), the notes either side too
+function drawFine(around, folded) {
+  tuner.fineNote = around;
+  const html = [];
+  const x = (k, c) => ((k - (around - 1)) * 100 + c + 50) * FINE_PX;
+  for (let k = around - 1; k <= around + 1; k++) {
+    if (k < TUNER_LOW || k > TUNER_HIGH) continue;
+    const string = !folded && tuner.strings.includes(k);
+    const target = !folded && tuner.target !== null && tuner.strings[tuner.target] === k;
+    html.push(`<span class="fz${string ? ' string' : ''}${target ? ' target' : ''}" data-m="${k}" style="left:${x(k, -IN_TUNE)}px;width:${2 * IN_TUNE * FINE_PX}px"></span>`);
+    for (let c = -50; c < 50; c += 5) {
+      const cls = c === 0 ? ' zero' : c % 10 === 0 ? ' major' : '';
+      html.push(`<span class="ft${cls}" style="left:${x(k, c)}px"></span>`);
+      if (c && c % 10 === 0 && Math.abs(c) < 50) html.push(`<span class="fl" style="left:${x(k, c)}px">${c > 0 ? '+' : '−'}${Math.abs(c)}</span>`);
+    }
+    html.push(`<span class="fl name${string ? ' string' : ''}" data-m="${k}" style="left:${x(k, 0)}px">${tunerNoteHtml(k)}</span>`);
+  }
+  els.tunerFineTape.innerHTML = html.join('');
+  tuner.drawn = '';
+}
+// A string tapped: heard, and the target (tapped again: heard again; Clear,
+// no target)
+function pickTunerString(s) {
+  playNote(tuner.strings[s]);
+  tuner.target = s;
+  // (the microphone would hear it: not listened to for 95% of its length,
+  // the rest too faint to start a note)
+  tuner.mutedUntil = performance.now() + pluckSeconds(tuner.strings[s]) * 950;
+  renderTuner();
+  ping(els.tunerStrings.children[s]);   // (the amber splash, as every note that sounds)
+}
+function clearTunerTarget() {
+  tuner.target = null;
+  renderTuner();
+}
+function foldTuner() {
+  tuner.folded = !tuner.folded;
+  renderTuner();
 }
 
 /* ==========================================================================
@@ -4726,6 +5217,7 @@ function placeSettings() {
     put(els.dockRecent, els.quickInner, els.quickGroupBar);
     put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
     put(els.namer, els.neckPanel);   // Name a chord: in the quick bar's place
+    put(els.tunerOpen, els.tuningSelect.parentElement, els.tuningSelect);   // (the tuner: before the tuning menu)
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.namerOpen, els.chordHead);
@@ -4736,6 +5228,7 @@ function placeSettings() {
     put(els.dockRecent, els.dockBar, els.dockTabs);
     put(els.dockShapeBar, els.dockBar, els.dockTabs);
     put(els.namer, els.dockBar, els.dockTabs);
+    put(els.tunerOpen, els.setupHead);   // (the tuner: the Setup sheet's own extra, as Name a chord is the Chord sheet's)
   }
 }
 
@@ -5523,6 +6016,7 @@ function renderHeader() {
   els.instrumentPicker.innerHTML = `<span class="inst-label"><span class="inst-name">${esc(inst.name)}</span>` +
     (tuned ? ` <span class="inst-tuning">${esc(tuned)}</span>` : '') + '</span>';   // (the space: phones, where they wrap)
   els.instrumentPicker.setAttribute('aria-label', `Instrument: ${inst.name}${tuned ? `, ${tuned}` : ''}`);
+  stackInstLabel();
   const c = capo();
   els.tuningSelect.textContent = tuned || 'Standard tuning';
   els.tuningSelect.classList.toggle('on', Boolean(tuned));
@@ -5533,6 +6027,20 @@ function renderHeader() {
   }
 }
 
+/* Phones: a tuning with no room beside the instrument's name goes under it,
+   stacked, the button as wide as the longer of the two (wrapped as a line,
+   it would keep the whole width it was given) */
+function stackInstLabel() {
+  const label = els.instrumentPicker.querySelector('.inst-label');
+  const tuning = label && label.querySelector('.inst-tuning');
+  if (!label) return;
+  label.classList.remove('stacked');
+  if (!tuning || els.instrumentPicker.parentElement !== els.instNarrowSlot) return;
+  // (on the line under the name: its middle well under the name's; their
+  // boxes, padded for the trimmed text, overlap either way)
+  const [t, n] = [tuning, label.querySelector('.inst-name')].map((el) => el.getBoundingClientRect());
+  if (t.top + t.height / 2 - (n.top + n.height / 2) > n.height / 2) label.classList.add('stacked');
+}
 /* "Drop D", "C G D G B D" (custom), or '' for the standard tuning */
 const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? inst.tuning.name : '');
 /* Open string names, low to high: "D A D G B E". A short string (a banjo's
@@ -6901,8 +7409,8 @@ function init() {
     'chordAlt', 'chordCapo', 'scaleCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'chordMissing', 'shapeCount', 'groupCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'tglScaleAlt', 'tglChordAlt', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
-    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
-    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
+    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'setupHead', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
+    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'tunerOpen', 'tuner', 'tunerClose', 'tunerHead', 'tunerTuning', 'tunerFold', 'tunerStrings', 'tunerView', 'tunerStrip', 'tunerTape', 'tunerLeft', 'tunerRight', 'tunerFine', 'tunerFineTape', 'tunerHint', 'tunerClear', 'tunerMessage', 'tunerMessageTitle', 'tunerMessageText', 'tunerRetry', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
@@ -6983,6 +7491,22 @@ function init() {
     },
   }));
   els.tuningSelect.addEventListener('click', openTuningMenu);
+  // The tuner: its microphone off whenever it closes (×, Escape, outside it)
+  // or the page is hidden, back on when the page comes back
+  els.tunerOpen.addEventListener('click', openTuner);
+  els.tunerClose.addEventListener('click', closeTuner);
+  els.tuner.addEventListener('close', tunerClosed);
+  els.tuner.addEventListener('click', (e) => { if (e.target === els.tuner) closeTuner(); });
+  els.tunerFold.addEventListener('click', foldTuner);
+  els.tunerClear.addEventListener('click', clearTunerTarget);
+  onPress(els.tunerStrings, '[data-s]', (b) => pickTunerString(Number(b.dataset.s)));   // (on press, as every note that sounds)
+  els.tunerRetry.addEventListener('click', startMic);
+  window.addEventListener('resize', () => { if (els.tuner.open) measureTuner(); stackInstLabel(); }, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (!els.tuner.open) return;
+    if (document.visibilityState === 'hidden') { if (tunerLive()) { stopMic(); tuner.status = 'paused'; } }
+    else if (tuner.status === 'paused') startMic();
+  });
   // Custom tuning popup
   els.tuneList.addEventListener('click', (e) => {
     const step = e.target.closest('[data-step]');
@@ -7546,6 +8070,7 @@ if (typeof document !== 'undefined') init();
    check, none of them the interface */
 if (typeof module !== 'undefined') {
   module.exports = {
+    detectPitch, hzMidi, midiHz,
     INSTRUMENTS, TUNINGS, tunedInstrument, findInstrument, startFret, shapePitch, PIANO_LOW, PIANO_KEYS,
     ALL_CHORDS, findChord, chordTones, findShapes, pianoShapes, barresFor, fingersFor, tabOf,
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,

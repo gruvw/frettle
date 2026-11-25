@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Frettle: Chord &amp; Scale Visualizer for Guitar, Bass, Ukulele, Banjo &amp; Piano</title>
-  <meta name="description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo and piano. See every note on the neck or the keys, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
+  <meta name="description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://frettle.gruvw.com/">
   <meta name="color-scheme" content="dark">
@@ -15,7 +15,7 @@
   <meta property="og:site_name" content="Frettle">
   <meta property="og:url" content="https://frettle.gruvw.com/">
   <meta property="og:title" content="Frettle: Chord &amp; Scale Visualizer for Guitar, Bass, Ukulele, Banjo &amp; Piano">
-  <meta property="og:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo and piano. See every note on the neck or the keys, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
+  <meta property="og:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.">
   <!-- The app icon as the preview picture, as a small thumbnail beside the
        title: 256px, under the 300px wide from which WhatsApp shows it as a
        big picture above it, at least the 200px Facebook asks for -->
@@ -26,7 +26,7 @@
   <meta property="og:image:alt" content="Frettle icon: a pink note on three strings">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Frettle: Chord &amp; Scale Visualizer">
-  <meta name="twitter:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo and piano. See every note on the neck or the keys, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.">
+  <meta name="twitter:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.">
   <meta name="twitter:image" content="https://frettle.gruvw.com/icon-256.png">
   <meta name="twitter:image:alt" content="Frettle icon: a pink note on three strings">
 
@@ -53,7 +53,7 @@
     "@type": "WebApplication",
     "name": "Frettle",
     "alternateName": "Frettle Chord & Scale Visualizer",
-    "description": "Free chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo and piano. See every note on the neck or the keys, chord shapes in any key, scales, alternate tunings, a capo, and hear each note.",
+    "description": "Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.",
     "applicationCategory": "MusicApplication",
     "operatingSystem": "Any",
     "browserRequirements": "Requires JavaScript",
@@ -66,6 +66,7 @@
       "Name a chord from notes placed on the neck",
       "Scales with their notes, steps and triads",
       "Capo, octave map, left-handed mode and click-to-hear notes",
+      "Tuner using the microphone, with the tuning's strings marked or chromatic",
       "6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola, 5-string banjo, 88-key piano and 97-key uniso",
       "Alternate tunings: Drop D, DADGAD, open G and more"
     ]
@@ -109,8 +110,13 @@
            in place before the script runs: on phones this header is hidden. -->
       <div id="settingsWideSlot" class="settings-slot">
         <div id="settings" class="settings">
-          <button type="button" id="tuningSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Tuning"
-                  title="How the strings are tuned"></button>
+          <!-- The tuning menu and the tuner before it (phones: the tuner on the Setup sheet's title row, see placeSettings) -->
+          <div class="tuning-row">
+            <button type="button" id="tunerOpen" class="btn icon tuner-btn" aria-haspopup="dialog" aria-label="Tuner"
+                    title="Tuner: tune the strings with the microphone"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 2.5v7a3.5 3.5 0 0 0 7 0v-7"/><path d="M12 13v8.5"/></svg><span class="btn-label">Tuner</span></button>
+            <button type="button" id="tuningSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Tuning"
+                    title="How the strings are tuned"></button>
+          </div>
           <button type="button" id="capoSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Capo position"
                   title="Fret where the capo sits. Frets are then counted from the capo."></button>
           <button type="button" id="tglOctaves" class="pill-toggle" aria-pressed="false"
@@ -291,7 +297,7 @@
         </section>
 
         <section class="panel narrow-only" id="panelNeck" data-tab="neck" aria-label="Setup">
-          <div class="panel-head">
+          <div id="setupHead" class="panel-head">
             <h2>Setup</h2>
           </div>
           <div id="settingsNarrowSlot" class="settings-slot"></div>
@@ -377,7 +383,8 @@
         It has no ads and works offline.</p>
       <p>Pick a chord to see all the ways to play it up the neck, with the root and intervals marked and barres drawn in.
         Pick a scale to see it across the whole fretboard, in hand-sized groups to step through, and see the chords that fit it.
-        Tap any note to hear it, or place notes on the neck to name the chord they make.</p>
+        Tap any note to hear it, or place notes on the neck to name the chord they make.
+        Tune your strings with the tuner, through the microphone or by ear.</p>
       <p>It covers 6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola
         and 5-string banjo, in standard tuning, Drop D, DADGAD, open G, double C and other alternate tunings, or custom ones saved by name, with or without a capo,
         as well as the 88 keys of a piano and the 97 keys of a uniso.</p>
@@ -545,6 +552,43 @@
       <button type="button" id="listClearCancel" class="btn"><span class="tx">Cancel</span></button>
       <button type="button" id="listClearRecentGo" class="btn"><span class="tx">Clear recent</span></button>
       <button type="button" id="listClearGo" class="btn danger"><span class="tx">Clear all</span></button>
+    </div>
+  </dialog>
+
+  <!-- Tuner: listens with the microphone (script.js: openTuner) -->
+  <dialog id="tuner" class="picker tuner" aria-labelledby="tunerTitle">
+    <div class="picker-head">
+      <h2 id="tunerTitle">Tuner</h2>
+      <button type="button" id="tunerClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="picker-body tuner-body">
+      <div id="tunerHead" class="tuner-head">
+        <span id="tunerTuning" class="inst-label tuner-tuning"></span>
+        <!-- No string to tune to any more (shown with one picked; its room always kept) -->
+        <button type="button" id="tunerClear" class="tuner-clear" style="visibility: hidden" title="No string to tune to"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg><span>Clear</span></button>
+        <button type="button" id="tunerFold" class="tuner-fold" aria-expanded="true" aria-controls="tunerStrings"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div id="tunerStrings" class="tuner-strings" role="group" aria-label="Strings"></div>
+      <div id="tunerView" class="tuner-view idle">
+        <div id="tunerStrip" class="tuner-strip">
+          <div id="tunerTape" class="tuner-tape" aria-hidden="true"></div>
+          <span class="tuner-needle" aria-hidden="true"></span>
+          <span id="tunerLeft" class="tuner-edge left" hidden><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span class="tuner-edge-name"></span></span>
+          <span id="tunerRight" class="tuner-edge right" hidden><span class="tuner-edge-name"></span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+        </div>
+        <div id="tunerFine" class="tuner-fine">
+          <div id="tunerFineTape" class="tuner-fine-tape" aria-hidden="true"></div>
+          <span class="tuner-needle" aria-hidden="true"></span>
+        </div>
+      </div>
+      <div id="tunerMessage" class="tuner-message" hidden>
+        <p id="tunerMessageTitle" class="tuner-message-title"></p>
+        <p id="tunerMessageText" hidden></p>
+        <button type="button" id="tunerRetry" class="btn primary"></button>
+      </div>
+      <p id="tunerHint" class="tuner-hint" aria-live="polite"></p>
     </div>
   </dialog>
 
