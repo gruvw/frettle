@@ -3,7 +3,7 @@
    menu doesn't have, like C6(♯5)) says every note it is given. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { ALL_CHORDS, nameChord, spellChord, noteText, degreesOver, chordOf, describeChord, intervalOf, intervalDegree } = require('../web/script.js');
+const { ALL_CHORDS, nameChord, spellChord, noteText, degreesOver, chordOf, describeChord, intervalOf, intervalDegree } = require('./frettle.js');
 
 const mod12 = (n) => ((n % 12) + 12) % 12;
 const symbol = (r) => {

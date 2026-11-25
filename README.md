@@ -32,7 +32,7 @@ A chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo
 
 ## Running it yourself
 
-There's nothing to build or install. The static website is in the `web/` directory: an HTML, a CSS and a JS file, plus the manifest, service worker and icons.
+There's nothing to build or install. The static website is in the `web/` directory: HTML, CSS and JS files, plus the manifest, service worker and icons.
 
 ```sh
 cd web

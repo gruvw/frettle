@@ -5,7 +5,7 @@
    never an octave off; silence and noise read as nothing. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { detectPitch, hzMidi, midiHz } = require('../web/script.js');
+const { detectPitch, hzMidi, midiHz } = require('./frettle.js');
 
 // A seeded random, so every run hears the same noise
 let seed = 1;

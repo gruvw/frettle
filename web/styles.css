@@ -6,7 +6,7 @@
    Mobile first: the base styles are the phone layout (vertical neck, dock
    with tabs at the bottom). The "wide" media query at the end turns it into
    the desktop layout (horizontal neck, panels below it). The same query is
-   used in script.js (WIDE_QUERY), keep them in sync.
+   used in app.js (WIDE_QUERY), keep them in sync.
    ========================================================================== */
 /* The accidentals, ♯ ♭ 𝄪 𝄫, drawn for Frettle to sit with the system font
    (its weights 400 to 800, sized on its capitals), the same on every device:
@@ -203,7 +203,7 @@ kbd {
 .share-btn.done { color: var(--ok); border-color: var(--ok); }   /* link copied, for a moment */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.inst-slot { grid-area: inst; position: relative; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before script.js places it: the neck does not jump */
+.inst-slot { grid-area: inst; position: relative; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before app.js places it: the neck does not jump */
 /* Reset: phones, on the left of the row, the instrument menu staying centred
    (with room for it: the menu stops short of it); wide screens, after the
    menu, in the neck's title */
@@ -565,7 +565,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .select-btn:disabled { opacity: 0.45; cursor: default; }   /* switched off, like the buttons and switches */
 
 /* The suggestion to install the app: a small card at the top of the
-   screen, until it is answered (script.js: setupInstallTip). Icon, text,
+   screen, until it is answered (app.js: setupInstallTip). Icon, text,
    buttons in a row; on narrow phones the buttons under the text. */
 .install-tip {
   position: fixed;
@@ -648,7 +648,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
   outline-offset: 2px;
 }
 /* A control that takes the keyboard focus is scrolled into view with its
-   ring (script.js), this far from the edge of the row, popup or page */
+   ring (app.js), this far from the edge of the row, popup or page */
 button, a { scroll-margin: 6px; }
 .scale-note { scroll-margin: 10px; }   /* the root's two rings */
 
@@ -762,7 +762,7 @@ button, a { scroll-margin: 6px; }
 /* ==========================================================================
    Neck. Phones: vertical (nut on top, low string on the left, frets going
    down). Wide screens: horizontal (nut on the left, high string on top).
-   script.js places the cells; the .vertical class switches the drawing.
+   app.js places the cells; the .vertical class switches the drawing.
    ========================================================================== */
 .neck-panel { margin: var(--sp-2) var(--gutter) 0; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
 .neck-head { display: none; }   /* phones: the instrument menu is above the neck, the settings in the Setup tab */
@@ -1009,7 +1009,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
   100% { opacity: 0; transform: scale(1); }
 }
 
-/* Piano (script.js): 88 keys, placed from each key's place among the white
+/* Piano (app.js): 88 keys, placed from each key's place among the white
    keys (--i; 52 white keys, --whites). The Uniso (.whole-tone): 97 keys,
    49 white, the same shapes (a little wider across: see below), a black
    key between each two white keys, its C and F keys grey (.marked). Wide screens: from left to right,
@@ -1099,7 +1099,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 .neck.piano.whole-tone.horizontal .oct-label.last { width: calc(var(--wk) - var(--bk) / 2); }
 /* Phones: a neck's strings no further apart than --col-max however wide the
    screen, the panel no wider than they need (the page shows round it).
-   --strings: set by script.js. */
+   --strings: set by app.js. */
 .neck-panel:has(> .neck-scroll > .neck.vertical:not(.piano)) {
   --col-max: 80px;
   width: calc(100% - 2 * var(--gutter));
@@ -1151,7 +1151,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 .neck.piano.whole-tone.vertical .oct-label.last { height: calc(var(--wk) - var(--bk) / 2); }
 /* A keyboard's scale group (an octave): a bar in the scale's colour over
    its keys' far ends, over the group's keys only, not a black key just
-   past either end (--from, --to: set by script.js), clear of the octave
+   past either end (--from, --to: set by app.js), clear of the octave
    numbers and the
    notes; taps go to the keys under it */
 .group-bar { position: absolute; z-index: 1; background: var(--scale); pointer-events: none; }
@@ -1162,7 +1162,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
    see keyboardGroups) */
 body.piano .tuning-row, body.piano #tunerOpen, body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty { display: none; }   /* (a keyboard: no tuner either) */
 
-/* The strip (script.js): each string's first cell, held at the edge of the
+/* The strip (app.js): each string's first cell, held at the edge of the
    view once the neck has scrolled past it, over everything on the neck.
    Phones: a row stuck to the top of the screen (the neck's scroller lets
    the page do the scrolling), with room above it for the badges, lifted by
@@ -1197,7 +1197,7 @@ body.piano .tuning-row, body.piano #tunerOpen, body.piano #tuningSelect, body.pi
 }
 .neck-strip .waiting { visibility: hidden; }
 
-/* Scale groups: rounded outlines (an SVG drawn by script.js), above the
+/* Scale groups: rounded outlines (an SVG drawn by app.js), above the
    strings, fret wires and the capo, below the note pills: one at a time,
    the group picked, in the scale's colour */
 .group-layer {
@@ -1536,7 +1536,7 @@ body.piano .tuning-row, body.piano #tunerOpen, body.piano #tuningSelect, body.pi
 #dock .recent-chips { touch-action: pan-x; }
 /* The dock's row: its scrollbar is hidden (it would push the chips around);
    when the chips do not all fit, a thin bar under them shows how far along
-   the row is and that it scrolls (script.js sizes and moves its thumb) */
+   the row is and that it scrolls (app.js sizes and moves its thumb) */
 .recent-scroll { position: relative; flex: 1; min-width: 0; }
 .scroll-hint {
   position: absolute;
@@ -1645,7 +1645,7 @@ body.piano .tuning-row, body.piano #tunerOpen, body.piano #tuningSelect, body.pi
   margin: 0;
   pointer-events: none;
   cursor: grabbing;
-  /* (script.js: its top is the row's, moved along it under the pointer,
+  /* (app.js: its top is the row's, moved along it under the pointer,
      grown around the point it is held by) */
 }
 .chip-lift .recent-chips { display: block; margin: 0; padding: 0; overflow: visible; }
@@ -2107,7 +2107,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* ==========================================================================
    Wide screens (desktop, tablets, phones held sideways): horizontal neck,
    panels below it, settings in the neck's header, no dock.
-   Keep in sync with WIDE_QUERY in script.js.
+   Keep in sync with WIDE_QUERY in app.js.
    ========================================================================== */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
   .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
@@ -2187,7 +2187,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .neck-panel .panel-head { margin-bottom: var(--sp-3); min-height: 32px; }
   .neck-panel h2 { font-size: var(--fs-lg); }
   .neck-scroll { padding-bottom: var(--scroll-gap); }
-  /* Before script.js draws the neck, its room is kept (six strings, the
+  /* Before app.js draws the neck, its room is kept (six strings, the
      usual case), so the panels below do not jump down when it appears */
   .neck:empty { min-height: calc(var(--ruler-row) + 6 * var(--row-h)); }
 

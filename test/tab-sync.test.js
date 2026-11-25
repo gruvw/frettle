@@ -5,7 +5,7 @@
    what is stored now). */
 const test = require('node:test');
 const assert = require('node:assert');
-const { mergeShared, loadState, sharedForm, SAVE_VERSION } = require('../web/script.js');
+const { mergeShared, loadState, sharedForm, SAVE_VERSION } = require('./frettle.js');
 
 const shared = (parts = {}) => ({ prefs: {}, saved: {}, list: [], drawn: [], ...parts });
 const tuning = (name, notes) => ({ name, tuning: notes });

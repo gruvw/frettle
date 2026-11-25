@@ -4,7 +4,7 @@
    note in the bass. On the keyboards (the piano, the Uniso), every shape also plays every note. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { INSTRUMENTS, TUNINGS, ALL_CHORDS, chordTones, findShapes, pianoShapes, startFret, shapePitch, PIANO_LOW, PIANO_KEYS } = require('../web/script.js');
+const { INSTRUMENTS, TUNINGS, ALL_CHORDS, chordTones, findShapes, pianoShapes, startFret, shapePitch, PIANO_LOW, PIANO_KEYS } = require('./frettle.js');
 
 const mod12 = (n) => ((n % 12) + 12) % 12;
 const inversions = (def) => [...def.steps.keys()].map(String).concat('any');
@@ -72,7 +72,7 @@ for (const inst of INSTRUMENTS.filter((i) => i.piano)) test(`${inst.name} shapes
    just that interval, its root below (the banjo's drone counted when it
    rings: E(m10), E3 under its open g, G4), and is named so by Name a
    chord (a 5th within the octave: the power chord). */
-const { customChord, nameChord, intervalOf } = require('../web/script.js');
+const { customChord, nameChord, intervalOf } = require('./frettle.js');
 const INTERVALS = [
   ...['b2', '2', 'b3', '3', '4', 's4', 'b5', '5', 's5', 'b6', '6', 'bb7', 'b7', '7'].map((d) => `i-${d}`),
   ...['min', 'maj', 'perf', 'aug'].flatMap((q) => [...Array(16).keys()].map((k) => `i-${q}${k + 9}`)),

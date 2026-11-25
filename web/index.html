@@ -77,7 +77,7 @@
   <!-- Mobile first: on phones the neck is vertical and the controls live in a
        dock at the bottom (tabs open a sheet). On wide screens the neck is
        horizontal and the panels sit below it. -->
-  <!-- Suggests installing the app, once it has been used a while (script.js: setupInstallTip) -->
+  <!-- Suggests installing the app, once it has been used a while (app.js: setupInstallTip) -->
   <aside id="installTip" class="install-tip" aria-label="Install Frettle" hidden>
     <span class="install-icon"><img src="icon-192.png" alt="" width="44" height="44"></span>
     <p class="install-text" id="installText"><strong>Frettle works better as an app</strong><span>Full screen, and it works offline.</span></p>
@@ -96,17 +96,17 @@
 
   <section class="panel neck-panel" aria-label="Fretboard">
     <div class="panel-head neck-head">
-      <!-- Wide screens: the neck's title is the instrument menu (script.js
+      <!-- Wide screens: the neck's title is the instrument menu (app.js
            moves it to the header on phones) -->
       <h2 id="instWideSlot" class="neck-title">
         <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
-        <!-- Reset: beside the instrument menu (script.js moves both; on
+        <!-- Reset: beside the instrument menu (app.js moves both; on
              phones it sits on the left, the menu centred) -->
         <button type="button" id="resetAll" class="btn icon reset-btn" aria-haspopup="dialog" aria-label="Reset"
                 title="Reset: no chord, no scale, no capo"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8.3"/><path d="M3 3.5v4.8h4.8"/></svg></button>
       </h2>
       <!-- Neck settings: here on wide screens, in the "Setup" tab of the dock
-           on phones (script.js moves them). They start here, so the page is
+           on phones (app.js moves them). They start here, so the page is
            in place before the script runs: on phones this header is hidden. -->
       <div id="settingsWideSlot" class="settings-slot">
         <div id="settings" class="settings">
@@ -139,7 +139,7 @@
     </div>
     <!-- Wide screens: the quick bar, along the bottom of the neck: the chord
          list, the chord's shapes and the scale's groups, without scrolling
-         down to their panels. script.js moves the phone dock's chord list and
+         down to their panels. app.js moves the phone dock's chord list and
          shape bar here, and adds the groups' own bar. -->
     <div id="quickBar" class="quick-bar" hidden>
       <div id="quickInner" class="quick-inner">
@@ -170,7 +170,7 @@
             <h2 class="theory-title"><button type="button" class="panel-fold wide-only" aria-expanded="true" aria-controls="panelChord"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><i class="swatch swatch-chord" aria-hidden="true"></i><span class="tx">Chord</span><span class="fold-value" hidden></span></h2>
             <span id="shapeCount" class="status chord-count" hidden></span>
             <!-- The panel's switches: at the end of its title row on wide
-                 screens, under the menus on phones (script.js moves them).
+                 screens, under the menus on phones (app.js moves them).
                  They start here: on phones the panel is closed at first. -->
             <div class="switch-row">
               <button type="button" id="tglChordAlt" class="pill-toggle" aria-pressed="false"
@@ -321,7 +321,7 @@
         <button type="button" id="dockNext" class="btn icon" aria-label="Next shape"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
         <button type="button" id="dockStrum" class="btn primary" aria-label="Strum"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5.2v13.6a.8.8 0 0 0 1.2.7l10.8-6.8a.8.8 0 0 0 0-1.4L9.2 4.5A.8.8 0 0 0 8 5.2z"/></svg><span class="strum-label">Strum</span></button>
       </div>
-      <!-- Name a chord (script.js): while it is on, this takes the place of
+      <!-- Name a chord (app.js): while it is on, this takes the place of
            the chord list, the shape bar and the tabs, at the same heights
            (phones); on wide screens it is moved under the neck, in place of
            the quick bar -->
@@ -555,7 +555,7 @@
     </div>
   </dialog>
 
-  <!-- Tuner: listens with the microphone (script.js: openTuner) -->
+  <!-- Tuner: listens with the microphone (sound.js: openTuner) -->
   <dialog id="tuner" class="picker tuner" aria-labelledby="tunerTitle">
     <div class="picker-head">
       <h2 id="tunerTitle">Tuner</h2>
@@ -604,7 +604,11 @@
     <div id="pickerBody" class="picker-body"></div>
   </dialog>
 
-  <script src="script.js" defer></script>
+  <!-- The script, in four parts run in this order, as one (see music.js) -->
+  <script src="music.js" defer></script>
+  <script src="state.js" defer></script>
+  <script src="sound.js" defer></script>
+  <script src="app.js" defer></script>
   <span id="shareStatus" class="sr-only" role="status" aria-live="polite"></span>
   <script data-goatcounter="https://frettle.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 </body>

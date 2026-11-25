@@ -1,5 +1,5 @@
 /* Scale groups: the rules every group follows, checked on every
-   instrument, tuning, scale, root and capo (script.js: scaleGroups,
+   instrument, tuning, scale, root and capo (app.js: scaleGroups,
    handGroups):
    - a group covers every string, its notes playable (from the capo to the
      last fret), each string's first and last fret a scale note
@@ -19,7 +19,7 @@
    - no two groups share 3/4 or more of the notes of the smaller one */
 const test = require('node:test');
 const assert = require('node:assert');
-const { scaleGroups, INSTRUMENTS, TUNINGS, ALL_SCALES, REACH, MAX_FINGERS, startFret } = require('../web/script.js');
+const { scaleGroups, INSTRUMENTS, TUNINGS, ALL_SCALES, REACH, MAX_FINGERS, startFret } = require('./frettle.js');
 
 const CAPOS = [0, 3];
 const scales = ALL_SCALES.filter((d) => d.steps.length < 12);   // (chromatic: no groups)

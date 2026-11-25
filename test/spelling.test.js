@@ -8,7 +8,7 @@
    pitch but D, G and A has: so every key signature can be shown. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { ALL_SCALES, ALL_CHORDS, spellScale, spellChord, rootNames, noteText, readChord, noteToken, ownChordSpelling } = require('../web/script.js');
+const { ALL_SCALES, ALL_CHORDS, spellScale, spellChord, rootNames, noteText, readChord, noteToken, ownChordSpelling } = require('./frettle.js');
 
 const NATURAL = [0, 2, 4, 5, 7, 9, 11];   // C D E F G A B
 const mod12 = (n) => ((n % 12) + 12) % 12;
