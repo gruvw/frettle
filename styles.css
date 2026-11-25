@@ -6,7 +6,7 @@
    Mobile first: the base styles are the phone layout (vertical neck, dock
    with tabs at the bottom). The "wide" media query at the end turns it into
    the desktop layout (horizontal neck, panels below it). The same query is
-   used in script.js (WIDE_QUERY), keep them in sync.
+   used in app.js (WIDE_QUERY), keep them in sync.
    ========================================================================== */
 /* The accidentals, ♯ ♭ 𝄪 𝄫, drawn for Frettle to sit with the system font
    (its weights 400 to 800, sized on its capitals), the same on every device:
@@ -140,6 +140,7 @@ body {
 /* (popups and buttons are named too: browsers give them their own setting,
    which would win over the page's) */
 dialog, button { -webkit-user-select: none; user-select: none; }
+#chordStrum, #dockStrum, #namerPlay { -webkit-touch-callout: none; }   /* (held: the chord arpeggiated, no phone's menu for it) */
 .np-head, .about-body { -webkit-user-select: text; user-select: text; }
 input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 
@@ -203,7 +204,7 @@ kbd {
 .share-btn.done { color: var(--ok); border-color: var(--ok); }   /* link copied, for a moment */
 /* Read out by screen readers only */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.inst-slot { grid-area: inst; position: relative; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before script.js places it: the neck does not jump */
+.inst-slot { grid-area: inst; position: relative; display: flex; justify-content: center; min-width: 0; min-height: var(--control-h); }   /* keeps the menu's room before app.js places it: the neck does not jump */
 /* Reset: phones, on the left of the row, the instrument menu staying centred
    (with room for it: the menu stops short of it); wide screens, after the
    menu, in the neck's title */
@@ -213,6 +214,8 @@ kbd {
 .inst-slot .inst-label { display: block; text-align: center; line-height: 1.25; }
 .inst-slot .inst-name { overflow: visible; }
 .inst-slot .inst-tuning { display: inline-block; overflow: visible; }   /* (whole, on the next line if need be) */
+.inst-slot .inst-label.stacked { display: grid; justify-items: center; row-gap: 10px; }   /* (under the name: see stackInstLabel) */
+.inst-slot .inst-btn:has(.inst-label.stacked) { padding-block: 14px; }   /* (as much room above and below its text as on one line: the stacked lines are trimmed to their letters) */
 .neck-title .reset-btn { flex: none; background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
 /* Reset's popup: what goes, a line each ("CHORD Dm") */
 body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
@@ -533,7 +536,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 @media (max-width: 359px) { .chord-bar .switch-row, .scale-bar .switch-row { grid-template-columns: 1fr; } }
 .pill-toggle.namer-open { color: var(--text); }   /* (a button, not a switch: never dimmed like one that is off) */
 .namer-open .ico { flex: none; width: 16px; height: 16px; color: var(--accent); }
-.switch-row .pill-toggle, .panel-head > .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
+.switch-row .pill-toggle, .panel-head > .pill-toggle, .picker-tools > .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
 /* Buttons that open a picker popup, styled as menus */
 .select-btn {
@@ -563,7 +566,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .select-btn:disabled { opacity: 0.45; cursor: default; }   /* switched off, like the buttons and switches */
 
 /* The suggestion to install the app: a small card at the top of the
-   screen, until it is answered (script.js: setupInstallTip). Icon, text,
+   screen, until it is answered (app.js: setupInstallTip). Icon, text,
    buttons in a row; on narrow phones the buttons under the text. */
 .install-tip {
   position: fixed;
@@ -640,18 +643,29 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
    those rows keep at least that much room around their controls. */
 .select-btn:focus-visible, .pick:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible,
 .tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible,
-.lk-row:focus-visible, .tune-step:focus-visible, .tune-note:focus-visible, .tune-num.reset:focus-visible, .recent-clear:focus-visible {
+.lk-row:focus-visible, .tune-step:focus-visible, .tune-note:focus-visible, .tune-num.reset:focus-visible, .recent-clear:focus-visible,
+.tuner-string:focus-visible, .tuner-fold:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 /* A control that takes the keyboard focus is scrolled into view with its
-   ring (script.js), this far from the edge of the row, popup or page */
+   ring (app.js), this far from the edge of the row, popup or page */
 button, a { scroll-margin: 6px; }
 .scale-note { scroll-margin: 10px; }   /* the root's two rings */
 
 /* Switch-style toggles and the capo button (the neck settings) */
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
 .settings .select-btn { grid-column: 1 / -1; }   /* menus full width */
+/* The tuning menu, and on wide screens the tuner before it, a pill as tall
+   as the others (see there); on phones the tuner is on the Setup sheet's
+   title row, as Name a chord is on the Chord sheet's (placeSettings) */
+.tuning-row { grid-column: 1 / -1; display: flex; gap: var(--sp-2); min-width: 0; }
+.tuning-row .select-btn { flex: 1; min-width: 0; }
+.tuner-btn { color: var(--text); }
+.tuner-btn .ico { color: var(--accent); }   /* (as Name a chord: a button, its icon purple, its words never dimmed) */
+.panel-head > .tuner-btn { width: auto; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); }
+.panel-head > .tuner-btn .ico { width: 16px; height: 16px; }
+.panel-head > .tuner-btn .btn-label { display: inline; }
 .settings .whole, .switch-row .whole { grid-column: 1 / -1; }   /* phones: an odd last switch, the whole row (fitSwitches) */
 .settings-slot:empty { display: none; }
 .pill-toggle {
@@ -749,7 +763,7 @@ button, a { scroll-margin: 6px; }
 /* ==========================================================================
    Neck. Phones: vertical (nut on top, low string on the left, frets going
    down). Wide screens: horizontal (nut on the left, high string on top).
-   script.js places the cells; the .vertical class switches the drawing.
+   app.js places the cells; the .vertical class switches the drawing.
    ========================================================================== */
 .neck-panel { margin: var(--sp-2) var(--gutter) 0; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
 .neck-head { display: none; }   /* phones: the instrument menu is above the neck, the settings in the Setup tab */
@@ -996,7 +1010,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
   100% { opacity: 0; transform: scale(1); }
 }
 
-/* Piano (script.js): 88 keys, placed from each key's place among the white
+/* Piano (app.js): 88 keys, placed from each key's place among the white
    keys (--i; 52 white keys, --whites). The Uniso (.whole-tone): 97 keys,
    49 white, the same shapes (a little wider across: see below), a black
    key between each two white keys, its C and F keys grey (.marked). Wide screens: from left to right,
@@ -1086,7 +1100,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 .neck.piano.whole-tone.horizontal .oct-label.last { width: calc(var(--wk) - var(--bk) / 2); }
 /* Phones: a neck's strings no further apart than --col-max however wide the
    screen, the panel no wider than they need (the page shows round it).
-   --strings: set by script.js. */
+   --strings: set by app.js. */
 .neck-panel:has(> .neck-scroll > .neck.vertical:not(.piano)) {
   --col-max: 80px;
   width: calc(100% - 2 * var(--gutter));
@@ -1138,7 +1152,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 .neck.piano.whole-tone.vertical .oct-label.last { height: calc(var(--wk) - var(--bk) / 2); }
 /* A keyboard's scale group (an octave): a bar in the scale's colour over
    its keys' far ends, over the group's keys only, not a black key just
-   past either end (--from, --to: set by script.js), clear of the octave
+   past either end (--from, --to: set by app.js), clear of the octave
    numbers and the
    notes; taps go to the keys under it */
 .group-bar { position: absolute; z-index: 1; background: var(--scale); pointer-events: none; }
@@ -1147,9 +1161,9 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 /* A keyboard has no tuning, capo, mirror image or octave shading: their
    controls go (its octave numbers always show; its groups, an octave each:
    see keyboardGroups) */
-body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty { display: none; }
+body.piano .tuning-row, body.piano #tunerOpen, body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty { display: none; }   /* (a keyboard: no tuner either) */
 
-/* The strip (script.js): each string's first cell, held at the edge of the
+/* The strip (app.js): each string's first cell, held at the edge of the
    view once the neck has scrolled past it, over everything on the neck.
    Phones: a row stuck to the top of the screen (the neck's scroller lets
    the page do the scrolling), with room above it for the badges, lifted by
@@ -1184,7 +1198,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 }
 .neck-strip .waiting { visibility: hidden; }
 
-/* Scale groups: rounded outlines (an SVG drawn by script.js), above the
+/* Scale groups: rounded outlines (an SVG drawn by app.js), above the
    strings, fret wires and the capo, below the note pills: one at a time,
    the group picked, in the scale's colour */
 .group-layer {
@@ -1202,8 +1216,8 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 /* A note that sounds pops, and an amber ring spreads from it. The ring is
    its own layer on top (::after), so the note keeps its look (its border,
    ring, colours) all along. */
-.note.ping, .scale-note.ping, .np-deg.ping, .tune-note.ping { animation: ping-pop 450ms ease-out; }
-.note.ping::after, .scale-note.ping::after, .np-deg.ping::after, .tune-note.ping::after, .note.out.peek::after {
+.note.ping, .scale-note.ping, .np-deg.ping, .tune-note.ping, .tuner-string.ping { animation: ping-pop 450ms ease-out; }
+.note.ping::after, .scale-note.ping::after, .np-deg.ping::after, .tune-note.ping::after, .tuner-string.ping::after, .note.out.peek::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -1523,7 +1537,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
 #dock .recent-chips { touch-action: pan-x; }
 /* The dock's row: its scrollbar is hidden (it would push the chips around);
    when the chips do not all fit, a thin bar under them shows how far along
-   the row is and that it scrolls (script.js sizes and moves its thumb) */
+   the row is and that it scrolls (app.js sizes and moves its thumb) */
 .recent-scroll { position: relative; flex: 1; min-width: 0; }
 .scroll-hint {
   position: absolute;
@@ -1632,7 +1646,7 @@ body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.p
   margin: 0;
   pointer-events: none;
   cursor: grabbing;
-  /* (script.js: its top is the row's, moved along it under the pointer,
+  /* (app.js: its top is the row's, moved along it under the pointer,
      grown around the point it is held by) */
 }
 .chip-lift .recent-chips { display: block; margin: 0; padding: 0; overflow: visible; }
@@ -1903,6 +1917,14 @@ body.naming .neck-panel { border-color: var(--accent); }
   border-bottom: 1px solid var(--divider);
 }
 .picker-head .btn { border-color: transparent; color: var(--muted); }
+/* A menu's switch (the capo's Names from capo): on the title row, by the ×, as a panel's */
+.picker-tools { display: flex; margin-left: auto; }
+.picker-tools:empty { display: none; }
+/* (narrow phones: no room for it by the title and the ×, on a line of its own under them, on the right, as panels' switches wrap) */
+@media (max-width: 359px) {
+  .picker-head:has(.picker-tools:not(:empty)) { flex-wrap: wrap; row-gap: var(--sp-1); padding-bottom: var(--sp-3); }
+  .picker-tools { order: 3; flex-basis: 100%; justify-content: flex-end; }
+}
 .picker-body {
   display: grid;
   gap: var(--sp-2);
@@ -2086,7 +2108,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* ==========================================================================
    Wide screens (desktop, tablets, phones held sideways): horizontal neck,
    panels below it, settings in the neck's header, no dock.
-   Keep in sync with WIDE_QUERY in script.js.
+   Keep in sync with WIDE_QUERY in app.js.
    ========================================================================== */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
   .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
@@ -2166,7 +2188,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .neck-panel .panel-head { margin-bottom: var(--sp-3); min-height: 32px; }
   .neck-panel h2 { font-size: var(--fs-lg); }
   .neck-scroll { padding-bottom: var(--scroll-gap); }
-  /* Before script.js draws the neck, its room is kept (six strings, the
+  /* Before app.js draws the neck, its room is kept (six strings, the
      usual case), so the panels below do not jump down when it appears */
   .neck:empty { min-height: calc(var(--ruler-row) + 6 * var(--row-h)); }
 
@@ -2300,6 +2322,10 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .scale-bar .deselect { order: 4; }
   .scale-bar .push-right { margin-left: 0; }
   .pill-toggle { height: 32px; padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); font-size: var(--fs-sm); }
+  .tuning-row .tuner-btn { width: auto; height: 32px; padding: 0 14px 0 11px; gap: 6px; border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); color: var(--text); font: 500 var(--fs-sm)/1 var(--font); }   /* (its icon and "Tuner", as a pill) */
+  .tuning-row .tuner-btn .ico { width: 16px; height: 16px; }
+  .tuning-row .select-btn { flex: none; }
+  .tuner-btn:not(:disabled):hover { border-color: var(--accent); }
   .pill-select {
     width: auto;
     height: 32px;
@@ -2391,3 +2417,172 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   }
 }
 
+
+/* ==========================================================================
+   Tuner (see openTuner): the tuning's strings, then the strip of notes
+   sliding under a fixed needle, the fine strip (cents) under it, a line
+   saying what to do. Purple: the tuning's notes; outlined: the string
+   picked; green: in tune.
+   ========================================================================== */
+.tuner { --tuner-cell: 50px; }
+.tuner-body { gap: var(--sp-3); padding-bottom: var(--sp-4); }
+.tuner-body:last-child { padding-bottom: var(--sp-4); }
+.tuner-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 28px; }
+.tuner-tuning { flex: 1 1 auto; flex-wrap: wrap; row-gap: 10px; font: 600 var(--fs-md)/1.2 var(--font); color: var(--text); }   /* (as the instrument menu writes them: its name, then any tuning, muted) */
+.tuner-tuning .inst-tuning { white-space: normal; overflow: visible; }   /* (a tuning with no room beside the name: whole, on the line under it) */
+.tuner-fold { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.tuner-fold .ico { transition: transform 150ms ease; transform: rotate(180deg); }   /* open: the arrow up, to fold */
+.tuner-head.folded .tuner-fold .ico { transform: none; }
+.tuner-fold[hidden] { display: none; }
+.tuner-clear { display: inline-flex; align-items: center; gap: 4px; height: 28px; margin-left: auto; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font: 500 var(--fs-sm)/1 var(--font); cursor: pointer; }
+.tuner-clear .ico { width: 14px; height: 14px; }
+.tuner-clear[hidden] { display: none; }
+.tuner-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .tuner-clear:hover { color: var(--text); background: var(--kbd-bg); } }
+.tuner-strings { display: flex; justify-content: center; gap: var(--sp-2); }   /* (one row: they share it, up to their width) */
+.tuner-strings[hidden] { display: none; }
+.tuner-string {
+  position: relative;   /* (its splash: see .ping) */
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  flex: 0 1 60px;
+  min-width: 0;
+  padding: 6px 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--kbd-bg);
+  color: var(--accent);
+  font: 700 var(--fs-md)/1 var(--font);
+  cursor: pointer;
+  transition: border-color 100ms, background-color 100ms, color 100ms;
+}
+.tuner-num { font-size: var(--fs-tag); font-weight: 600; color: var(--muted); }
+/* A note's octave, smaller after its name, everywhere in the tuner (E₂) */
+.tuner-oct { margin-left: 1px; font-size: 0.68em; font-weight: 600; opacity: 0.75; }
+.tuner-string[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); color: var(--text); }
+.tuner-string.ok { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); color: var(--ok); }
+.tuner-string:active { filter: brightness(1.15); }
+@media (hover: hover) { .tuner-string:hover, .tuner-fold:hover { border-color: var(--accent); color: var(--text); } }
+.tuner-view { display: grid; gap: var(--sp-2); }
+.tuner-view[hidden] { display: none; }
+/* The strips: their edges faded and a little blurred, the needle fixed in
+   the middle; nothing heard, both dimmed (resting on middle C) */
+.tuner-strip, .tuner-fine {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--kbd-bg) 70%, transparent);
+}
+.tuner-strip { height: 68px; }
+.tuner-fine { height: 52px; }
+.tuner-tape, .tuner-fine-tape {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  will-change: transform;
+}
+.tuner-strip::before, .tuner-strip::after, .tuner-fine::before, .tuner-fine::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 12%;
+  pointer-events: none;
+  backdrop-filter: blur(0.6px);
+  -webkit-backdrop-filter: blur(0.6px);
+}
+.tuner-strip::before, .tuner-fine::before { left: 0; background: linear-gradient(to right, var(--panel), transparent); }
+.tuner-strip::after, .tuner-fine::after { right: 0; background: linear-gradient(to left, var(--panel), transparent); }
+.tuner-tape { display: flex; align-items: center; }
+.tn {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  width: var(--tuner-cell);
+  height: 50px;
+  padding-top: 15px;
+  border-radius: var(--r-md);
+  color: var(--text);
+  font: 700 var(--fs-lg)/1 var(--font);
+  transition: color 120ms, background-color 120ms, box-shadow 120ms;
+}
+.tn.acc { color: color-mix(in srgb, var(--text) 55%, transparent); font-size: var(--fs-sm); }
+.tn.string { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.tn.target { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.tn.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 18%, transparent); }
+.tn.ok.target { box-shadow: inset 0 0 0 2px var(--ok); }
+.tuner-needle {
+  --needle: var(--accent);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 2;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--needle);
+}
+.tuner-strip .tuner-needle::before {   /* (a notch on top, as a tuner's pointer) */
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  margin-left: -6px;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid var(--needle);
+}
+.tuner-view.ok .tuner-needle { --needle: var(--ok); }
+.tuner-view.idle .tuner-needle { --needle: var(--muted); }
+.tuner-view.idle .tuner-tape, .tuner-view.idle .tuner-fine-tape { opacity: 0.32; }
+.tuner-tape, .tuner-fine-tape { transition: opacity 250ms; }
+/* The string picked, out of sight: at the edge it is past, its name */
+.tuner-edge {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 8px;
+  transform: translateY(-50%);
+  border: 2px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--text);
+  font: 700 var(--fs-sm)/1 var(--font);
+}
+.tuner-edge .ico { width: 14px; height: 14px; }
+.tuner-edge.left { left: 6px; padding-left: 3px; }
+.tuner-edge.right { right: 6px; padding-right: 3px; }
+.tuner-edge[hidden] { display: none; }
+/* The fine strip: a tick every 5 cents, longer every 10, the note at 0 */
+.ft { position: absolute; bottom: 0; width: 1px; height: 7px; background: color-mix(in srgb, var(--muted) 70%, transparent); }
+.ft.major { height: 12px; }
+.ft.zero { width: 2px; margin-left: -0.5px; height: 18px; background: var(--text); }
+.fl { position: absolute; bottom: 14px; transform: translateX(-50%); font: 600 var(--fs-tag)/1 var(--font); color: var(--muted); white-space: nowrap; }
+.fl.name { bottom: 22px; font-size: var(--fs-sm); font-weight: 700; color: var(--text); }
+.fl.name.string { color: var(--accent); }
+.fl.name.ok { color: var(--ok); }
+.fz { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--muted) 14%, transparent); transition: background-color 120ms; }
+.fz.string { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.fz.target { box-shadow: inset 0 0 0 2px var(--accent); border-radius: var(--r-sm); }
+.fz.ok { background: color-mix(in srgb, var(--ok) 30%, transparent); }
+.fz.ok.target { box-shadow: inset 0 0 0 2px var(--ok); }
+.tuner-hint { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 1.4em; margin: 0; font-size: var(--fs-md); color: var(--muted); text-align: center; }
+.tuner-hint.turn { color: var(--text); font-weight: 600; }
+.tuner-hint.turn .ico { width: 16px; height: 16px; color: var(--accent); }
+.tuner-hint.ok { color: var(--ok); font-weight: 700; }
+/* No microphone: in the strips' place, why, and what to do */
+.tuner-message { display: grid; justify-items: center; gap: var(--sp-2); padding: var(--sp-4); border: 1px dashed var(--divider); border-radius: var(--r-lg); text-align: center; color: var(--muted); font-size: var(--fs-sm); }
+.tuner-message[hidden] { display: none; }
+.tuner-message p { margin: 0; max-width: 34em; }
+.tuner-message p[hidden] { display: none; }
+.tuner-message-title { color: var(--text); font-size: var(--fs-md); font-weight: 600; }
+.tuner-message .btn[hidden] { display: none; }
