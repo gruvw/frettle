@@ -18,6 +18,7 @@
    ========================================================================== */
 const STRUM_GAP = 0.035;   // seconds between strings in a strum
 const ROLL_GAP = 0.012;    // ... between a piano chord's keys (struck together, barely rolled)
+const NOTE_GAP = 0.25;    // ... between notes played one at a time: a scale, a group, a chord arpeggiated
 let audio = null;
 const pluckCache = new Map();
 const SOUND_RATE = 48000;   // the plucks' and the room's (most devices play at it; the browser converts for the others)
@@ -505,6 +506,38 @@ function onPress(box, selector, act) {   // (selector null: the box itself, a bu
   });
 }
 
+/* A strum button: tapped, it strums; held (HOLD_MS, as a chip held to be
+   dragged), it arpeggiates. What it plays is known only once let go
+   (sooner) or held long enough, so it sounds then, not on press. A swipe to scroll that starts on it plays
+   nothing, as with onPress: a finger moving past TAP_SLOP, the browser
+   taking over (pointercancel), or a glide still going when it lands; a
+   mouse let go off it, nothing either. Enter or Space on it, focused: the
+   tap. (Space anywhere else: the same, see the keys in 6. Events.) */
+function onHold(btn, tap, hold) {
+  let press = null;   // { id, x, y, touch, timer }
+  const drop = () => { if (press) { clearTimeout(press.timer); press = null; } };
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button > 0 || btn.disabled) return;
+    const touch = e.pointerType === 'touch';
+    if (touch && stillScrolling()) return;
+    drop();
+    press = { id: e.pointerId, x: e.clientX, y: e.clientY, touch };
+    press.timer = setTimeout(() => { press = null; hold(); }, HOLD_MS);
+  });
+  btn.addEventListener('pointermove', (e) => {
+    if (press && press.id === e.pointerId && press.touch && Math.hypot(e.clientX - press.x, e.clientY - press.y) > TAP_SLOP) drop();
+  });
+  btn.addEventListener('pointerup', (e) => {
+    if (!press || press.id !== e.pointerId) return;
+    drop();
+    tap();
+  });
+  btn.addEventListener('pointercancel', drop);
+  btn.addEventListener('pointerleave', (e) => { if (press && !press.touch && press.id === e.pointerId) drop(); });
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());   // (no long-press menu)
+  btn.addEventListener('click', (e) => { if (e.detail === 0 && !btn.disabled) tap(); });   // (the keyboard)
+}
+
 /* Browsers only let sound start after a tap or a key press, and some only
    count the end of a tap. Waking the audio on those events means the very
    first note of a visit is not lost. */
@@ -538,6 +571,54 @@ function strumFrets(frets) {
     playNote(shapePitch(inst, s, f) + c, delay, 0.45);
     flashCell(s, shapeNeckFret(inst, s, f, c), delay);
   });
+}
+
+/* A chord one note at a time (a strum button held, or Space): the shape
+   shown, or the notes placed (Name a chord), in a strum's order, NOTE_GAP
+   apart, as the scale and its groups play, each lit as it sounds. Its
+   button a Stop meanwhile: tapped (or Space) it stops, as does playing the
+   scale or a group, or another chord, shape or notes (see draw). */
+let arpRun = null;   // { key, sources, timers }
+// (what it plays: the notes placed, naming; else the shape shown; '' none)
+function arpKey() {
+  if (naming) return naming.frets.some((f) => f >= 0) ? `namer|${naming.frets}|${instrument().strings}|${capo()}` : '';
+  const ch = currentChord();
+  return ch && ch.shape ? [ch.root, ch.def.id, ch.bassIndex, ch.shape.frets, instrument().strings, capo()].join('|') : '';
+}
+function arpeggiate() {
+  if (arpRun) { stopArpeggio(); return; }
+  const key = arpKey();
+  if (!key) return;
+  const frets = naming ? naming.frets : currentChord().shape.frets;
+  if (!naming) keepChord();
+  stopScale();
+  stopGroup();
+  const inst = instrument();
+  const c = capo();
+  const notes = inst.piano ? frets.map((k) => ({ midi: inst.low + k, k }))
+    : frets.flatMap((f, s) => (f < 0 ? [] : [{ midi: shapePitch(inst, s, f) + c, s, f: shapeNeckFret(inst, s, f, c) }]));
+  arpRun = { key, sources: [], timers: [] };
+  notes.forEach((x, i) => {
+    arpRun.sources.push(playNote(x.midi, i * NOTE_GAP, inst.piano ? 0.6 : 0.5));
+    arpRun.timers.push(setTimeout(() => (x.k !== undefined ? flashKey(x.k) : flashCell(x.s, x.f)), i * NOTE_GAP * 1000));
+  });
+  // Done once the last note has started: it rings on, and the button is back
+  arpRun.timers.push(setTimeout(() => { arpRun = null; renderStrumButtons(); }, (notes.length - 1) * NOTE_GAP * 1000 + 50));
+  renderStrumButtons();
+}
+function stopArpeggio() {
+  if (!arpRun) return;
+  for (const src of arpRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
+  for (const t of arpRun.timers) clearTimeout(t);
+  arpRun = null;
+  renderStrumButtons();
+}
+// A strum button tapped: its strum (Name a chord: the notes placed); while
+// an arpeggio plays, it stops it
+function strumTapped() {
+  if (arpRun) stopArpeggio();
+  else if (naming) namerPlay();
+  else strum();
 }
 
 /* ==========================================================================
@@ -665,10 +746,8 @@ const TUNER_STEADY = 3;      // readings in a row, close together, before a note
    room's own level (learnt between notes, quickly down, slowly up; a hum,
    a fan, a fridge, steady, are learnt too, so never taken for a note, even
    with a pitch of their own); once it has, it is followed as it fades,
-   down to just above that level. A sound that has not faded to half after
-   TUNER_STEADY_MS is no string (a fridge starting): the room's level, from
-   then on. */
-const TUNER_STEADY_MS = 8000;
+   down to just above that level, however long it lasts (plucked again
+   and again, or an electric guitar's sustain). */
 const TUNER_WARM_MS = 300;   // as the microphone starts: the room only listened to (its first samples can be silence)
 function hearPitch(x, rate, minHz, maxHz) {
   let sq = 0;
@@ -688,9 +767,6 @@ function hearPitch(x, rate, minHz, maxHz) {
   if (!following) {
     if (level < tuner.floor) tuner.floor = level;
     else if (!found && level < tuner.floor * 3) tuner.floor += (level - tuner.floor) * 0.02;
-    Object.assign(tuner, { noteLevel: level, noteAt: now });   // (where the next note starts)
-  } else if (now - tuner.noteAt > TUNER_STEADY_MS && level > tuner.noteLevel / 2) {
-    tuner.floor = level;   // (never fading: no string)
   }
   return found ? hzMidi(found.hz) : null;
 }

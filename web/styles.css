@@ -140,6 +140,7 @@ body {
 /* (popups and buttons are named too: browsers give them their own setting,
    which would win over the page's) */
 dialog, button { -webkit-user-select: none; user-select: none; }
+#chordStrum, #dockStrum, #namerPlay { -webkit-touch-callout: none; }   /* (held: the chord arpeggiated, no phone's menu for it) */
 .np-head, .about-body { -webkit-user-select: text; user-select: text; }
 input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 

@@ -80,6 +80,7 @@ function openNamer() {
   }
   stopGroup();
   stopScale();
+  stopArpeggio();
   ui.tab = null;   // (phones: the sheet closes)
   document.body.classList.add('naming');
   render();
@@ -227,6 +228,7 @@ function renderNamer() {
   const notes = shapeMidis(naming.frets);
   els.namerSelect.disabled = !r;
   els.namerPlay.disabled = els.namerClear.disabled = !notes.length;
+  showStrum(els.namerPlay, 'Play the notes', 'Play', `Play the notes (Space), ${HOLD_HINT}`);
   els.namerPrev.disabled = els.namerNext.disabled = readings.length < 2;
   els.namerMute.setAttribute('aria-pressed', String(Boolean(state.muteTaps)));
   // The moves: off where the notes cannot go further (or there are none)
@@ -284,7 +286,6 @@ function renderNamer() {
    the ukulele's g, C, E, A), lighting each note on the neck. As
    the scale's Play: pressing again (or Space) while it plays stops it, its
    button a Stop meanwhile; picking another group, scale... stops it too. */
-const GROUP_GAP = 0.2;   // seconds between notes
 let groupRun = null;     // { sources, timers }
 function playGroup() {
   const g = ui.groups[ui.group];
@@ -292,6 +293,7 @@ function playGroup() {
   if (groupRun) { stopGroup(); return; }
   if (!g || !sc) return;
   stopScale();
+  stopArpeggio();
   const inst = instrument();
   const notes = [];
   if (g.keys) {   // a keyboard's: its keys in the scale, low to high
@@ -303,11 +305,11 @@ function playGroup() {
   }
   groupRun = { key: groupKey(g, sc), sources: [], timers: [] };
   notes.forEach((x, i) => {
-    groupRun.sources.push(playNote(x.midi, i * GROUP_GAP, 0.5));
-    groupRun.timers.push(setTimeout(() => (g.keys ? flashKey(x.k) : flashCell(x.s, x.f)), i * GROUP_GAP * 1000));
+    groupRun.sources.push(playNote(x.midi, i * NOTE_GAP, 0.5));
+    groupRun.timers.push(setTimeout(() => (g.keys ? flashKey(x.k) : flashCell(x.s, x.f)), i * NOTE_GAP * 1000));
   });
   // Done once the last note has started: it rings on, and Play is back
-  groupRun.timers.push(setTimeout(() => { groupRun = null; renderGroupPlay(); }, (notes.length - 1) * GROUP_GAP * 1000 + 50));
+  groupRun.timers.push(setTimeout(() => { groupRun = null; renderGroupPlay(); }, (notes.length - 1) * NOTE_GAP * 1000 + 50));
   renderGroupPlay();
 }
 // The group as played: another scale, tuning, capo or group stops it (see draw)
@@ -336,7 +338,6 @@ function renderGroupPlay() {
    you can play (above the capo), lighting each note in the Notes row. The
    last note rings out. Pressing again stops it; so does picking another
    scale. A note of the row can also be tapped to hear it. */
-const SCALE_GAP = 0.25;   // seconds between notes
 let scaleRun = null;     // { key, sources, timers }
 function scalePitches(sc) {   // the Notes row's pitches, root to octave
   const low = instrument().piano ? 60 : Math.min(...instrument().strings) + capo();   // (the piano: from middle C up)
@@ -363,14 +364,15 @@ function playScale() {
   const sc = currentScale();
   if (!sc) return;
   stopGroup();
+  stopArpeggio();
   const pitches = scalePitches(sc);
   scaleRun = { key: scaleKey(sc), sources: [], timers: [] };
   pitches.forEach((midi, i) => {
-    scaleRun.sources.push(playNote(midi, i * SCALE_GAP, 0.5));
-    scaleRun.timers.push(setTimeout(() => { followScaleNote(i); pingScaleNote(i); }, i * SCALE_GAP * 1000));
+    scaleRun.sources.push(playNote(midi, i * NOTE_GAP, 0.5));
+    scaleRun.timers.push(setTimeout(() => { followScaleNote(i); pingScaleNote(i); }, i * NOTE_GAP * 1000));
   });
   // Done once the last note has started: it rings on, and Play is back
-  scaleRun.timers.push(setTimeout(() => { scaleRun = null; renderPlayButton(); }, (pitches.length - 1) * SCALE_GAP * 1000 + 50));
+  scaleRun.timers.push(setTimeout(() => { scaleRun = null; renderPlayButton(); }, (pitches.length - 1) * NOTE_GAP * 1000 + 50));
   renderPlayButton();
 }
 function stopScale() {
@@ -394,7 +396,28 @@ const PLAY_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill=
 const STOP_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 // A Play / Stop label: both words, one over the other, the other one unseen,
 // so the button keeps one width either way (styles.css: .swap)
-const playStopLabel = (playing) => `<span class="swap"><span${playing ? ' class="off"' : ''}>Play</span><span${playing ? '' : ' class="off"'}>Stop</span></span>`;
+const playStopLabel = (playing, word = 'Play') => `<span class="swap"><span${playing ? ' class="off"' : ''}>${word}</span><span${playing ? '' : ' class="off"'}>Stop</span></span>`;
+/* The strum buttons (the chord panel's, the chord stepper's, Name a
+   chord's): Strum (Play: a keyboard's chord, the notes placed), or Stop
+   while the chord is arpeggiated (see arpeggiate) */
+const HOLD_HINT = 'hold for one note at a time';
+function showStrum(btn, label, word, title) {
+  const playing = Boolean(arpRun);
+  btn.querySelector('.ico').outerHTML = playing ? STOP_ICON : PLAY_ICON;
+  btn.querySelector('.strum-label, .tx').innerHTML = playStopLabel(playing, word);
+  btn.setAttribute('aria-label', playing ? 'Stop' : label);
+  btn.title = playing ? 'Stop' : title;
+}
+function renderStrumButtons() {
+  const piano = Boolean(instrument().piano);
+  const space = keysOnGroups(currentChord()) ? '' : ' (Space)';   // (Space playing the group instead)
+  showStrum(els.chordStrum, piano ? 'Play the chord' : 'Strum the shape', piano ? 'Play' : 'Strum', `${piano ? 'Play the chord' : 'Strum the shape'}${space}, ${HOLD_HINT}`);
+  if (ui.dockMode !== 'group' && !els.dockShapeBar.hidden) {
+    const [label, word] = piano ? ['Play the chord', 'Play'] : ['Strum', 'Strum'];
+    showStrum(els.dockStrum, label, word, `${label}${keysOnGroups(currentChord()) ? '' : ' (Space)'}, ${HOLD_HINT}`);
+  }
+  if (naming) showStrum(els.namerPlay, 'Play the notes', 'Play', `Play the notes (Space), ${HOLD_HINT}`);
+}
 function renderPlayButton() {
   const playing = Boolean(scaleRun);
   els.scalePlay.innerHTML = `${playing ? STOP_ICON : PLAY_ICON}<span class="btn-label">${playStopLabel(playing)}</span>`;
@@ -468,6 +491,7 @@ function draw() {
   renderNeck(naming ? namerChord() : ch, sc);
   warmUp(ch, sc);
   if (groupRun && groupRun.key !== groupKey(ui.groups[ui.group], sc)) stopGroup();   // what it was playing is gone
+  if (arpRun && arpRun.key !== arpKey()) stopArpeggio();   // (the chord arpeggiated, the same)
   const seen = noteFocus(ch, sc);   // (what was last acted on: the phone's stepper, the keys and the neck's scroll follow it)
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
@@ -1340,6 +1364,7 @@ function fillStepper(bar, mode, ch, sc) {
   const keys = (mode === 'group') === keysOnGroups(ch);
   for (const [btn, key] of [[bar.prev, '←'], [bar.next, '→'], [bar.play, 'Space']]) btn.title = btn.getAttribute('aria-label') + (keys ? ` (${key})` : '');
   if (mode === 'group') showGroupPlay(bar);   // (Play, or Stop while it plays)
+  else showStrum(bar.play, playLabel, playText, `${bar.play.title}, ${HOLD_HINT}`);   // (Strum, or Stop while arpeggiated)
   bar.info.title = infoLabel;
   bar.symbol.title = ch && mode === 'chord' ? ch.symbol : '';
   fitInfo(bar.info);
@@ -2550,10 +2575,7 @@ function renderChordPanel(ch, sc) {
   if (noShape) els.tglAllTones.setAttribute('aria-pressed', 'true');
   els.shapePrev.disabled = els.shapeNext.disabled = !ch || ch.shapes.length < 2;
   els.chordStrum.disabled = !ch || !ch.shape;
-  const piano = Boolean(instrument().piano);
-  els.chordStrum.querySelector('.tx').textContent = piano ? 'Play' : 'Strum';
-  const space = keysOnGroups(ch) ? '' : ' (Space)';   // (Space playing the group instead)
-  els.chordStrum.title = piano ? `Play the chord${space}` : `Strum the shape${space}`;
+  renderStrumButtons();   // (Strum or Play, or Stop: a chord arpeggiated)
 
   if (!ch) {
     els.chordSymbol.textContent = '';
@@ -3120,19 +3142,16 @@ function init() {
     if (card.dataset.key !== undefined) flashKey(card.dataset.key); else flashCell(card.dataset.s, card.dataset.f);
     keepChord();
   });
-  // Space: strums the chord, or plays the group shown when the keys step
-  // the groups (keysOnGroups; see the keys below)
-  const strumOrPlay = () => (keysOnGroups() ? playGroup() : strum());
-  // Strum buttons sound on press, like a plucked string. A click from the
-  // keyboard (Enter, or Space on a button reached with Tab) still strums.
-  // The dock's button plays what its stepper shows (ui.dockMode): the
-  // chord, or the scale group; the groups' own stepper's, the group. (On
-  // touch screens, as the neck's notes: a swipe to scroll that starts on
-  // them plays nothing, onPress)
-  for (const btn of [els.chordStrum, els.dockStrum, els.quickGroupPlay]) {
-    const act = btn === els.dockStrum ? () => (ui.dockMode === 'group' ? playGroup() : strum()) : btn === els.quickGroupPlay ? playGroup : strum;
-    onPress(btn, null, act);
-  }
+  // Strum buttons: tapped, they strum; held, the chord one note at a time
+  // (onHold: they sound once let go, or held long enough; a swipe to scroll
+  // that starts on them plays nothing). A click from the keyboard (Enter,
+  // or Space on a button reached with Tab) strums. The dock's button plays
+  // what its stepper shows (ui.dockMode): the chord, or the scale group;
+  // the groups' own stepper's, the group, one note at a time either way, on
+  // press (onPress)
+  onHold(els.chordStrum, strumTapped, arpeggiate);
+  onHold(els.dockStrum, () => (ui.dockMode === 'group' ? playGroup() : strumTapped()), () => (ui.dockMode === 'group' ? playGroup() : arpeggiate()));
+  onPress(els.quickGroupPlay, null, playGroup);
 
   // Name a chord: in and out, Mute, Clear, the names; Play sounds on press
   els.namerOpen.addEventListener('click', openNamer);
@@ -3168,7 +3187,7 @@ function init() {
     keepLetter(recentEntry());
     render();
   });
-  onPress(els.namerPlay, null, namerPlay);
+  onHold(els.namerPlay, strumTapped, arpeggiate);
 
   // The chord list and the recent chords: tap to switch, × on the current
   // list chip to take it out, + on a recent one to put it in, Clear to
@@ -3456,13 +3475,32 @@ function init() {
   const popupOpen = () => !!document.querySelector('dialog[open]');
   const spaceStrums = (e) => e.key === ' ' && !popupOpen() && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
-  document.addEventListener('keyup', (e) => { if (spaceStrums(e)) e.preventDefault(); });   // no click on release
+  // Space, as a strum button (onHold): tapped, the strum, once let go; held
+  // (HOLD_MS), the chord one note at a time; pressed while that plays, it
+  // stops. (When the keys step the groups: the group, at once.)
+  let spaceHold = null;   // { timer }, or { stopped }: a press under way
+  const spaceDown = () => {
+    if (spaceHold) return;
+    if (arpRun) { stopArpeggio(); spaceHold = { stopped: true }; return; }
+    spaceHold = { timer: setTimeout(() => { spaceHold = { stopped: true }; arpeggiate(); }, HOLD_MS) };
+  };
+  const spaceUp = () => {
+    const press = spaceHold;
+    spaceHold = null;
+    if (press && !press.stopped) { clearTimeout(press.timer); strumTapped(); }
+  };
+  window.addEventListener('blur', () => { if (spaceHold) clearTimeout(spaceHold.timer); spaceHold = null; });   // (let go elsewhere: nothing)
+  document.addEventListener('keyup', (e) => {
+    if (!spaceStrums(e)) return;
+    e.preventDefault();   // no click on release
+    spaceUp();
+  });
   document.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     if (popupOpen()) return;   // a popup handles its own keys (Escape closes it)
     if (naming) {   // Name a chord: Escape leaves it, Space plays the notes placed, ← / → the names
       if (e.key === 'Escape') { e.preventDefault(); closeNamer(false); return; }
-      if (spaceStrums(e)) { e.preventDefault(); if (!e.repeat) namerPlay(); }
+      if (spaceStrums(e)) { e.preventDefault(); if (!e.repeat) spaceDown(); }
       else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.target.closest('input, textarea')) {
         e.preventDefault();
         namerStep(e.key === 'ArrowRight' ? 1 : -1);   // another name, the same notes
@@ -3473,7 +3511,7 @@ function init() {
     if (e.target.closest('input, textarea')) return;
     if (spaceStrums(e)) {
       e.preventDefault();
-      if (!e.repeat) strumOrPlay();   // holding Space strums once: release it to strum again
+      if (!e.repeat) { if (keysOnGroups()) playGroup(); else spaceDown(); }   // (held: once, see spaceDown)
       return;
     }
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
