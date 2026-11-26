@@ -806,7 +806,8 @@ function placeSettings() {
     put(els.dockRecent, els.quickInner, els.quickGroupBar);
     put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
     put(els.namer, els.neckPanel);   // Name a chord: in the quick bar's place
-    put(els.tunerOpen, els.tuningSelect.parentElement, els.tuningSelect);   // (the tuner: before the tuning menu)
+    put(els.tunerOpen, els.tuningSelect.parentElement, els.tuningSelect);   // (the tools: before the tuning menu, the metronome first)
+    put(els.metroTool, els.tuningSelect.parentElement, els.tunerOpen);
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.namerOpen, els.chordHead);
@@ -817,7 +818,8 @@ function placeSettings() {
     put(els.dockRecent, els.dockBar, els.dockTabs);
     put(els.dockShapeBar, els.dockBar, els.dockTabs);
     put(els.namer, els.dockBar, els.dockTabs);
-    put(els.tunerOpen, els.setupHead);   // (the tuner: the Setup sheet's own extra, as Name a chord is the Chord sheet's)
+    put(els.metroTool, els.settings, els.tglOctaves);   // (the tools: two tiles side by side under the capo, see .tool-btn)
+    put(els.tunerOpen, els.settings, els.tglOctaves);
   }
 }
 
@@ -2740,7 +2742,7 @@ function keepChipVisible(list = els.shapeList) {
    piano's fewer) */
 function fitSwitches() {
   for (const row of document.querySelectorAll('.switch-row, .settings')) {
-    const shown = [...row.querySelectorAll(':scope > .pill-toggle')].filter((el) => getComputedStyle(el).display !== 'none');
+    const shown = [...row.querySelectorAll(':scope > .pill-toggle, :scope > .tool-btn, :scope > .tool-wrap')].filter((el) => getComputedStyle(el).display !== 'none');   // (the tools, two tiles of the grid too)
     shown.forEach((el, i) => el.classList.toggle('whole', i === shown.length - 1 && shown.length % 2 === 1));
   }
 }
@@ -2997,14 +2999,14 @@ function init() {
     'scaleRoot', 'scaleType', 'scaleClear', 'tglScaleAlt', 'tglChordAlt', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'setupHead', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
-    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'tunerOpen', 'tuner', 'tunerClose', 'tunerHead', 'tunerTuning', 'tunerFold', 'tunerStrings', 'tunerView', 'tunerStrip', 'tunerTape', 'tunerLeft', 'tunerRight', 'tunerFine', 'tunerFineTape', 'tunerHint', 'tunerClear', 'tunerMessage', 'tunerMessageTitle', 'tunerMessageText', 'tunerRetry', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
+    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'metroOpen', 'metroTool', 'metroStop', 'metroShown', 'metronome', 'metroClose', 'metroTap', 'metroSlower', 'metroFaster', 'metroBpm', 'metroMarking', 'metroTempo', 'metroMeters', 'metroBeats', 'metroGo', 'tunerOpen', 'tuner', 'tunerClose', 'tunerHead', 'tunerTuning', 'tunerFold', 'tunerStrings', 'tunerView', 'tunerStrip', 'tunerTape', 'tunerLeft', 'tunerRight', 'tunerFine', 'tunerFineTape', 'tunerHint', 'tunerClear', 'tunerMessage', 'tunerMessageTitle', 'tunerMessageText', 'tunerRetry', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
-    'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
+    'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
     'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
     'resetAll', 'resetAsk', 'resetWhat', 'resetAskClose', 'resetAskCancel', 'resetAskGo',
     'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecentCount', 'listClearRecentNames', 'listClearRecentGo', 'listClearCancel', 'listClearGo',
-    'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo', 'shareText',
+    'share', 'shareClose', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo', 'shareText',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
     'namer', 'namerOpen', 'namerMute', 'namerUp', 'namerDown', 'namerAlt', 'namerClear', 'namerPrev', 'namerNext', 'namerSymbol', 'namerText', 'namerCaption', 'namerPlay', 'namerCancel', 'namerSelect',
@@ -3085,6 +3087,8 @@ function init() {
   els.tuner.addEventListener('close', tunerClosed);
   els.tuner.addEventListener('click', (e) => { if (e.target === els.tuner) closeTuner(); });
   els.tunerFold.addEventListener('click', foldTuner);
+  // (folded: a click anywhere on its head unfolds it, as a folded panel's; its arrow does its own)
+  els.tunerHead.addEventListener('click', (e) => { if (els.tunerHead.classList.contains('folded') && !e.target.closest('button')) foldTuner(); });
   els.tunerClear.addEventListener('click', clearTunerTarget);
   onPress(els.tunerStrings, '[data-s]', (b) => pickTunerString(Number(b.dataset.s)));   // (on press, as every note that sounds)
   els.tunerRetry.addEventListener('click', startMic);
@@ -3093,6 +3097,30 @@ function init() {
     if (!els.tuner.open) return;
     if (document.visibilityState === 'hidden') { if (tunerLive()) { stopMic(); tuner.status = 'paused'; } }
     else if (tuner.status === 'paused') startMic();
+  });
+  // The metronome: on until stopped, its popup closed too (×, Escape, outside it)
+  els.metroOpen.addEventListener('click', openMetronome);
+  els.metroStop.addEventListener('click', stopMetronome);   // (at the button's end while it plays: stopped without opening it)
+  els.metroClose.addEventListener('click', closeMetronome);
+  els.metronome.addEventListener('click', (e) => { if (e.target === els.metronome) closeMetronome(); });
+  els.metroGo.addEventListener('click', () => (metroOn() ? stopMetronome() : startMetronome()));
+  els.metroTap.addEventListener('pointerdown', (e) => { if (e.button === 0) tapTempo(); });   // (on press: as tapped, not as let go)
+  els.metroTap.addEventListener('click', (e) => { if (e.detail === 0) tapTempo(); });   // (the keyboard)
+  holdStep(els.metroSlower, -1);
+  holdStep(els.metroFaster, 1);
+  els.metroTempo.addEventListener('input', () => setMetroTempo(Number(els.metroTempo.value)));
+  els.metroMeters.addEventListener('click', (e) => { const b = e.target.closest('[data-meter]'); if (b) setMetroMeter(b.dataset.meter); });
+  els.metroBeats.addEventListener('click', cycleGroups);   // (the beats row: the next way of grouping them)
+  window.addEventListener('resize', fitMetroBeats);   // (its dots smaller only while the row is too narrow for them)
+  // Its keys: Space starts and stops (but on a button: that button), T taps, + and − (↑ ↓) step
+  els.metronome.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const onButton = e.target.closest('button');
+    const onSlider = e.target === els.metroTempo;
+    if (e.key === ' ' && !onButton) { e.preventDefault(); if (!e.repeat) els.metroGo.click(); }
+    else if (e.key === 't' || e.key === 'T') { e.preventDefault(); if (!e.repeat) tapTempo(); }
+    else if (!onSlider && (e.key === '+' || e.key === '=' || e.key === 'ArrowUp')) { e.preventDefault(); setMetroTempo(metro.bpm + 1); }
+    else if (!onSlider && (e.key === '-' || e.key === '−' || e.key === 'ArrowDown')) { e.preventDefault(); setMetroTempo(metro.bpm - 1); }
   });
   // Custom tuning popup
   els.tuneList.addEventListener('click', (e) => {
@@ -3110,7 +3138,6 @@ function init() {
   onPress(els.tuneList, '[data-play]', (note) => { playNote(Number(note.dataset.play)); ping(note); });   // heard, with the amber flash
   els.tuneReset.addEventListener('click', () => tuneSet(tuningsOf(state.instrument)[0].strings.slice()));
   els.tuneDone.addEventListener('click', () => closeTuneEdit(true));
-  els.tuneCancel.addEventListener('click', () => closeTuneEdit(false));
   els.tuneClose.addEventListener('click', () => closeTuneEdit(false));
   els.tuneEdit.addEventListener('click', (e) => { if (e.target === els.tuneEdit) closeTuneEdit(false); });
   els.tuneEdit.addEventListener('close', () => closeTuneEdit(false));   // Escape
@@ -3391,7 +3418,6 @@ function init() {
   els.shareOpen.addEventListener('click', openShare);
   els.shareClose.addEventListener('click', closeShare);
   els.share.addEventListener('click', (e) => { if (e.target === els.share) closeShare(); });
-  els.shareCancel.addEventListener('click', closeShare);
   for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'list']]) {
     btn.addEventListener('click', () => { state.share[key] = !state.share[key]; saveState(); renderShare(); });
   }
@@ -3466,12 +3492,24 @@ function init() {
   // ring cut off): the row, the popup or the page scrolls just enough (the
   // room is the controls' scroll-margin in styles.css). Taps and clicks
   // scroll nothing.
+  /* The focus moved with the keyboard: Tab, or an arrow (Home, End...) that
+     moved it; not a shortcut (Space, Escape, T: the focus they put back on a
+     button is no reason to show it), nor a click or tap. html.keyboard: its
+     rings shown (styles.css), only then */
+  let keyboardFocus = false;
+  const setKeyboardFocus = (on) => { keyboardFocus = on; document.documentElement.classList.toggle('keyboard', on); };
+  const MOVE_KEYS = new Set(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
+  let moveKeyAt = -Infinity;
+  document.addEventListener('pointerdown', () => { setKeyboardFocus(false); moveKeyAt = -Infinity; }, true);
+  document.addEventListener('keydown', (e) => {
+    if (!MOVE_KEYS.has(e.key)) return;
+    moveKeyAt = performance.now();
+    if (e.key === 'Tab') setKeyboardFocus(true);
+  }, true);
   document.addEventListener('focusin', (e) => {
-    if (e.target.matches && e.target.matches(':focus-visible')) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  });
-  let keyboardFocus = false;   // the focus was last moved with the keyboard
-  document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
+    if (performance.now() - moveKeyAt < 250) setKeyboardFocus(true);   // (an arrow, a moment ago: it moved the focus)
+    if (keyboardFocus && e.target.matches && e.target.matches(':focus-visible')) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, true);
   const popupOpen = () => !!document.querySelector('dialog[open]');
   const spaceStrums = (e) => e.key === ' ' && !popupOpen() && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
@@ -3673,7 +3711,7 @@ if (typeof document !== 'undefined') init();
    test/frettle.js): the parts the tests check, none of them the interface */
 if (typeof module !== 'undefined') {
   module.exports = {
-    detectPitch, hzMidi, midiHz,
+    detectPitch, hzMidi, midiHz, metroClick, meterLevels, tempoName, METERS,
     INSTRUMENTS, TUNINGS, tunedInstrument, findInstrument, startFret, shapePitch, PIANO_LOW, PIANO_KEYS,
     ALL_CHORDS, findChord, chordTones, findShapes, pianoShapes, barresFor, fingersFor, tabOf,
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,

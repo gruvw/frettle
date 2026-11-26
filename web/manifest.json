@@ -1,7 +1,7 @@
 {
   "name": "Frettle: Chord & Scale Visualizer",
   "short_name": "Frettle",
-  "description": "Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.",
+  "description": "Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and use the built-in tuner and metronome.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

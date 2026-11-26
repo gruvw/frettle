@@ -317,13 +317,28 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
   .tune-note:hover { background: var(--kbd-bg); }
 }
 
-/* Share and Load link popups: a little wider than the menus, Cancel and
-   the main button side by side (in Share, Copy text before them: a
-   .side-action, as the tuning popup's Save) */
+/* Share and Load link popups: a little wider than the menus, their
+   buttons side by side (in Share, Copy text before Copy link: a
+   .side-action, as the tuning popup's Save; closed by ×, Escape, outside) */
 .picker.share { width: min(440px, calc(100vw - 24px)); }
 .about-links.share-actions { flex-direction: row; justify-content: center; gap: var(--sp-3); }
 .share-actions .btn:not(.icon) { flex: 0 1 120px; }   /* 120px wide, narrower if there is no room (never than its words) */
 #shareText.failed { color: var(--warn); }
+/* Its side action (Copy text, Save) with its word too, phones included,
+   whenever the row has room for it beside the main button at its widest
+   (in ems: a larger text needing more). Share: "Share link" and its icon,
+   on phones with a share sheet, 221px (from 320px phones); the tuning
+   popup: Select, 179px (all). A link not copied: its words the whole row */
+.about-links.share-actions:has(> .side-action) { container: actions / inline-size; }
+@container actions (min-width: 12.6em) {
+  #tuneActions > .btn.side-action { width: auto; padding: 0 14px; }
+  #tuneActions > .side-action .btn-label { display: inline; }
+}
+@container actions (min-width: 15.2em) {
+  #share .share-actions > .btn.side-action { width: auto; padding: 0 14px; }
+  #share .share-actions > .side-action .btn-label { display: inline; }
+}
+.share-actions.failing > .side-action { display: none; }
 .about-links[hidden] { display: none; }
 
 /* Tuning popup: Save (a .side-action: a bookmark on phones, with its word
@@ -644,10 +659,17 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .select-btn:focus-visible, .pick:focus-visible, .btn:focus-visible, .pill-toggle:focus-visible, .chip:focus-visible,
 .tab:focus-visible, .dock-shape-info:focus-visible, .np-note:focus-visible, .scale-note:focus-visible, a:focus-visible,
 .lk-row:focus-visible, .tune-step:focus-visible, .tune-note:focus-visible, .tune-num.reset:focus-visible, .recent-clear:focus-visible,
-.tuner-string:focus-visible, .tuner-fold:focus-visible {
+.tuner-string:focus-visible, .tuner-fold:focus-visible, .metro-meter:focus-visible, .metro-slider:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* No ring unless the keyboard is moving the focus (html.keyboard, see
+   app.js: Tab, the arrows): not after a click, a tap or a shortcut key
+   (Space, Escape: the focus put back on a button would show one). A text
+   field keeps its own (.text-input: where the typing goes) */
+html:not(.keyboard) :focus-visible:not(.text-input) { outline: none; }
+html:not(.keyboard) .sheet-close:focus-visible span { outline: none; }
+html:not(.keyboard) .scale-note.root:focus-visible::before { content: none; }
 /* A control that takes the keyboard focus is scrolled into view with its
    ring (app.js), this far from the edge of the row, popup or page */
 button, a { scroll-margin: 6px; }
@@ -656,16 +678,64 @@ button, a { scroll-margin: 6px; }
 /* Switch-style toggles and the capo button (the neck settings) */
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }   /* phones: two switches a row */
 .settings .select-btn { grid-column: 1 / -1; }   /* menus full width */
-/* The tuning menu, and on wide screens the tuner before it, a pill as tall
-   as the others (see there); on phones the tuner is on the Setup sheet's
-   title row, as Name a chord is on the Chord sheet's (placeSettings) */
+/* The tuning menu, and on wide screens the tools before it (the metronome,
+   the tuner), pills as tall as the others (see there); on phones the tools
+   are two tiles side by side under the capo, as the switches are
+   (placeSettings), the metronome after Flats on a keyboard */
 .tuning-row { grid-column: 1 / -1; display: flex; gap: var(--sp-2); min-width: 0; }
 .tuning-row .select-btn { flex: 1; min-width: 0; }
-.tuner-btn { color: var(--text); }
-.tuner-btn .ico { color: var(--accent); }   /* (as Name a chord: a button, its icon purple, its words never dimmed) */
-.panel-head > .tuner-btn { width: auto; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); }
-.panel-head > .tuner-btn .ico { width: 16px; height: 16px; }
-.panel-head > .tuner-btn .btn-label { display: inline; }
+.tool-btn { color: var(--text); }
+.tool-btn .ico { color: var(--accent); }   /* (as Name a chord: a button, its icon purple, its words never dimmed) */
+.tool-btn.on, .tuning-row .tool-btn.on { border-color: var(--accent); }   /* (the metronome, on: as a switch that is on) */
+.settings > .tool-btn, .settings > .tool-wrap > .tool-btn { width: auto; justify-content: flex-start; gap: var(--sp-3); padding: 0 14px; font-size: var(--fs-md); }
+.settings > .tool-btn .ico, .settings > .tool-wrap > .tool-btn .ico { width: 26px; height: 18px; }   /* (as wide as a switch's dot: the words in line with the switches') */
+.settings > .tool-btn .btn-label, .settings > .tool-wrap > .tool-btn .btn-label { display: inline; text-box: trim-both cap alphabetic; }
+body.piano .settings > #metroTool { order: 1; }
+/* The metronome and, while it plays, its tempo in place of its name and a
+   stop inside its end (a round button, as the chord list's ×). Its name
+   kept, unseen, under the tempo: the button as wide either way (wide
+   screens; on phones, its tile's own width, the name gone) */
+.tool-wrap { position: relative; display: flex; min-width: 0; }
+.tool-wrap > .tool-btn { flex: 1; min-width: 0; }
+.tool-stop {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+}
+.tool-stop[hidden] { display: none; }
+.tool-stop .ico { width: 14px; height: 14px; }
+.tool-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) { .tool-stop:hover { background: color-mix(in srgb, var(--accent) 38%, transparent); } }
+.tool-swap { display: inline-grid; }
+.tool-swap > span { grid-area: 1 / 1; text-align: start; }
+.tool-bpm { visibility: hidden; }
+.tool-wrap.on .tool-name { visibility: hidden; }
+/* The tempo, and "bpm" after it while there is room (on one line: with no
+   room, the unit wraps to the line under it, unseen, the tempo alone), in
+   the middle between the icon and the stop */
+.tool-wrap.on .tool-bpm { visibility: visible; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 4px; height: 1em; line-height: 1; overflow: hidden; overflow: visible clip; }   /* (only the line under it hidden: the tempo never cut, at worst a little into the gaps) */
+.tool-num { font-variant-numeric: tabular-nums; }
+.tool-unit { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.settings > .tool-wrap.on .tool-name { display: none; }
+/* Phones: a name with no room (the narrowest phones) cut short with "…"
+   rather than run out of its tile: one plain line (the tempo there only
+   while it plays) */
+.settings > .tool-btn .btn-label, .settings > .tool-wrap > .tool-btn .btn-label, .settings > .tool-wrap .tool-swap { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings > .tool-wrap:not(.on) .tool-bpm { display: none; }
+.settings > .tool-wrap.on > .tool-btn .btn-label, .settings > .tool-wrap.on .tool-swap { overflow: visible; }   /* (the tempo never cut: at worst a little into the gap before the stop) */
+.settings > .tool-wrap.on > .tool-btn { padding-right: 46px; }   /* (8 + 26 + 12: the stop's room, as far from the tempo as the icon) */
+.settings > .tool-wrap.on > .tool-btn .btn-label { flex: 1; text-align: center; }
 .settings .whole, .switch-row .whole { grid-column: 1 / -1; }   /* phones: an odd last switch, the whole row (fitSwitches) */
 .settings-slot:empty { display: none; }
 .pill-toggle {
@@ -1161,7 +1231,7 @@ body.naming .neck.vertical .note.ungrouped.ping { animation: ping-pop 450ms ease
 /* A keyboard has no tuning, capo, mirror image or octave shading: their
    controls go (its octave numbers always show; its groups, an octave each:
    see keyboardGroups) */
-body.piano .tuning-row, body.piano #tunerOpen, body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty { display: none; }   /* (a keyboard: no tuner either) */
+body.piano .tuning-row:not(:has(#metroOpen)), body.piano #tunerOpen, body.piano #tuningSelect, body.piano #capoSelect, body.piano #tglOctaves, body.piano #tglLefty { display: none; }   /* (a keyboard: no tuner either; the metronome stays, and its row with it) */
 
 /* The strip (app.js): each string's first cell, held at the edge of the
    view once the neck has scrolled past it, over everything on the neck.
@@ -2322,10 +2392,13 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .scale-bar .deselect { order: 4; }
   .scale-bar .push-right { margin-left: 0; }
   .pill-toggle { height: 32px; padding: 0 14px 0 var(--sp-2); gap: var(--sp-2); border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); font-size: var(--fs-sm); }
-  .tuning-row .tuner-btn { width: auto; height: 32px; padding: 0 14px 0 11px; gap: 6px; border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); color: var(--text); font: 500 var(--fs-sm)/1 var(--font); }   /* (its icon and "Tuner", as a pill) */
-  .tuning-row .tuner-btn .ico { width: 16px; height: 16px; }
+  .tuning-row .tool-btn { width: auto; height: 32px; padding: 0 14px 0 11px; gap: 6px; border-radius: var(--r-pill); border-color: color-mix(in srgb, var(--muted) 45%, transparent); color: var(--text); font: 500 var(--fs-sm)/1 var(--font); }   /* (its icon and its name, as a pill) */
+  .tuning-row .tool-btn .ico { width: 16px; height: 16px; }
+  .tuning-row .tool-wrap { flex: none; }
+  .tuning-row .tool-stop { right: 5px; width: 22px; height: 22px; margin-top: -11px; }   /* (as a list chip's ×, in a 32px pill: over the end of the name's room) */
+  .tuning-row .tool-wrap.on .tool-bpm { padding-right: 19px; }   /* (the room the stop takes from the name's, 13px, and 6 as from the icon: the tempo in the middle of what is left) */
   .tuning-row .select-btn { flex: none; }
-  .tuner-btn:not(:disabled):hover { border-color: var(--accent); }
+  .tool-btn:not(:disabled):hover { border-color: var(--accent); }
   .pill-select {
     width: auto;
     height: 32px;
@@ -2433,6 +2506,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .tuner-fold { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .tuner-fold .ico { transition: transform 150ms ease; transform: rotate(180deg); }   /* open: the arrow up, to fold */
 .tuner-head.folded .tuner-fold .ico { transform: none; }
+.tuner-head.folded { cursor: pointer; }   /* (a click on it unfolds it, as a folded panel) */
 .tuner-fold[hidden] { display: none; }
 .tuner-clear { display: inline-flex; align-items: center; gap: 4px; height: 28px; margin-left: auto; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font: 500 var(--fs-sm)/1 var(--font); cursor: pointer; }
 .tuner-clear .ico { width: 14px; height: 14px; }
@@ -2586,3 +2660,88 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .tuner-message p[hidden] { display: none; }
 .tuner-message-title { color: var(--text); font-size: var(--fs-md); font-weight: 600; }
 .tuner-message .btn[hidden] { display: none; }
+
+/* ==========================================================================
+   Metronome popup: the tempo (its number between − and +, its Italian
+   name, a slider; Tap on its label's row), the time signatures as tiles
+   (the menus'), the bar's beats, Start / Stop under them
+   ========================================================================== */
+.picker.metronome { width: min(440px, calc(100vw - 24px)); }
+.metro-body { gap: var(--sp-3); }
+.metro-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 32px; }
+.metro-tap { touch-action: manipulation; }
+.metro-tap.tapped { animation: metro-tap 180ms ease-out; }
+@keyframes metro-tap { from { border-color: var(--accent); background: var(--accent-soft); } }
+.metro-tempo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); width: 100%; max-width: 260px; margin-inline: auto; }   /* (− and + near the number) */
+.metro-step { touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.metro-read { display: grid; justify-items: center; gap: 8px; }
+.metro-num { display: block; font: 700 2.75rem/1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; text-box: trim-both cap alphabetic; }
+.metro-marking { font-size: var(--fs-sm); font-style: italic; color: var(--muted); }
+/* The slider: a thin track, purple up to its knob */
+.metro-slider {
+  --f: 0.5;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  cursor: pointer;
+}
+.metro-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) calc(10px + (100% - 20px) * var(--f)), var(--border) 0); }
+.metro-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--panel); }
+.metro-slider::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border); }
+.metro-slider::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+.metro-slider::-moz-range-thumb { width: 20px; height: 20px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--panel); }
+.metro-meter-label { margin-top: var(--sp-2); }
+.metro-meters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-2); }   /* (in quarters, then in eighths) */
+/* A time signature as written on a score: one number over the other */
+.metro-meter {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  row-gap: 4px;   /* (between its two numbers) */
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--kbd-bg);
+  color: var(--text);
+  font: 700 var(--fs-lg)/1.05 var(--font);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: border-color 100ms, background-color 100ms;
+}
+.metro-meter[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+@media (hover: hover) { .metro-meter:hover { border-color: var(--accent); } }
+/* The beats, on top (over the tempo, nearer its line than the rest are
+   to one another): a dot each, the first bigger, a group's first a little apart
+   (and a little bigger); the one heard lit at once, fading quickly, out
+   before the next. Each in a cell as wide as the row allows (up to 20px:
+   12/8 on the narrowest phones). The row a button: tapped, another
+   grouping (none to choose: still) */
+.metro-beats { display: flex; justify-content: center; align-items: center; width: fit-content; min-width: 0; max-width: 100%; margin: 0 auto -6px; height: 32px; padding: 0 min(var(--sp-3), 2.5vw); border: 0; border-radius: var(--r-md); background: transparent; color: inherit; cursor: pointer; touch-action: manipulation; }
+.metro-beats:disabled { cursor: default; }
+.metro-beats:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .metro-beats:not(:disabled):hover { background: color-mix(in srgb, var(--muted) 10%, transparent); } }
+.metro-cell { flex: 0 1 auto; width: 20px; min-width: 0; display: grid; place-items: center; }   /* (a width, not a basis: the row as wide as 20px each, then narrower as it must) */
+.metro-cell.group { width: 22px; margin-left: min(12px, 3vw); }
+.metro-cell:first-child { width: 24px; }   /* (the bigger dots, more room: lit, their glow clear of the next) */   /* (both a little less on the narrowest phones: 12/8 in the row) */
+.metro-beat { flex: none; width: 12px; height: 12px; border-radius: 50%; background: color-mix(in srgb, var(--muted) 35%, var(--panel)); }   /* (solid, as seen on the popup: lit, it fades back to it evenly, not purple to the end) */
+.metro-beat.first { width: 17px; height: 17px; }   /* (12, 14, 17: as 1, 1.2, 1.4, in whole pixels) */
+.metro-cell.group .metro-beat { width: 14px; height: 14px; }   /* (as it sounds: the bar's first loudest, a group's a little less, the others least) */
+.metro-beat.on { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); }   /* (a border: each dot lit 6px bigger, whatever its size, not grown) */
+/* A bar too crowded for them (12/8 on a narrow phone: see fitMetroBeats):
+   each dot a little smaller (10, 12, 14), or, still too crowded, smaller
+   again (8, 10, 11, its border thinner): as 1, 1.2, 1.4 each time */
+.metro-beats.smaller .metro-beat { width: 10px; height: 10px; }
+.metro-beats.smaller .metro-cell.group .metro-beat { width: 12px; height: 12px; }
+.metro-beats.smaller .metro-beat.first { width: 14px; height: 14px; }
+.metro-beats.smallest .metro-beat { width: 8px; height: 8px; }
+.metro-beats.smallest .metro-cell.group .metro-beat { width: 10px; height: 10px; }
+.metro-beats.smallest .metro-beat.first { width: 11px; height: 11px; }
+.metro-beats.smallest .metro-beat.on { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.metro-beat.on.ending { background: color-mix(in srgb, var(--muted) 35%, var(--panel)); box-shadow: 0 0 0 0 transparent; transition: background-color var(--fade, 80ms) ease-out, box-shadow var(--fade, 80ms) ease-out; }   /* (over a moment before the next beat: see metroFrame) */
+.metro-go { width: 100%; max-width: 280px; }
