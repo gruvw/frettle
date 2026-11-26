@@ -222,7 +222,8 @@ kbd {
 .neck-title .reset-btn { flex: none; background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
 /* Reset's popup: what goes, a line each ("CHORD Dm") */
 body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
-.reset-what { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--sp-2) var(--sp-4); }
+.reset-what { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--sp-3) var(--sp-4); }   /* (a label in the middle of its name's line) */
+.reset-what > * { text-box: trim-both cap alphabetic; }   /* (centred by their capitals, not their line boxes) */
 
 /* About popup: the picker's look, sized to its one line */
 .picker-body.about-body { gap: var(--sp-4); }
@@ -560,7 +561,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 @media (max-width: 359px) { .chord-bar .switch-row, .scale-bar .switch-row { grid-template-columns: 1fr; } }
 .pill-toggle.namer-open { color: var(--text); }   /* (a button, not a switch: never dimmed like one that is off) */
 .namer-open .ico { flex: none; width: 16px; height: 16px; color: var(--accent); }
-.switch-row .pill-toggle, .panel-head > .pill-toggle, .picker-tools > .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
+.switch-row .pill-toggle, .panel-head > .pill-toggle, .picker-tools > .pill-toggle, .pref-slot > .pill-toggle { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: var(--fs-sm); white-space: nowrap; }
 
 /* Buttons that open a picker popup, styled as menus */
 .select-btn {
@@ -1653,6 +1654,7 @@ body.piano .tuning-row:not(:has(#metroOpen)), body.piano #tunerOpen, body.piano 
 .chip.recent.selected { background: var(--chord); color: var(--chord-text); }
 /* Phones: a little tighter, so eight short chords fit on most screens */
 .dock-recent .recent-chips { gap: 5px; }
+.dock-recent .recent-clear { margin-left: var(--sp-2); }   /* (a little apart from the chips: not taken for one more of them) */
 .dock-recent .chip.recent { padding: 0 10px; }
 .dock-recent li.on .chip.recent, .dock-recent li.trail .chip.recent { padding-right: 6px; }
 /* The chord on screen: its chip and an × to remove it, as one pink pill
@@ -1748,7 +1750,7 @@ body.piano .tuning-row:not(:has(#metroOpen)), body.piano #tunerOpen, body.piano 
   cursor: pointer;
 }
 .recent-clear .ico { width: 15px; height: 15px; }
-.recent-line { display: none; }   /* phones: the dock has the chord list and the recent chords */
+.recent-line { display: none; }   /* (the chord list and the recent chords: the dock's on phones, the quick bar's on wide screens) */
 .quick-bar { display: none; }   /* phones: the dock is the quick bar */
 .dock-shape { display: flex; align-items: center; gap: 6px; margin-bottom: var(--sp-1); }
 .dock-shape[hidden] { display: none; }   /* no chord selected, nor scale groups: only the tabs */
@@ -2254,11 +2256,15 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .btn-label { display: inline; }
   .btn.share-btn { width: auto; min-width: 112px; padding: 0 14px; }   /* icon and "Share", like Strum, Deselect, Play (wide enough for "Copied") */
   .btn.side-action { width: auto; padding: 0 14px; }   /* the bookmark and "Save", the copy icon and "Text" */
-  /* A long tuning name (a saved one) is cut short in the neck's header */
-  #tuningSelect { max-width: 220px; }
-  .neck-title .inst-tuning { max-width: 220px; }
-  .neck-title .inst-tuning:has(.inst-pitch) { max-width: none; flex-wrap: nowrap; }   /* (the pitch whole: its tuning's name cut short instead) */
-  .neck-title .inst-tname { max-width: 220px; white-space: nowrap; }
+  /* In the neck's header: the capo menu as wide as its widest choice
+     (fitPills), so choosing one moves nothing; the tuning menu as wide as
+     its name, at most 22 characters (TUNING_CHARS) */
+  #capoSelect { flex: none; width: var(--pill-w, auto); }
+  #tuningSelect { flex: none; }
+  /* The neck's title: the instrument, and the reference pitch when not 440
+     ("Guitar  A = 432"): the tuning menu beside it names the tuning */
+  .neck-title .inst-tname, .neck-title .inst-tuning:not(:has(.inst-pitch)) { display: none; }
+  .neck-title .inst-pitch::before { content: none; }
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }
@@ -2331,57 +2337,66 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 
   .sheet .panel { scroll-margin-top: var(--sp-3); }   /* a stepper's middle button, its panel with no card (no chord, no scale): scrolled to its top, with this room above (see showPanel) */
   /* Room for it: the list on its own row, the steppers under it, side by
-     side (one row when there is room, below) */
+     side (one row when the list still has room enough there, below) */
   .quick-inner { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--sp-3) var(--sp-4); }
   .quick-inner .dock-recent { grid-column: 1 / -1; margin: 0; --row-lift: calc((var(--sp-3) - 3px) / 2); }   /* (the quick bar's padding: see .scroll-hint) */
+  .quick-inner .recent-scroll { flex: 0 1 auto; }   /* (as wide as its chips, the bin right after them; scrolling once they no longer fit) */
   /* The two steppers share their row, half each, a thin line between them
      (placed there, see order): the shape (or group) takes what its arrows
      and button leave, a width set by the window, not by the name, so the
      arrows keep their places */
-  .quick-inner .dock-shape { min-width: 0; margin: 0; }
+  .quick-inner .dock-shape { min-width: 0; width: 100%; max-width: 480px; margin: 0; }   /* (no wider: on a wide window, one at each end) */
   .quick-inner .dock-shape-info { flex: 1 1 0; width: auto; }
-  .quick-inner #dockShapeBar { grid-column: 1; order: 1; }
-  .quick-inner #quickGroupBar { grid-column: 3; order: 3; }
+  .quick-inner #dockShapeBar { grid-column: 1; order: 1; justify-self: start; }
+  .quick-inner #quickGroupBar { grid-column: 3; order: 3; justify-self: end; }
   /* Alone on its row, a stepper is at the left, its shape 200px wide */
-  .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]), .quick-inner #dockShapeBar[hidden] + #quickGroupBar { grid-column: 1 / -1; justify-self: start; }
+  .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]), .quick-inner #dockShapeBar[hidden] + #quickGroupBar { grid-column: 1 / -1; justify-self: start; width: auto; }
   .quick-inner #dockShapeBar:has(+ #quickGroupBar[hidden]) .dock-shape-info, .quick-inner #dockShapeBar[hidden] + #quickGroupBar .dock-shape-info { flex: none; width: 200px; }
   .quick-inner::after { content: ""; grid-column: 2; order: 2; width: 1px; height: 28px; background: var(--divider); }
   .quick-inner:has(> #dockShapeBar[hidden], > #quickGroupBar[hidden])::after { display: none; }
-  /* One row: the list, then the steppers, each after a thin line. With
-     both steppers, once everything fits at its full width; with only one,
-     on narrower windows already (a phone on its side), rather than leave
-     half of the second row empty */
-  @container (min-width: 1100px) {
+  @container (min-width: 1101px) { .quick-inner::after { visibility: hidden; } }   /* (each at its full width, well apart, more than 140px: no line between them) */
+  /* One row: the list, then the steppers, each after a thin line, once the
+     list keeps room enough there (the only chord list on wide screens):
+     about 500px, beside both steppers or one. Strum and Play square at
+     first (their icons), their words back once there is room for them too */
+  @container (min-width: 1214px) {
     .quick-inner { display: flex; gap: var(--sp-4); }
     .quick-inner::after { display: none; }   /* the lines are the steppers' own */
     .quick-inner .dock-recent { flex: 1 1 0; min-width: 0; --row-lift: 0px; }
     .quick-inner .scroll-hint { bottom: -8px; }   /* (sharing the row: lower, see .scroll-hint) */
     .quick-inner #dockShapeBar, .quick-inner #quickGroupBar,
     .quick-inner #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
+    .quick-inner .dock-shape { width: auto; max-width: none; }
     .quick-inner .dock-shape-info { flex: none; width: 200px; }
     .quick-inner #dockRecent[hidden] + #dockShapeBar,
     .quick-inner #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
   }
-  @container (min-width: 600px) {
+  @container (min-width: 842px) {
     .quick-inner:has(> .dock-shape[hidden]) { display: flex; gap: var(--sp-4); }
     .quick-inner:has(> .dock-shape[hidden])::after { display: none; }   /* the lines are the steppers' own */
     .quick-inner:has(> .dock-shape[hidden]) .dock-recent { flex: 1 1 0; min-width: 0; --row-lift: 0px; }
     .quick-inner:has(> .dock-shape[hidden]) .scroll-hint { bottom: -8px; }
     .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar, .quick-inner:has(> .dock-shape[hidden]) #quickGroupBar,
     .quick-inner:has(> .dock-shape[hidden]) #dockShapeBar[hidden] + #quickGroupBar { flex: none; padding-left: var(--sp-4); border-left: 1px solid var(--divider); }
+    .quick-inner:has(> .dock-shape[hidden]) .dock-shape { width: auto; max-width: none; }
     .quick-inner:has(> .dock-shape[hidden]) .dock-shape-info { flex: none; width: 200px; }
     .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar,
     .quick-inner:has(> .dock-shape[hidden]) #dockRecent[hidden] + #dockShapeBar[hidden] + #quickGroupBar { padding-left: 0; border-left: 0; }   /* first in the row: no line */
   }
   /* Short of room (a small window, a phone on its side): Strum and Play
-     become square buttons, as on phones held upright. With both steppers, when they no
-     longer fit side by side at their full width; with one, while it shares
-     its row with the list */
+     become square buttons, as on phones held upright, when both steppers no
+     longer fit side by side at their full width */
   @container (max-width: 779px) {
     .quick-inner:not(:has(> .dock-shape[hidden])) .strum-label { display: none; }
     .quick-inner:not(:has(> .dock-shape[hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
   }
-  @container (min-width: 600px) and (max-width: 699px) {
+  /* ... and while they share the list's row with too little room for their
+     words (Strum 58px more, Play 48: see the one-row widths above) */
+  @container (min-width: 1214px) and (max-width: 1319.98px) {
+    .quick-inner:not(:has(> .dock-shape[hidden])):has(> #dockRecent:not([hidden])) .strum-label { display: none; }
+    .quick-inner:not(:has(> .dock-shape[hidden])):has(> #dockRecent:not([hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
+  }
+  @container (min-width: 842px) and (max-width: 899.98px) {
     .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .strum-label { display: none; }
     .quick-inner:has(> .dock-shape[hidden]):has(> #dockRecent:not([hidden])) .dock-shape .btn.primary { width: var(--control-h); padding: 0; }
   }
@@ -2396,6 +2411,31 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
      ones (from the right) on the next line when they do not all fit, on the
      right too (a narrow screen on its side) */
   .panel-head .switch-row, .neck-head .settings-slot, .neck-head .settings { display: contents; }
+  /* The neck's header (fitNeckHead): the title, the tuning and the capo on
+     the left; the switches, then the tools, on the right. On two lines
+     (.two): the title and the tools; the tuning, the capo and the switches.
+     Its lines 12px apart (half of it about each item: none about the line
+     break, which takes a line of its own) */
+  .neck-panel .neck-head { row-gap: 0; margin-top: -6px; margin-bottom: 6px; }
+  .neck-head > .neck-title, .neck-head .settings > * { margin-block: 6px; }
+  .neck-panel .neck-head > .neck-title { flex: none; margin-right: 0; }   /* (not pushed away from the tuning, as a panel's title is from what follows it; never squeezed: cut short instead, see fitNeckHead) */
+  .neck-title .inst-label { min-width: 0; }
+  .neck-title .inst-name { flex: 0 1 auto; min-width: 0; }   /* (here the name gives way, "…", the pitch kept whole: the tuning is not in it) */
+  .neck-title .inst-tuning { flex: none; }
+  .neck-head #tglOctaves, body.piano .neck-head #tglFlats, .neck-head.two .tuning-row { margin-left: auto; }
+  /* The chord and scale panels' title rows on two lines (.two, see
+     fitPanelHeads): the title, its count and the panel's button (Name a
+     chord; Groups); the switches under them, at the right. Folded, no
+     Alternative root: a folded panel's root is not in view to rename */
+  .panel-head > .theory-title { flex: none; min-width: 0; }   /* (never squeezed: cut short instead, see fitPanelHeads) */
+  .theory-title .fold-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .theory-title .tx, .theory-title .swatch, .theory-title .panel-fold { flex: none; }
+  .panel-head.two { row-gap: 0; }
+  .panel-head.two::after { content: ""; order: 2; flex-basis: 100%; height: 0; }
+  .panel-head.two .switch-row > * { order: 3; margin-top: var(--sp-3); }
+  .panel-head.two .switch-row > #namerOpen, .panel-head.two .switch-row > #tglScaleGroups { order: 1; margin-top: 0; }
+  .panel.folded #tglChordAlt, .panel.folded #tglScaleAlt { display: none; }
+  .neck-break { flex-basis: 100%; height: 0; margin: 0 !important; }
   .panel-head { justify-content: flex-end; column-gap: var(--sp-2); }
   .panel-head > .neck-title, .panel-head > .theory-title:has(+ .status[hidden]), .panel-head > .status, .panel-head > h2:only-child { margin-right: auto; }   /* (the title, and the count beside it: on the left) */
   /* Scale bar: Root, Type, then Play and Deselect at the end (as Strum and
@@ -2466,7 +2506,6 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .chord-bar .field.grow { flex-basis: 150px; }
   .chord-bar .field.grow.inversion { order: 0; flex-basis: 170px; }
   .shapes-line { display: flex; }
-  .recent-line:not([hidden]) { display: flex; }
   .chord-count:not([hidden]), .group-count:not([hidden]) { display: inline-flex; }
 
   /* Rows: label on the left */
@@ -2514,14 +2553,18 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 /* Its title row: the reference pitch in its middle, quiet */
 .picker.tuner .picker-head { position: relative; }
 .tuner-pitch { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; cursor: default; }   /* (its tooltip: where to change it) */
-/* The instrument menu's foot: the reference pitch, a setting, not one more
-   family of instruments: under a rule, its label as a field's, Reset always
-   on its line. Wide enough (a computer's popup), all on that line, − and +
-   at its end, Reset just before them; else − and + centred on a line of
-   their own under it. Reset's room kept: nothing moves as it comes and goes */
-.pitch-foot { container-type: inline-size; margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--divider); }
+/* The instrument menu's foot: your preferences, set once, not one more
+   family of instruments: under a rule, a label as a field's, Left-handed a
+   switch as the others at its line's end (under it if there is no room).
+   The reference pitch, its name on the left: Reset always on its line; wide
+   enough (a computer's popup), − and + at that line's end, Reset just
+   before them; else − and + centred on a line of their own under it (Reset's
+   room kept: nothing moves as it comes and goes) */
+.pitch-foot { container-type: inline-size; display: grid; gap: var(--sp-3); margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--divider); }
+.prefs-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-3); }
+.pref-name { font: 500 var(--fs-sm)/1.2 var(--font); color: color-mix(in srgb, var(--text) 85%, transparent); white-space: nowrap; }
 .pitch-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr); align-items: center; gap: var(--sp-2) var(--sp-3); }
-.pitch-grid > .label { grid-row: 1; grid-column: 1 / -1; justify-self: start; white-space: nowrap; }
+.pitch-grid > .pref-name { grid-row: 1; grid-column: 1 / -1; justify-self: start; }
 .pitch-grid > .pitch-reset { grid-row: 1; grid-column: 1 / -1; justify-self: end; }
 .pitch-grid > [data-pitch="-1"] { grid-row: 2; grid-column: 2; }
 .pitch-grid > .pitch-value { grid-row: 2; grid-column: 3; }
@@ -2529,7 +2572,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .pitch-reset[hidden] { display: inline-flex; visibility: hidden; }
 @container (min-width: 420px) {
   .pitch-grid { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
-  .pitch-grid > .label { grid-column: 1; }
+  .pitch-grid > .pref-name { grid-column: 1; }
   .pitch-grid > .pitch-reset { grid-column: 2; }
   .pitch-grid > [data-pitch="-1"] { grid-row: 1; grid-column: 3; }
   .pitch-grid > .pitch-value { grid-row: 1; grid-column: 4; }

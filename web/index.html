@@ -96,11 +96,11 @@
   </header>
 
   <section class="panel neck-panel" aria-label="Fretboard">
-    <div class="panel-head neck-head">
+    <div id="neckHead" class="panel-head neck-head">
       <!-- Wide screens: the neck's title is the instrument menu (app.js
            moves it to the header on phones) -->
       <h2 id="instWideSlot" class="neck-title">
-        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument or reference pitch"></button>
+        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument, reference pitch or left-handed"></button>
         <!-- Reset: beside the instrument menu (app.js moves both; on
              phones it sits on the left, the menu centred) -->
         <button type="button" id="resetAll" class="btn icon reset-btn" aria-haspopup="dialog" aria-label="Reset"
@@ -111,8 +111,8 @@
            in place before the script runs: on phones this header is hidden. -->
       <div id="settingsWideSlot" class="settings-slot">
         <div id="settings" class="settings">
-          <!-- The tuning menu, the metronome and the tuner before it (phones: the two side by side under the capo, see placeSettings) -->
-          <div class="tuning-row">
+          <!-- The tuning menu; on wide screens, the metronome and the tuner instead (phones: the two side by side under the capo; see placeSettings, fitNeckHead) -->
+          <div id="tuningRow" class="tuning-row">
             <!-- The metronome; while it plays, its tempo in place of its name and a stop at its end (as a list chip's ×) -->
             <span id="metroTool" class="tool-wrap">
               <button type="button" id="metroOpen" class="btn icon tool-btn" aria-haspopup="dialog" aria-label="Metronome"
@@ -133,10 +133,6 @@
           <button type="button" id="tglFlats" class="pill-toggle" aria-pressed="false"
                   title="Use flats when either name would do (D♭, not C♯): the notes shown when no scale or chord decides, and a root that makes as easy a key both ways (G♭ major, not F♯)">
             <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Flats</span>
-          </button>
-          <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false"
-                  title="Mirror the neck for left-handed players">
-            <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Left-handed</span>
           </button>
         </div>
       </div>
@@ -633,6 +629,13 @@
   </dialog>
 
   <!-- Picker popup for every menu: instrument, tuning, capo, roots, chord and scale types, inversion -->
+  <!-- Left-handed: a preference, in the instrument menu (moved there as it opens) -->
+  <div id="prefsHold" hidden>
+    <button type="button" id="tglLefty" class="pill-toggle" aria-pressed="false" title="Mirror the neck for left-handed players">
+      <span class="pill-dot" aria-hidden="true"></span><span class="pill-label">Left-handed</span>
+    </button>
+  </div>
+
   <dialog id="picker" class="picker" aria-labelledby="pickerTitle">
     <div class="picker-head">
       <h2 id="pickerTitle"></h2>
