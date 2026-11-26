@@ -806,8 +806,7 @@ function placeSettings() {
     put(els.dockRecent, els.quickInner, els.quickGroupBar);
     put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
     put(els.namer, els.neckPanel);   // Name a chord: in the quick bar's place
-    put(els.tunerOpen, els.tuningSelect.parentElement, els.tuningSelect);   // (the tools: before the tuning menu, the metronome first)
-    put(els.metroTool, els.tuningSelect.parentElement, els.tunerOpen);
+    arrange(els.settings, neckHeadOrder(els.neckHead.classList.contains('two')));   // (as fitNeckHead last had it)
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.namerOpen, els.chordHead);
@@ -818,8 +817,81 @@ function placeSettings() {
     put(els.dockRecent, els.dockBar, els.dockTabs);
     put(els.dockShapeBar, els.dockBar, els.dockTabs);
     put(els.namer, els.dockBar, els.dockTabs);
-    put(els.metroTool, els.settings, els.tglOctaves);   // (the tools: two tiles side by side under the capo, see .tool-btn)
-    put(els.tunerOpen, els.settings, els.tglOctaves);
+    // (the tuning menu, the capo's, then the tools: two tiles side by side under the capo, see .tool-btn)
+    arrange(els.tuningRow, [els.tuningSelect]);
+    arrange(els.settings, [els.tuningRow, els.capoSelect, els.metroTool, els.tunerOpen, els.tglOctaves, els.tglFlats]);
+  }
+}
+/* `parent`'s children in this order, first (moving only those out of
+   place: one with the focus keeps it); the header's line break, if not in
+   it, taken out (others left after them, for their own place next) */
+function arrange(parent, list) {
+  list.forEach((el, i) => { if (parent.children[i] !== el) parent.insertBefore(el, parent.children[i] || null); });
+  if (neckBreak && neckBreak.parentElement === parent && !list.includes(neckBreak)) neckBreak.remove();
+}
+
+/* Wide screens: the neck's header. On the left its title (the instrument
+   menu, Reset), the tuning and the capo; on the right the switches, then the
+   tools. On one line when it all fits; else two, balanced: the title and the
+   tools, then under them the tuning, the capo and the switches (the tuning
+   under the instrument; the tools above the switches, as on phones). Which, from what they measure (the system's font
+   sets that), on resizing and as the title changes (the instrument, the
+   reference pitch, the tuning's name); the capo menu as wide whatever it
+   shows (fitPills). The tools sit in .tuning-row there (its pills'
+   styles); the tuning menu, an item of its own. Too narrow still for two
+   (a long title on a small screen): the lines wrap. */
+const TUNING_CHARS = 22;   // (a tuning's name in the neck's header: past this, cut short)
+// (at most n characters, the last of them "…" if cut)
+const clipText = (text, n) => { const chars = [...text]; return chars.length <= n ? text : `${chars.slice(0, n - 1).join('').trimEnd()}…`; };
+const HEAD_SPLIT = 16;   // (the least room between the left and the right: twice that between two items)
+let neckBreak = null;
+function neckHeadOrder(two) {
+  if (!neckBreak) { neckBreak = document.createElement('span'); neckBreak.className = 'neck-break'; }
+  const switches = [els.tglOctaves, els.tglFlats];
+  return two ? [els.tuningRow, neckBreak, els.tuningSelect, els.capoSelect, ...switches]
+    : [els.tuningSelect, els.capoSelect, ...switches, els.tuningRow];
+}
+function fitNeckHead() {
+  if (els.settings.parentElement !== els.settingsWideSlot) return;   // (phones; or turning to wide, not moved yet: placeSettings, then render, call it again)
+  arrange(els.tuningRow, [els.metroTool, els.tunerOpen]);
+  fitPills();
+  // (each as wide as it wants, none squeezed: see .neck-head in styles.css)
+  for (const el of [els.instrumentPicker, els.tuningSelect]) el.style.maxWidth = '';
+  const gap = parseFloat(getComputedStyle(els.neckHead).columnGap) || 0;
+  const width = (list) => {
+    const seen = list.filter((el) => el.getClientRects().length);   // (shown: a piano has no tuning, capo, tuner...)
+    return seen.reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) + gap * Math.max(0, seen.length - 1);
+  };
+  const room = els.neckHead.clientWidth;
+  const title = width([els.instrumentPicker, els.resetAll]);
+  const neck = width([els.tuningSelect, els.capoSelect]);
+  const switches = width([els.tglOctaves, els.tglFlats]), tools = width([els.tuningRow]);
+  const two = title + gap + neck + HEAD_SPLIT + switches + gap + tools > room;
+  els.neckHead.classList.toggle('two', two);
+  arrange(els.settings, neckHeadOrder(two));
+  // Two lines, and one still too long (the longest instrument's name with a
+  // reference pitch, a long saved tuning's, on a small screen): the name on
+  // it cut short ("…"), never an item wrapped onto a line of its own
+  if (!two) return;
+  const cut = (el, over, least) => { if (over > 0) el.style.maxWidth = `${Math.max(least, el.getBoundingClientRect().width - over)}px`; };
+  cut(els.instrumentPicker, title + HEAD_SPLIT + tools - room, HEAD_LEAST);
+  cut(els.tuningSelect, neck + HEAD_SPLIT + switches - room, HEAD_LEAST);
+}
+const HEAD_LEAST = 96;   // (cut short, no narrower: a few letters still read)
+/* The capo menu as wide as its widest choice ("Capo 12") */
+let pillsFor = '';
+function fitPills() {
+  const id = state.instrument;
+  const capos = ['No capo', `Capo ${maxCapo(id)}`];
+  const key = [id, ...capos].join('|');
+  if (key === pillsFor || !els.capoSelect.getClientRects().length) return;   // (a piano: none shown, none measured)
+  pillsFor = key;
+  for (const [el, labels] of [[els.capoSelect, capos]]) {
+    const kept = el.textContent;
+    el.style.setProperty('--pill-w', 'max-content');   // (flex: none, so never squeezed: see styles.css)
+    const most = Math.max(...labels.map((label) => { el.textContent = label; return el.getBoundingClientRect().width; }));   // (not offsetWidth: rounded, it can cut the widest by a hair)
+    el.textContent = kept;
+    el.style.setProperty('--pill-w', `${Math.ceil(most)}px`);
   }
 }
 
@@ -1586,6 +1658,33 @@ function renderFolds(ch, sc) {
     v.hidden = !folded;
     v.innerHTML = folded ? tx(value) : '';
   }
+  fitPanelHeads();
+}
+/* Wide screens: the chord and scale panels' title rows. The title (and the
+   shape or group count), then the switches and the panel's button (Name a
+   chord; Groups) at the end: on one line when they fit; else that button
+   on the title's line, the switches under it (as on phones, where those two
+   are on the title row). The title cut short ("…") if even that is too
+   long (a folded panel's: "Scale C Mixolydian ♭6") */
+const PANEL_TOOLS = { chord: 'namerOpen', scale: 'tglScaleGroups' };
+function fitPanelHeads() {
+  for (const [key, panel] of [['chord', els.panelChord], ['scale', els.panelScale]]) {
+    const head = panel.querySelector('.panel-head'), title = head.querySelector('.theory-title');
+    const tool = els[PANEL_TOOLS[key]];
+    title.style.maxWidth = '';
+    if (!isWide() || !head.getClientRects().length) { head.classList.remove('two'); continue; }
+    const gap = parseFloat(getComputedStyle(head).columnGap) || 0;
+    const shown = [title, head.querySelector('.status'), ...head.querySelectorAll('.switch-row > *')].filter((el) => el && el.getClientRects().length);
+    const widths = new Map(shown.map((el) => [el, el.getBoundingClientRect().width]));
+    const sum = (list) => list.reduce((s, el) => s + widths.get(el), 0) + gap * Math.max(0, list.length - 1);
+    const room = head.clientWidth;
+    const two = sum(shown) > room && shown.includes(tool) && shown.length > 3;   // (one switch more at least: else nothing to put under)
+    head.classList.toggle('two', two);
+    if (!two) continue;
+    const top = shown.filter((el) => el === title || el.classList.contains('status') || el === tool);
+    const over = sum(top) + HEAD_SPLIT - room;
+    if (over > 0) title.style.maxWidth = `${Math.max(HEAD_LEAST, widths.get(title) - over)}px`;
+  }
 }
 /* The arrow or the title folds a panel, or unfolds it; folded, a click
    anywhere on it unfolds it too (but on its switches and buttons: those do
@@ -1611,19 +1710,25 @@ function renderHeader() {
   // (and the reference pitch, when not as usual: muted as the tuning, after
   // it, so as not to be forgotten; whole, the tuning's name cut short first)
   const pitch = pitchA === PITCH_USUAL ? '' : `A = ${pitchA}`;   // (short, as musicians write it: "A = 432 Hz" in the menu and the tuner)
-  const more = !pitch ? esc(tuned) : `${tuned ? `<span class="inst-tname">${esc(tuned)}</span>` : ''}<span class="inst-pitch">${pitch}</span>`;
+  const more = (tuned ? `<span class="inst-tname">${esc(tuned)}</span>` : '') + (pitch ? `<span class="inst-pitch">${pitch}</span>` : '');   // (the tuning's name: phones only, the menu beside it on wide screens)
   els.instrumentPicker.innerHTML = `<span class="inst-label"><span class="inst-name">${esc(inst.name)}</span>` +
     (more ? ` <span class="inst-tuning">${more}</span>` : '') + '</span>';   // (the space: phones, where they wrap)
   els.instrumentPicker.setAttribute('aria-label', `Instrument: ${[inst.name, tuned, pitch && refText()].filter(Boolean).join(', ')}`);
+  els.instrumentPicker.title = inst.piano ? 'Change instrument or reference pitch' : 'Change instrument, reference pitch or left-handed';   // (as its menu has them: a keyboard, nothing to mirror)
   stackInstLabel();
   const c = capo();
-  els.tuningSelect.textContent = tuned || 'Standard tuning';
+  // (the neck's header: at most TUNING_CHARS of its name, "…" past them, all of it in its tooltip)
+  const tuningLabel = tuned || 'Standard tuning';
+  const shown = els.settings.parentElement === els.settingsWideSlot ? clipText(tuningLabel, TUNING_CHARS) : tuningLabel;
+  els.tuningSelect.textContent = shown;
+  els.tuningSelect.title = shown !== tuningLabel ? tuningLabel : 'How the strings are tuned';
   els.tuningSelect.classList.toggle('on', Boolean(tuned));
   els.capoSelect.textContent = c ? `Capo ${c}` : 'No capo';
   els.capoSelect.classList.toggle('on', c > 0);
   for (const [id, key] of TOGGLES) {
     els[id].setAttribute('aria-pressed', String(state[key]));
   }
+  fitNeckHead();
 }
 
 /* Phones: a tuning with no room beside the instrument's name goes under it,
@@ -3010,7 +3115,7 @@ function init() {
     'chordAlt', 'chordCapo', 'scaleCapo', 'chordKey', 'chordStrum', 'tonesLabel', 'capoSelect', 'chordTones', 'chordMissing', 'shapeCount', 'groupCount', 'shapePrev', 'shapeNext', 'shapeList',
     'scaleRoot', 'scaleType', 'scaleClear', 'tglScaleAlt', 'tglChordAlt', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
-    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'setupHead', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
+    'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'neckHead', 'tuningRow', 'setupHead', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
     'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'tunerPitch', 'metroOpen', 'metroTool', 'metroStop', 'metroShown', 'metronome', 'metroClose', 'metroTap', 'metroSlower', 'metroFaster', 'metroBpm', 'metroMarking', 'metroTempo', 'metroMeters', 'metroBeats', 'metroGo', 'tunerOpen', 'tuner', 'tunerClose', 'tunerHead', 'tunerTuning', 'tunerFold', 'tunerStrings', 'tunerView', 'tunerStrip', 'tunerTape', 'tunerLeft', 'tunerRight', 'tunerFine', 'tunerFineTape', 'tunerHint', 'tunerClear', 'tunerMessage', 'tunerMessageTitle', 'tunerMessageText', 'tunerRetry', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
     'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneDone',
@@ -3090,10 +3195,13 @@ function init() {
       changeNeck(() => { state.instrument = v; });   // (the chord keeps its bass; else as last used on that instrument)
       render();
     },
-    // Under the instruments, the reference pitch (every instrument's: see setPitch): a
-    // setting, set apart from them (a rule, its label as a field's), not one more family
+    // Under the instruments, your preferences, set once: left-handed (a switch
+    // as the others, on its label's line if there is room), the reference
+    // pitch (every instrument's: see setPitch). Set apart from them (a rule, a
+    // label as a field's), not one more family
     foot: `<div id="pitchRow" class="pitch-foot">
-        <div class="pitch-grid"><span class="label">Reference pitch</span>
+        <div class="prefs-head"><div class="label">Preferences</div><div class="pref-slot"></div></div>
+        <div class="pitch-grid"><span class="pref-name">Reference pitch</span>
           <button type="button" class="btn small pitch-reset" title="Back to A = ${PITCH_USUAL} Hz" hidden><span class="tx">Reset</span></button>
           <button type="button" class="btn icon" data-pitch="-1" aria-label="Lower" title="Lower by 1 Hz"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
           <span class="pitch-value" aria-live="polite"></span>
@@ -3101,9 +3209,10 @@ function init() {
         </div>
       </div>`,
   }));
-  els.instrumentPicker.addEventListener('click', () => {   // (its reference pitch row: its buttons, as drawn)
+  els.instrumentPicker.addEventListener('click', () => {   // (its preferences: their buttons, as drawn)
     const row = document.querySelector('#pitchRow');
     if (!row || row.dataset.wired) return;
+    row.querySelector('.pref-slot').append(els.tglLefty);   // (the switch itself: its state, its click, see TOGGLES)
     row.dataset.wired = '1';
     holdStep(row.querySelector('[data-pitch="-1"]'), () => setPitch(pitchA - 1));
     holdStep(row.querySelector('[data-pitch="1"]'), () => setPitch(pitchA + 1));
@@ -3124,6 +3233,15 @@ function init() {
   onPress(els.tunerStrings, '[data-s]', (b) => pickTunerString(Number(b.dataset.s)));   // (on press, as every note that sounds)
   els.tunerRetry.addEventListener('click', startMic);
   window.addEventListener('resize', () => { if (els.tuner.open) measureTuner(); stackInstLabel(); }, { passive: true });
+  // The neck's header: fitted again whenever its width changes (resizing,
+  // turning to wide: once the neck there is drawn, the panel's width final)
+  if (window.ResizeObserver) {
+    let headWidth = 0;
+    new ResizeObserver(() => { const w = els.neckHead.clientWidth; if (w !== headWidth) { headWidth = w; fitNeckHead(); } }).observe(els.neckHead);
+    let panelWidth = 0;   // (the chord and scale panels' title rows: theirs, as wide as each other)
+    new ResizeObserver(() => { const w = els.panelChord.clientWidth; if (w !== panelWidth) { panelWidth = w; fitPanelHeads(); } }).observe(els.panelChord);
+  } else window.addEventListener('resize', fitNeckHead, { passive: true });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { pillsFor = ''; fitNeckHead(); });   // (measured again in the font itself)
   document.addEventListener('visibilitychange', () => {
     if (!els.tuner.open) return;
     if (document.visibilityState === 'hidden') { if (tunerLive()) { stopMic(); tuner.status = 'paused'; } }
