@@ -1121,6 +1121,7 @@ function renderShare() {
   const opts = shareChoice();
   els.shareGo.disabled = !Object.values(opts).some(Boolean);
   els.shareGo.innerHTML = shareSheet() ? `${SHARE_ICON}${tx('Share link')}` : tx('Copy link');
+  els.shareGo.parentElement.classList.remove('failing');
   els.shareText.disabled = els.shareGo.disabled;
 }
 function shareChoice() {
@@ -1190,6 +1191,7 @@ function shareDone(copied) {
   copiedTimer = setTimeout(() => { els.shareStatus.textContent = ''; }, 2000);
   if (!copied) {
     els.shareGo.innerHTML = tx('Could not copy the link');
+    els.shareGo.parentElement.classList.add('failing');   // (its words the whole row a moment, Copy text aside)
     clearTimeout(shareTimer);
     shareTimer = setTimeout(renderShare, 2000);
     return;

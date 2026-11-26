@@ -806,7 +806,8 @@ function placeSettings() {
     put(els.dockRecent, els.quickInner, els.quickGroupBar);
     put(els.dockShapeBar, els.quickInner, els.quickGroupBar);
     put(els.namer, els.neckPanel);   // Name a chord: in the quick bar's place
-    put(els.tunerOpen, els.tuningSelect.parentElement, els.tuningSelect);   // (the tuner: before the tuning menu)
+    put(els.tunerOpen, els.tuningSelect.parentElement, els.tuningSelect);   // (the tools: before the tuning menu, the metronome first)
+    put(els.metroTool, els.tuningSelect.parentElement, els.tunerOpen);
   } else {
     put(els.chordSwitches, els.chordBar, els.chordStrum);
     put(els.namerOpen, els.chordHead);
@@ -817,7 +818,8 @@ function placeSettings() {
     put(els.dockRecent, els.dockBar, els.dockTabs);
     put(els.dockShapeBar, els.dockBar, els.dockTabs);
     put(els.namer, els.dockBar, els.dockTabs);
-    put(els.tunerOpen, els.setupHead);   // (the tuner: the Setup sheet's own extra, as Name a chord is the Chord sheet's)
+    put(els.metroTool, els.settings, els.tglOctaves);   // (the tools: two tiles side by side under the capo, see .tool-btn)
+    put(els.tunerOpen, els.settings, els.tglOctaves);
   }
 }
 
@@ -866,7 +868,9 @@ function tuneStep(s, step) {
   strings[s] = m;
   tuneSet(strings);
 }
-const RESET_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/></svg>';
+// (its head on the circle, well clear of where it starts; its two sides alike either side of
+// the arc as it looks, the chord along a side's length: 14° in from the tangent)
+const RESET_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.57 13.04A7.5 7.5 0 1 0 6.7 6.7"/><path d="M10.19 7.57L6.7 6.7L7.57 3.2"/></svg>';
 /* The strings in neck order, laid out by styles.css for the screen's width
    (as the neck itself): each with its number (a reset button when it is
    tuned away from standard), + and −, and its note (tap: hear it). At the
@@ -1022,7 +1026,8 @@ let pickerRemove = null;
    says so instead (`noteNone`), without a dot. */
 // (tools: a switch on the title row, as a panel's, which leaves the menu
 // open: its html, with data-toggle; onToggle, what a tap on it does)
-function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null, tools = '', onToggle = null }) {
+// (foot: more html under it all, a setting of its own: the instrument menu's reference pitch)
+function openPicker({ title, groups, value, layout = '', note = '', noteNone = '', onPick, onRemove = null, tools = '', onToggle = null, foot = '' }) {
   const dots = groups.some((g) => g.items.some((it) => it.cls === 'fits'));
   const legend = !note ? '' : dots || !noteNone ? `<p class="picker-note">${esc(note)}</p>` : `<p class="picker-note empty">${esc(noteNone)}</p>`;
   els.pickerTitle.textContent = title;
@@ -1043,7 +1048,7 @@ function openPicker({ title, groups, value, layout = '', note = '', noteNone = '
       return it.remove ? `<div class="pick-wrap">${tile}<button type="button" class="pick-remove" data-remove="${esc(it.value)}" ` +
         `aria-label="${esc(it.remove)}" title="${esc(it.remove)}">${X_ICON}</button></div>` : tile;
     }).join('')}</div>`
-  ).join('') + legend;
+  ).join('') + legend + foot;
   pickerPick = onPick;
   pickerRemove = onRemove;
   pickerToggle = onToggle;
@@ -1603,9 +1608,13 @@ function renderHeader() {
   document.body.classList.toggle('piano', Boolean(inst.piano));   // (styles.css hides what a piano has no use for)
   els.neck.closest('.neck-panel').setAttribute('aria-label', inst.piano ? inst.name : 'Fretboard');
   const tuned = tuningName(inst);
+  // (and the reference pitch, when not as usual: muted as the tuning, after
+  // it, so as not to be forgotten; whole, the tuning's name cut short first)
+  const pitch = pitchA === PITCH_USUAL ? '' : `A = ${pitchA}`;   // (short, as musicians write it: "A = 432 Hz" in the menu and the tuner)
+  const more = !pitch ? esc(tuned) : `${tuned ? `<span class="inst-tname">${esc(tuned)}</span>` : ''}<span class="inst-pitch">${pitch}</span>`;
   els.instrumentPicker.innerHTML = `<span class="inst-label"><span class="inst-name">${esc(inst.name)}</span>` +
-    (tuned ? ` <span class="inst-tuning">${esc(tuned)}</span>` : '') + '</span>';   // (the space: phones, where they wrap)
-  els.instrumentPicker.setAttribute('aria-label', `Instrument: ${inst.name}${tuned ? `, ${tuned}` : ''}`);
+    (more ? ` <span class="inst-tuning">${more}</span>` : '') + '</span>';   // (the space: phones, where they wrap)
+  els.instrumentPicker.setAttribute('aria-label', `Instrument: ${[inst.name, tuned, pitch && refText()].filter(Boolean).join(', ')}`);
   stackInstLabel();
   const c = capo();
   els.tuningSelect.textContent = tuned || 'Standard tuning';
@@ -1628,8 +1637,13 @@ function stackInstLabel() {
   if (!tuning || els.instrumentPicker.parentElement !== els.instNarrowSlot) return;
   // (on the line under the name: its middle well under the name's; their
   // boxes, padded for the trimmed text, overlap either way)
-  const [t, n] = [tuning, label.querySelector('.inst-name')].map((el) => el.getBoundingClientRect());
-  if (t.top + t.height / 2 - (n.top + n.height / 2) > n.height / 2) label.classList.add('stacked');
+  const under = (a, b) => { const [x, y] = [a, b].map((el) => el.getBoundingClientRect()); return x.top + x.height / 2 - (y.top + y.height / 2) > y.height / 2; };
+  tuning.classList.remove('split');
+  if (under(tuning, label.querySelector('.inst-name'))) label.classList.add('stacked');
+  // (stacked, and the reference pitch still not beside the tuning's name:
+  // a line of its own too, without the dot)
+  const [tname, pitch] = [tuning.querySelector('.inst-tname'), tuning.querySelector('.inst-pitch')];
+  if (label.classList.contains('stacked') && tname && pitch && under(pitch, tname)) tuning.classList.add('split');
 }
 /* "Drop D", "C G D G B D" (custom), or '' for the standard tuning */
 const tuningName = (inst) => (inst.tuning && inst.tuning.id !== 'standard' ? inst.tuning.name : '');
@@ -2740,7 +2754,7 @@ function keepChipVisible(list = els.shapeList) {
    piano's fewer) */
 function fitSwitches() {
   for (const row of document.querySelectorAll('.switch-row, .settings')) {
-    const shown = [...row.querySelectorAll(':scope > .pill-toggle')].filter((el) => getComputedStyle(el).display !== 'none');
+    const shown = [...row.querySelectorAll(':scope > .pill-toggle, :scope > .tool-btn, :scope > .tool-wrap')].filter((el) => getComputedStyle(el).display !== 'none');   // (the tools, two tiles of the grid too)
     shown.forEach((el, i) => el.classList.toggle('whole', i === shown.length - 1 && shown.length % 2 === 1));
   }
 }
@@ -2997,14 +3011,14 @@ function init() {
     'scaleRoot', 'scaleType', 'scaleClear', 'tglScaleAlt', 'tglChordAlt', 'scaleNotes', 'scaleTriads', 'scaleSymbol', 'scaleName', 'scaleMeta', 'scaleAlt',
     'dockRecent', 'dockRecentList', 'dockRecentClear', 'recentLine', 'recentList', 'recentClear',
     'settings', 'settingsWideSlot', 'settingsNarrowSlot', 'setupHead', 'instWideSlot', 'instNarrowSlot', 'sheet', 'sheetBody', 'sheetClose',
-    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'tunerOpen', 'tuner', 'tunerClose', 'tunerHead', 'tunerTuning', 'tunerFold', 'tunerStrings', 'tunerView', 'tunerStrip', 'tunerTape', 'tunerLeft', 'tunerRight', 'tunerFine', 'tunerFineTape', 'tunerHint', 'tunerClear', 'tunerMessage', 'tunerMessageTitle', 'tunerMessageText', 'tunerRetry', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
+    'dockShapeBar', 'tglScaleOnly', 'tglScaleGroups', 'picker', 'pickerTitle', 'pickerTools', 'pickerBody', 'tunerPitch', 'metroOpen', 'metroTool', 'metroStop', 'metroShown', 'metronome', 'metroClose', 'metroTap', 'metroSlower', 'metroFaster', 'metroBpm', 'metroMarking', 'metroTempo', 'metroMeters', 'metroBeats', 'metroGo', 'tunerOpen', 'tuner', 'tunerClose', 'tunerHead', 'tunerTuning', 'tunerFold', 'tunerStrings', 'tunerView', 'tunerStrip', 'tunerTape', 'tunerLeft', 'tunerRight', 'tunerFine', 'tunerFineTape', 'tunerHint', 'tunerClear', 'tunerMessage', 'tunerMessageTitle', 'tunerMessageText', 'tunerRetry', 'pickerClose', 'dockPrev', 'dockNext', 'dockStrum', 'dockShape', 'dockSymbol', 'dockTab',
     'tabChordValue', 'tabScaleValue', 'tabNeckValue', 'about', 'aboutOpen', 'aboutClose', 'shareOpen', 'shareStatus', 'scalePlay',
-    'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneCancel', 'tuneDone',
+    'tuneEdit', 'tuneClose', 'tuneName', 'tuneList', 'tuneReset', 'tuneDone',
     'tuneActions', 'tuneSave', 'tuneNaming', 'tuneSaveName', 'tuneNameCancel', 'tuneNameSave',
     'tuneDelete', 'tuneDeleteClose', 'tuneDeleteName', 'tuneDeleteNotes', 'tuneDeleteCancel', 'tuneDeleteGo',
     'resetAll', 'resetAsk', 'resetWhat', 'resetAskClose', 'resetAskCancel', 'resetAskGo',
     'listClear', 'listClearClose', 'listClearCount', 'listClearNames', 'listClearRecentCount', 'listClearRecentNames', 'listClearRecentGo', 'listClearCancel', 'listClearGo',
-    'share', 'shareClose', 'shareCancel', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo', 'shareText',
+    'share', 'shareClose', 'shareNeck', 'shareChord', 'shareScale', 'shareRecent', 'shareGo', 'shareText',
     'linkOpen', 'linkClose', 'linkNeck', 'linkChord', 'linkScale', 'linkList', 'linkKeep', 'linkLoad',
     'groupLine', 'groupPrev', 'groupNext', 'groupList',
     'namer', 'namerOpen', 'namerMute', 'namerUp', 'namerDown', 'namerAlt', 'namerClear', 'namerPrev', 'namerNext', 'namerSymbol', 'namerText', 'namerCaption', 'namerPlay', 'namerCancel', 'namerSelect',
@@ -3076,7 +3090,26 @@ function init() {
       changeNeck(() => { state.instrument = v; });   // (the chord keeps its bass; else as last used on that instrument)
       render();
     },
+    // Under the instruments, the reference pitch (every instrument's: see setPitch): a
+    // setting, set apart from them (a rule, its label as a field's), not one more family
+    foot: `<div id="pitchRow" class="pitch-foot">
+        <div class="pitch-grid"><span class="label">Reference pitch</span>
+          <button type="button" class="btn small pitch-reset" title="Back to A = ${PITCH_USUAL} Hz" hidden><span class="tx">Reset</span></button>
+          <button type="button" class="btn icon" data-pitch="-1" aria-label="Lower" title="Lower by 1 Hz"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
+          <span class="pitch-value" aria-live="polite"></span>
+          <button type="button" class="btn icon" data-pitch="1" aria-label="Higher" title="Higher by 1 Hz"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 12h12M12 6v12"/></svg></button>
+        </div>
+      </div>`,
   }));
+  els.instrumentPicker.addEventListener('click', () => {   // (its reference pitch row: its buttons, as drawn)
+    const row = document.querySelector('#pitchRow');
+    if (!row || row.dataset.wired) return;
+    row.dataset.wired = '1';
+    holdStep(row.querySelector('[data-pitch="-1"]'), () => setPitch(pitchA - 1));
+    holdStep(row.querySelector('[data-pitch="1"]'), () => setPitch(pitchA + 1));
+    row.querySelector('.pitch-reset').addEventListener('click', () => { setPitch(PITCH_USUAL); row.querySelector('[data-pitch="1"]').focus({ preventScroll: true }); });
+    renderPitch();
+  });
   els.tuningSelect.addEventListener('click', openTuningMenu);
   // The tuner: its microphone off whenever it closes (×, Escape, outside it)
   // or the page is hidden, back on when the page comes back
@@ -3085,6 +3118,8 @@ function init() {
   els.tuner.addEventListener('close', tunerClosed);
   els.tuner.addEventListener('click', (e) => { if (e.target === els.tuner) closeTuner(); });
   els.tunerFold.addEventListener('click', foldTuner);
+  // (folded: a click anywhere on its head unfolds it, as a folded panel's; its arrow does its own)
+  els.tunerHead.addEventListener('click', (e) => { if (els.tunerHead.classList.contains('folded') && !e.target.closest('button')) foldTuner(); });
   els.tunerClear.addEventListener('click', clearTunerTarget);
   onPress(els.tunerStrings, '[data-s]', (b) => pickTunerString(Number(b.dataset.s)));   // (on press, as every note that sounds)
   els.tunerRetry.addEventListener('click', startMic);
@@ -3093,6 +3128,30 @@ function init() {
     if (!els.tuner.open) return;
     if (document.visibilityState === 'hidden') { if (tunerLive()) { stopMic(); tuner.status = 'paused'; } }
     else if (tuner.status === 'paused') startMic();
+  });
+  // The metronome: on until stopped, its popup closed too (×, Escape, outside it)
+  els.metroOpen.addEventListener('click', openMetronome);
+  els.metroStop.addEventListener('click', stopMetronome);   // (at the button's end while it plays: stopped without opening it)
+  els.metroClose.addEventListener('click', closeMetronome);
+  els.metronome.addEventListener('click', (e) => { if (e.target === els.metronome) closeMetronome(); });
+  els.metroGo.addEventListener('click', () => (metroOn() ? stopMetronome() : startMetronome()));
+  els.metroTap.addEventListener('pointerdown', (e) => { if (e.button === 0) tapTempo(); });   // (on press: as tapped, not as let go)
+  els.metroTap.addEventListener('click', (e) => { if (e.detail === 0) tapTempo(); });   // (the keyboard)
+  holdStep(els.metroSlower, () => setMetroTempo(metro.bpm - 1));
+  holdStep(els.metroFaster, () => setMetroTempo(metro.bpm + 1));
+  els.metroTempo.addEventListener('input', () => setMetroTempo(Number(els.metroTempo.value)));
+  els.metroMeters.addEventListener('click', (e) => { const b = e.target.closest('[data-meter]'); if (b) setMetroMeter(b.dataset.meter); });
+  els.metroBeats.addEventListener('click', cycleGroups);   // (the beats row: the next way of grouping them)
+  window.addEventListener('resize', fitMetroBeats);   // (its dots smaller only while the row is too narrow for them)
+  // Its keys: Space starts and stops (but on a button: that button), T taps, + and − (↑ ↓) step
+  els.metronome.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const onButton = e.target.closest('button');
+    const onSlider = e.target === els.metroTempo;
+    if (e.key === ' ' && !onButton) { e.preventDefault(); if (!e.repeat) els.metroGo.click(); }
+    else if (e.key === 't' || e.key === 'T') { e.preventDefault(); if (!e.repeat) tapTempo(); }
+    else if (!onSlider && (e.key === '+' || e.key === '=' || e.key === 'ArrowUp')) { e.preventDefault(); setMetroTempo(metro.bpm + 1); }
+    else if (!onSlider && (e.key === '-' || e.key === '−' || e.key === 'ArrowDown')) { e.preventDefault(); setMetroTempo(metro.bpm - 1); }
   });
   // Custom tuning popup
   els.tuneList.addEventListener('click', (e) => {
@@ -3110,7 +3169,6 @@ function init() {
   onPress(els.tuneList, '[data-play]', (note) => { playNote(Number(note.dataset.play)); ping(note); });   // heard, with the amber flash
   els.tuneReset.addEventListener('click', () => tuneSet(tuningsOf(state.instrument)[0].strings.slice()));
   els.tuneDone.addEventListener('click', () => closeTuneEdit(true));
-  els.tuneCancel.addEventListener('click', () => closeTuneEdit(false));
   els.tuneClose.addEventListener('click', () => closeTuneEdit(false));
   els.tuneEdit.addEventListener('click', (e) => { if (e.target === els.tuneEdit) closeTuneEdit(false); });
   els.tuneEdit.addEventListener('close', () => closeTuneEdit(false));   // Escape
@@ -3391,7 +3449,6 @@ function init() {
   els.shareOpen.addEventListener('click', openShare);
   els.shareClose.addEventListener('click', closeShare);
   els.share.addEventListener('click', (e) => { if (e.target === els.share) closeShare(); });
-  els.shareCancel.addEventListener('click', closeShare);
   for (const [btn, key] of [[els.shareNeck, 'neck'], [els.shareChord, 'chord'], [els.shareScale, 'scale'], [els.shareRecent, 'list']]) {
     btn.addEventListener('click', () => { state.share[key] = !state.share[key]; saveState(); renderShare(); });
   }
@@ -3466,12 +3523,24 @@ function init() {
   // ring cut off): the row, the popup or the page scrolls just enough (the
   // room is the controls' scroll-margin in styles.css). Taps and clicks
   // scroll nothing.
+  /* The focus moved with the keyboard: Tab, or an arrow (Home, End...) that
+     moved it; not a shortcut (Space, Escape, T: the focus they put back on a
+     button is no reason to show it), nor a click or tap. html.keyboard: its
+     rings shown (styles.css), only then */
+  let keyboardFocus = false;
+  const setKeyboardFocus = (on) => { keyboardFocus = on; document.documentElement.classList.toggle('keyboard', on); };
+  const MOVE_KEYS = new Set(['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
+  let moveKeyAt = -Infinity;
+  document.addEventListener('pointerdown', () => { setKeyboardFocus(false); moveKeyAt = -Infinity; }, true);
+  document.addEventListener('keydown', (e) => {
+    if (!MOVE_KEYS.has(e.key)) return;
+    moveKeyAt = performance.now();
+    if (e.key === 'Tab') setKeyboardFocus(true);
+  }, true);
   document.addEventListener('focusin', (e) => {
-    if (e.target.matches && e.target.matches(':focus-visible')) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  });
-  let keyboardFocus = false;   // the focus was last moved with the keyboard
-  document.addEventListener('pointerdown', () => { keyboardFocus = false; }, true);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Tab') keyboardFocus = true; }, true);
+    if (performance.now() - moveKeyAt < 250) setKeyboardFocus(true);   // (an arrow, a moment ago: it moved the focus)
+    if (keyboardFocus && e.target.matches && e.target.matches(':focus-visible')) e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, true);
   const popupOpen = () => !!document.querySelector('dialog[open]');
   const spaceStrums = (e) => e.key === ' ' && !popupOpen() && !e.altKey && !e.ctrlKey && !e.metaKey &&
     !e.target.closest('input, textarea') && !(e.target.closest('button') && keyboardFocus);
@@ -3673,7 +3742,7 @@ if (typeof document !== 'undefined') init();
    test/frettle.js): the parts the tests check, none of them the interface */
 if (typeof module !== 'undefined') {
   module.exports = {
-    detectPitch, hzMidi, midiHz,
+    detectPitch, hzMidi, midiHz, metroClick, meterLevels, tempoName, METERS,
     INSTRUMENTS, TUNINGS, tunedInstrument, findInstrument, startFret, shapePitch, PIANO_LOW, PIANO_KEYS,
     ALL_CHORDS, findChord, chordTones, findShapes, pianoShapes, barresFor, fingersFor, tabOf,
     shapeCandidates, pickShapes, chartShape, SHAPE_WEIGHTS,

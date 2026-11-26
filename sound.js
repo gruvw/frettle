@@ -42,11 +42,21 @@ function audioOut() {
   if (!audio) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
+    audioKind('playback');
     const ctx = new AC();
     audio = { ctx, out: soundChain(ctx) };
+    // (cut off: a call, Siri, the screen locked: the metronome shown stopped, not on and silent)
+    ctx.addEventListener('statechange', () => { if (ctx.state !== 'running' && audio && audio.ctx === ctx && metroOn()) stopMetronome(); });
   }
   wakeAudio();
   return audio;
+}
+/* What kind of sound this is, for iPhones (Safari 16.4 on): played as an
+   app's music ('playback'), it is heard with the ring switch on silent too
+   (as 'ambient', the browser's own, it is not); while the tuner listens,
+   'play-and-record', which the microphone needs. Elsewhere: nothing. */
+function audioKind(type) {
+  try { if (navigator.audioSession && navigator.audioSession.type !== type) navigator.audioSession.type = type; } catch { /* (not allowed: as it was) */ }
 }
 /* The audio starts at the first tap or key press anywhere (the browser
    allows it no sooner), so it is running by the time a note is played */
@@ -97,6 +107,11 @@ function warmUp(ch, sc) {
 }
 
 
+const SAFE_CURVE = Float32Array.from({ length: 8193 }, (_, i) => {   // (for -2 to 2: fed at half, see soundChain)
+  const x = 2 * (i / 4096 - 1);
+  const over = Math.abs(x) - 0.8;
+  return over <= 0 ? x : Math.sign(x) * (0.8 + 0.2 * Math.tanh(over / 0.2));
+});
 /* Notes → tone filter → body → (dry + room) → soft limiter → speakers.
    Returns the node notes connect to. */
 function soundChain(ctx) {
@@ -137,7 +152,18 @@ function soundChain(ctx) {
     wet.connect(limiter);
   }
   limiter.connect(volume);
-  volume.connect(ctx.destination);
+  /* Last, a safety: nothing at all up to -2 dBFS (every sound here stays
+     under it), above, rounded off rather than clipped (the metronome's
+     clicks, which skip the limiter, on a loud chord). input.direct: in
+     there, for them */
+  const safety = ctx.createWaveShaper();
+  safety.curve = SAFE_CURVE;
+  const half = ctx.createGain();   // (a curve maps -1 to 1 only: up to twice as loud rounded too, never cut flat)
+  half.gain.value = 0.5;
+  volume.connect(half);
+  half.connect(safety);
+  safety.connect(ctx.destination);
+  input.direct = half;
   return input;
 }
 
@@ -341,6 +367,7 @@ function strike(a, midi, delay, level) {
   const { ctx } = a;
   const src = ctx.createBufferSource();
   src.buffer = pianoTone(midi);
+  src.playbackRate.value = pitchA / PITCH_USUAL;   // (as playNote's)
   const gain = ctx.createGain();
   gain.gain.value = level;
   src.connect(gain);
@@ -364,7 +391,7 @@ function playNote(midi, delay = 0, level = 0.55) {
   const { buffer, rate } = pluck(midi);
   const src = a.ctx.createBufferSource();
   src.buffer = buffer;
-  src.playbackRate.value = rate;
+  src.playbackRate.value = (rate * pitchA) / PITCH_USUAL;   // (made at A 440: played at the reference pitch)
   const gain = a.ctx.createGain();
   gain.gain.value = level;
   src.connect(gain);
@@ -647,8 +674,41 @@ const IN_TUNE = 4;          // cents either way that count as in tune
 const TUNER_HOLD = 700;     // ms a note stays after it fades out
 const TUNER_SETTLE = 200;   // ms after a pluck its cents are not shown (see tunerFrame)
 const FINE_PX = 5;          // the fine strip: px per cent
-const hzMidi = (hz) => 69 + 12 * Math.log2(hz / 440);
-const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
+/* The reference pitch: A4's, in Hz (440 as usual; 415 for Baroque
+   players, 442 for some orchestras...). The tuner measures against it,
+   every note plays at it (playNote: its speed); kept on this device (in
+   the instrument menu: see setPitch). Within PITCH_MIN and PITCH_MAX: every
+   pitch in use (392, French Baroque, to 466, Venetian); past them, a
+   transposition, as the capo is */
+const PITCH_USUAL = 440;
+const PITCH_MIN = 390;
+const PITCH_MAX = 470;
+const PITCH_KEY = 'frettle-pitch';
+let pitchA = PITCH_USUAL;
+try {
+  const kept = typeof localStorage === 'undefined' ? NaN : Number(localStorage.getItem(PITCH_KEY));
+  if (kept >= PITCH_MIN && kept <= PITCH_MAX) pitchA = Math.round(kept);
+} catch { /* (none kept: as usual) */ }
+function setPitch(hz) {
+  pitchA = Math.max(PITCH_MIN, Math.min(PITCH_MAX, Math.round(hz)));
+  try { if (pitchA === PITCH_USUAL) localStorage.removeItem(PITCH_KEY); else localStorage.setItem(PITCH_KEY, String(pitchA)); } catch { /* not kept */ }
+  renderPitch();
+}
+const refText = () => `A = ${pitchA} Hz`;
+// (shown where it is: the instrument menu's row, if open; the tuner's title)
+function renderPitch() {
+  const row = document.querySelector('#pitchRow');
+  if (row) {
+    row.querySelector('.pitch-value').textContent = refText();
+    row.querySelector('[data-pitch="-1"]').disabled = pitchA <= PITCH_MIN;
+    row.querySelector('[data-pitch="1"]').disabled = pitchA >= PITCH_MAX;
+    row.querySelector('.pitch-reset').hidden = pitchA === PITCH_USUAL;
+  }
+  if (els.tunerPitch) { els.tunerPitch.textContent = refText(); els.tunerPitch.hidden = pitchA === PITCH_USUAL; }   // (the tuner's: only when not as usual)
+  if (typeof renderHeader === 'function' && els.instrumentPicker) renderHeader();   // (the instrument's button: there too, when not as usual)
+}
+const hzMidi = (hz) => 69 + 12 * Math.log2(hz / pitchA);
+const midiHz = (m) => pitchA * 2 ** ((m - 69) / 12);
 
 // FFT, in place (re, im: a power of two long); inverse: unscaled
 const fftTables = new Map();
@@ -852,6 +912,10 @@ const tunerLive = () => tuner.status === 'on' || tuner.status === 'asking';
 function openTuner() {
   const inst = instrument();
   if (inst.piano || els.tuner.open) return;
+  renderPitch();   // (its title: the reference pitch)
+  // (the metronome on: paused while it listens, on again once it closes)
+  metro.paused = metroOn();
+  if (metro.paused) stopMetronome();
   tuner.strings = inst.strings.slice();
   // (always as it first was: the strings shown, none picked, on middle C)
   Object.assign(tuner, { target: null, folded: false, mutedUntil: 0, pitch: null, recent: [], odd: 0, shown: TUNER_REST, settleUntil: 0, settleNote: null, aim: null, sliding: false, heardAim: null, waiting: false, fineNote: null, drawn: '', floor: null });
@@ -871,10 +935,11 @@ function closeTuner() {
   if (els.tuner.open) { if (els.tuner.close) els.tuner.close(); else els.tuner.removeAttribute('open'); }
   tunerClosed();
 }
-function tunerClosed() {   // (the popup gone, however: the microphone off)
+function tunerClosed() {   // (the popup gone, however: the microphone off, the metronome on again if it was)
   stopMic();
   cancelAnimationFrame(tuner.raf);
   tuner.status = 'off';
+  if (metro.paused) { metro.paused = false; startMetronome(); }
 }
 function measureTuner() {
   const cell = els.tunerTape.firstElementChild;
@@ -893,6 +958,7 @@ async function startMic() {
   const token = ++tuner.token;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setTunerStatus('unsupported'); return; }
   const a = audioOut();   // (started in the tap, while the browser allows it)
+  audioKind('play-and-record');   // (before the microphone, after the sound's first start: see audioKind)
   setTunerStatus('asking');
   let stream;
   const asked = performance.now();
@@ -925,6 +991,7 @@ function stopMic() {
   if (tuner.stream) tuner.stream.getTracks().forEach((t) => t.stop());
   if (tuner.source) tuner.source.disconnect();
   Object.assign(tuner, { stream: null, source: null, analyser: null, buf: null, pitch: null, recent: [] });
+  if (audio) audioKind('playback');
 }
 // (refused for good: the browser says so; it may not say, then: not for good)
 let micPermission = null;
@@ -1192,7 +1259,7 @@ function pickTunerString(s) {
   tuner.target = s;
   // (the microphone would hear it: not listened to for 95% of its length,
   // the rest too faint to start a note)
-  tuner.mutedUntil = performance.now() + pluckSeconds(tuner.strings[s]) * 950;
+  tuner.mutedUntil = performance.now() + (pluckSeconds(tuner.strings[s]) * 950 * PITCH_USUAL) / pitchA;   // (played slower at a lower reference pitch: longer)
   renderTuner();
   ping(els.tunerStrings.children[s]);   // (the amber splash, as every note that sounds)
 }
@@ -1203,4 +1270,374 @@ function clearTunerTarget() {
 function foldTuner() {
   tuner.folded = !tuner.folded;
   renderTuner();
+}
+
+/* ==========================================================================
+   Metronome
+   A bar of clicks, made for its tempo and time signature, looped by the
+   audio itself: in time to the sample however busy the page, and on in a
+   hidden tab (no timer to fall behind). Changed as it plays: the new bar
+   from the next beat, the count going on (a new time signature: from its
+   first beat). The first beat a higher "tic", the others a "tac"; in 7/4
+   (4+3), 5/8 (3+2), 6/8, 7/8 (2+2+3), 9/8, 12/8 each group's first a
+   little louder; with none, every beat a tac. The beats light up as they are heard. On until
+   stopped, its popup closed too (its button outlined meanwhile); paused
+   while the tuner listens.
+   ========================================================================== */
+const METRO_MIN = 30;
+const METRO_MAX = 250;
+const METRO_KEY = 'frettle-metronome';   // (the tempo and time signature, as last set: none too)
+/* (two rows: in quarters, then in eighths). Each its usual groups, then
+   the other ways it is often felt; with none at all after (each beat the
+   same but the first), the beats row tapped goes through them (see
+   cycleGroups) */
+const METERS = [
+  { name: '2/4', groups: [2] }, { name: '3/4', groups: [3] }, { name: '4/4', groups: [4], alts: [[2, 2]] },
+  { name: '5/4', groups: [5], alts: [[3, 2], [2, 3]] }, { name: '7/4', groups: [4, 3], alts: [[3, 4], [2, 2, 3]] },
+  { name: '5/8', groups: [3, 2], alts: [[2, 3]] }, { name: '6/8', groups: [3, 3], alts: [[2, 2, 2]] },
+  { name: '7/8', groups: [2, 2, 3], alts: [[3, 2, 2], [2, 3, 2]] }, { name: '9/8', groups: [3, 3, 3], alts: [[2, 2, 2, 3], [3, 2, 2, 2]] },
+  { name: '12/8', groups: [3, 3, 3, 3], alts: [[6, 6]] },
+];
+// (each beat's click: 0 the first, 1 a group's first, 2 any other; no time signature, a bar of one tac)
+const meterLevels = (meter, groups = meterGroups(meter)) => (meter === null ? [2] : groups.flatMap((n, g) => Array.from({ length: n }, (_, i) => (i ? 2 : g ? 1 : 0))));
+/* Its groups: as chosen (the beats row tapped), else as usual (7/8: 2+2+3);
+   the ways it can be grouped, the usual first */
+const meterGroups = (meter) => (meter === null ? [1] : metro.groups[meter] || METERS.find((m) => m.name === meter).groups);
+const meterBeats = (meter) => METERS.find((m) => m.name === meter).groups.reduce((a, b) => a + b, 0);
+function groupings(meter) {
+  if (meter === null) return [[1]];
+  const { groups, alts = [] } = METERS.find((m) => m.name === meter);
+  return [groups, ...alts, ...(groups.length > 1 ? [[meterBeats(meter)]] : [])];
+}
+// The tempo's Italian name, as written over a score (up to each bound)
+const TEMPO_NAMES = [[40, 'Grave'], [60, 'Largo'], [66, 'Larghetto'], [76, 'Adagio'], [108, 'Andante'], [120, 'Moderato'], [156, 'Allegro'], [176, 'Vivace'], [200, 'Presto'], [Infinity, 'Prestissimo']];
+const tempoName = (bpm) => TEMPO_NAMES.find(([upTo]) => bpm < upTo)[1];
+const metro = {
+  bpm: 100, meter: '4/4', loaded: false,
+  bars: [],        // the bars scheduled, the latest last: { src, from (when it starts, audio time), start (its beat 0), dur (a beat), beats, first, meter }
+  taps: [],        // (tap tempo: when tapped, ms)
+  raf: 0, beat: null, retimed: 0, retimer: 0, newMeter: false,
+  paused: false,   // (stopped while the tuner listens: on again once it closes)
+  groups: {},      // (the time signature's groups as chosen, if not as usual: { '7/8': [3, 2, 2] }; another time signature, forgotten)
+};
+function loadMetronome() {
+  if (metro.loaded) return;
+  metro.loaded = true;
+  try {
+    const saved = JSON.parse(localStorage.getItem(METRO_KEY)) || {};
+    if (saved.meter === null || METERS.some((m) => m.name === saved.meter)) metro.meter = saved.meter;
+    if (Number.isFinite(saved.bpm)) metro.bpm = Math.max(METRO_MIN, Math.min(METRO_MAX, Math.round(saved.bpm)));
+    const groups = metro.meter !== null && (saved.groups || {})[metro.meter];   // (its time signature's other grouping, if one of its)
+    const known = groups && groupings(metro.meter).find((g) => String(g) === String(groups));
+    if (known) metro.groups[metro.meter] = known;
+  } catch { /* (none kept: as it comes) */ }
+}
+const saveMetronome = () => { try { localStorage.setItem(METRO_KEY, JSON.stringify({ bpm: metro.bpm, meter: metro.meter, groups: metro.groups })); } catch { /* not kept */ } };
+/* The beats row tapped: its time signature's next way of grouping them
+   (after the last, the usual again). As it plays: from the next beat, the
+   count going on. The usual: nothing kept */
+function cycleGroups() {
+  const meter = metro.meter;
+  const ways = groupings(meter);
+  if (ways.length < 2) return;
+  const now = ways.findIndex((g) => String(g) === String(meterGroups(meter)));
+  const next = ways[(now + 1) % ways.length];
+  if (next === ways[0]) delete metro.groups[meter]; else metro.groups[meter] = next;
+  metroChanged();
+}
+
+/* A click: a small wooden block struck, as a metronome's: a few
+   resonances (a wooden bar's, not whole multiples) dying within some tens
+   of ms, a short knock under them, and the strike itself, a burst of noise
+   ringing at the block's middle, over in a couple of ms. Nothing sharp: no
+   edge at its start, little above 4 kHz. The tic a major third above the
+   tac, a group's first between them; each a little louder than the next. */
+const metroClicks = new Map();   // (audio rate → the three clicks, made once)
+function metroClick(rate, level) {
+  const hz = [1318.5, 1174.7, 1046.5][level];   // (E6, D6, C6: a whole tone apart, mi re do)
+  const peak = [0.76, 0.53, 0.63][level];   // (1.5 dB apart as heard: the tic louder than a note tapped, the tacs as loud or a little more, a strum louder still: see metroLoop)
+  const modes = [[1, 1, 0.022], [2.3, 0.7, 0.012], [3.4, 0.4, 0.007]];   // (× hz, level, seconds to fade to a third)
+  const n = Math.round(rate * 0.11);
+  const fade = Math.round(rate * 0.012);
+  // (the strike's ring: a resonator at 2.2 × hz, as a 2-pole filter)
+  const r = Math.exp((-Math.PI * hz * 0.9) / rate);
+  const c = 2 * r * Math.cos((2 * Math.PI * hz * 2.2) / rate);
+  const x = new Float32Array(n);
+  let seed = 7;
+  let y1 = 0;
+  let y2 = 0;
+  let max = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / rate;
+    let v = 0;
+    for (const [k, a, tau] of modes) v += a * Math.exp(-t / tau) * Math.sin(2 * Math.PI * hz * k * t);
+    v += 0.3 * Math.exp(-t / 0.005) * Math.sin(2 * Math.PI * hz * 0.32 * t);   // (the knock)
+    seed = (seed * 16807) % 2147483647;
+    const y = ((seed / 2147483647) * 2 - 1) * Math.exp(-t / 0.0015) + c * y1 - r * r * y2;
+    y2 = y1;
+    y1 = y;
+    v += 0.2 * y;
+    v *= Math.min(1, t / 0.0004) * Math.min(1, (n - i) / fade);
+    x[i] = v;
+    max = Math.max(max, Math.abs(v));
+  }
+  for (let i = 0; i < n; i++) x[i] *= peak / max;
+  return x;
+}
+// A bar of clicks, a whole number of samples long (a beat: exactly a share of it)
+function metroBar(ctx) {
+  const rate = ctx.sampleRate;
+  if (!metroClicks.has(rate)) metroClicks.set(rate, [0, 1, 2].map((level) => metroClick(rate, level)));
+  const clicks = metroClicks.get(rate);
+  const levels = meterLevels(metro.meter);
+  const beats = levels.length;
+  const length = Math.round((beats * 60 * rate) / metro.bpm);
+  const buffer = ctx.createBuffer(1, length, rate);
+  const data = buffer.getChannelData(0);
+  levels.forEach((level, b) => {
+    const at = Math.round((b * length) / beats);
+    data.set(clicks[level].subarray(0, length - at), at);
+  });
+  return { buffer, beats, dur: length / rate / beats };
+}
+// That bar, looped from `when` (audio time), from its beat `first`
+function metroLoop(when, first) {
+  const a = audio;
+  const { buffer, beats, dur } = metroBar(a.ctx);
+  const src = a.ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  src.connect(a.out.direct || a.out);   // (not through the limiter: it would take a click's sharp start for a loud sound and turn it all down)
+  src.start(when, first * dur);
+  return { src, from: when, start: when - first * dur, dur, beats, first, meter: metro.meter };
+}
+const metroOn = () => metro.bars.length > 0;
+function startMetronome() {
+  const a = audioOut();
+  if (!a) return;
+  stopMetronome();
+  metro.bars = [metroLoop(a.ctx.currentTime + 0.06, 0)];
+  renderMetronome();
+  metroFrame();
+}
+function stopMetronome() {
+  for (const bar of metro.bars) { try { bar.src.stop(); } catch { /* (already) */ } }
+  metro.bars = [];
+  clearTimeout(metro.retimer);
+  metro.retimer = 0;
+  cancelAnimationFrame(metro.raf);
+  showMetroBeat(-1);
+  renderMetronome();
+}
+/* The tempo or time signature changed as it plays: the new bar from the
+   next beat (not too near to be on time), the old one stopped there; a bar
+   still to come (changed again before it began) replaced */
+function retimeMetronome(newMeter) {
+  if (!metroOn()) return;
+  const now = audio.ctx.currentTime;
+  const last = metro.bars[metro.bars.length - 1];
+  let when;
+  let first;
+  if (now < last.from - 0.01) {
+    try { last.src.stop(); } catch { /* (already) */ }
+    metro.bars.pop();
+    when = last.from;
+    first = newMeter ? 0 : last.first;
+  } else {
+    let k = Math.floor((now - last.start) / last.dur) + 1;
+    if (last.start + k * last.dur - now < 0.03) k++;
+    when = last.start + k * last.dur;
+    first = newMeter ? 0 : k % last.beats;
+    last.src.stop(when);
+  }
+  metro.bars.push(metroLoop(when, first));
+  metro.bars.splice(0, Math.max(0, metro.bars.length - 3));   // (the ones long over: let go)
+}
+// (dragging the tempo: retimed at most every METRO_RETIME ms, the last change always)
+const METRO_RETIME = 80;
+function metroChanged(newMeter = false) {
+  saveMetronome();
+  renderMetronome();
+  if (!metroOn()) return;
+  metro.newMeter = metro.newMeter || newMeter;
+  if (metro.retimer) return;
+  const go = () => { metro.retimer = 0; metro.retimed = performance.now(); const m = metro.newMeter; metro.newMeter = false; retimeMetronome(m); };
+  const wait = METRO_RETIME - (performance.now() - metro.retimed);
+  if (wait <= 0) go(); else metro.retimer = setTimeout(go, wait);
+}
+function setMetroTempo(bpm) {
+  bpm = Math.max(METRO_MIN, Math.min(METRO_MAX, Math.round(bpm)));
+  if (bpm === metro.bpm) return;
+  metro.bpm = bpm;
+  metroChanged();
+}
+// (the one selected tapped again: none)
+// (another time signature, or none: grouped as usual, any other grouping forgotten)
+function setMetroMeter(meter) {
+  metro.meter = meter === metro.meter ? null : meter;
+  metro.groups = {};
+  metroChanged(true);
+}
+/* Tap tempo: the beat tapped, the tempo its taps' (the last 6; one more
+   than 2 s after the last starts over: slower than the slowest tempo) */
+function tapTempo() {
+  const now = performance.now();
+  const taps = metro.taps;
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 6) taps.shift();
+  const btn = els.metroTap;
+  btn.classList.remove('tapped');
+  void btn.offsetWidth;   // (the flash again)
+  btn.classList.add('tapped');
+  if (taps.length >= 2) setMetroTempo(60000 / ((taps[taps.length - 1] - taps[0]) / (taps.length - 1)));
+}
+/* Where the clicks are, as heard now: the bar, the beat's count in it and
+   how far into that beat (0 to 1), or null (not started yet, or stopped).
+   Heard: the audio's time as the browser says it reaches the speakers
+   (else less the latency it gives), METRO_LEAD ahead (a frame on its way
+   to the screen) */
+const METRO_LEAD = 0.02;
+function metroHeard(lead = 0) {
+  if (!metroOn() || audio.ctx.state !== 'running') return null;
+  const ctx = audio.ctx;
+  const stamp = ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null;
+  const t = (stamp && stamp.performanceTime > 0 ? stamp.contextTime + (performance.now() - stamp.performanceTime) / 1000
+    : ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0)) + lead;
+  let bar = null;
+  for (const b of metro.bars) if (b.from <= t) bar = b;
+  if (!bar) return null;
+  const at = (t - bar.start) / bar.dur + 1e-6;
+  const k = Math.floor(at);
+  return { bar, k, into: at - k };
+}
+/* The beats shown as heard, every frame while it plays and its popup is
+   open (none in a hidden tab, or closed: the clicks go on): the beat's dot
+   lit at once as it sounds, then fading quickly, out a moment before the
+   next beat (with no time signature, the one dot: a blink each beat, never
+   seemingly on all along) */
+const METRO_FADE = 0.08;   // s its fade lasts (at most a quarter of a beat)
+const METRO_OFF = 0.07;    // s it is out before the next beat (at most a fifth)
+function metroFrame() {
+  cancelAnimationFrame(metro.raf);
+  metro.raf = 0;
+  if (!metroOn() || !els.metronome.open) return;
+  metro.raf = requestAnimationFrame(metroFrame);
+  const h = metroHeard(METRO_LEAD);
+  if (!h || h.bar.meter !== metro.meter) { showMetroBeat(-1); return; }
+  const { bar, k, into } = h;
+  const fade = Math.min(METRO_FADE, bar.dur / 4);
+  els.metroBeats.style.setProperty('--fade', `${Math.round(fade * 1000)}ms`);
+  showMetroBeat(((k % bar.beats) + bar.beats) % bar.beats, `${bar.from}:${k}`, (1 - into) * bar.dur < fade + Math.min(METRO_OFF, bar.dur / 5));
+}
+// (each beat known by its bar and count: the same dot lit again at the next)
+function showMetroBeat(beat, which = String(beat), ending = false) {
+  const dots = [...els.metroBeats.querySelectorAll('.metro-beat')];
+  if (which !== metro.beat) {
+    metro.beat = which;
+    dots.forEach((dot, i) => { dot.classList.remove('on', 'ending'); if (i === beat) dot.classList.add('on'); });
+  }
+  if (dots[beat]) dots[beat].classList.toggle('ending', ending);
+}
+function renderMetronome() {
+  if (!els.metronome) return;
+  const { bpm, meter } = metro;
+  els.metroBpm.textContent = bpm;
+  els.metroMarking.textContent = tempoName(bpm);
+  els.metroTempo.value = bpm;
+  els.metroTempo.style.setProperty('--f', ((bpm - METRO_MIN) / (METRO_MAX - METRO_MIN)).toFixed(4));
+  els.metroTempo.setAttribute('aria-valuetext', `${bpm} BPM, ${tempoName(bpm)}`);
+  els.metroSlower.disabled = bpm <= METRO_MIN;
+  els.metroFaster.disabled = bpm >= METRO_MAX;
+  for (const b of els.metroMeters.children) {
+    b.setAttribute('aria-pressed', String(b.dataset.meter === meter));
+    b.title = b.dataset.meter === meter ? 'Tap again for none: every beat the same' : '';
+  }
+  /* The beats: drawn again for another time signature, or other groups (a
+     group's first a little apart, a little bigger; with no time signature,
+     its one dot full size, its click a tac all the same). The row a button,
+     tapped, the next way of grouping them (none to choose: still) */
+  const groups = meterGroups(meter);
+  const drawn = `${meter}:${groups}`;
+  if (els.metroBeats.dataset.drawn !== drawn) {
+    els.metroBeats.dataset.drawn = drawn;
+    els.metroBeats.innerHTML = meterLevels(meter).map((level, i) => `<span class="metro-cell${level === 1 ? ' group' : ''}"><span class="metro-beat${level === 0 || meter === null ? ' first' : ''}"></span></span>`).join('');
+    metro.beat = null;
+    fitMetroBeats();
+  }
+  const ways = groupings(meter);
+  const said = meter === null ? 'Every beat the same' : groups.length > 1 ? `Grouped ${groups.join('+')}` : `${meterBeats(meter)} beats, no groups`;
+  els.metroBeats.disabled = ways.length < 2;
+  els.metroBeats.setAttribute('aria-label', ways.length < 2 ? said : `${said}: tap for another grouping`);
+  els.metroBeats.title = ways.length < 2 ? '' : `${said} (tap for another grouping)`;
+  const on = metroOn();
+  els.metroOpen.classList.toggle('on', on);   // (still on once closed: its button outlined, a stop at its end)
+  els.metroTool.classList.toggle('on', on);
+  els.metroStop.hidden = !on;
+  els.metroShown.textContent = bpm;   // (its tempo in place of its name while it plays)
+  els.metroOpen.setAttribute('aria-label', on ? `Metronome, ${bpm} BPM` : 'Metronome');
+  els.metroOpen.title = on ? `Metronome: on, ${bpm} BPM` : 'Metronome: keep time';
+  els.metroGo.innerHTML = `${on ? STOP_ICON : PLAY_ICON}<span class="tx">${playStopLabel(on, 'Start')}</span>`;
+  els.metroGo.setAttribute('aria-label', on ? 'Stop' : 'Start');
+  els.metroGo.title = `${on ? 'Stop' : 'Start'} (Space)`;
+}
+/* The dots as big as the bar leaves room for: as set, else .smaller, else
+   .smallest; room: a dot lit (its border, 3px, 2 at the smallest) clear of
+   the next by METRO_CLEAR at least. Once seen (its popup open: a hidden one
+   measures nothing), drawn again, or the window resized; as laid out (the
+   popup still growing in, a dot lit: no matter) */
+const METRO_CLEAR = 2;
+const METRO_SIZES = [['', 3], ['smaller', 3], ['smallest', 2]];
+function fitMetroBeats() {
+  const row = els.metroBeats;
+  if (!els.metronome.open) return;
+  // (each cell's middle, as drawn, in the popup's own scale: it grows in, from 98%; the cells stay put, whatever their dots' size)
+  const scale = row.getBoundingClientRect().width / row.offsetWidth || 1;
+  const cells = [...row.querySelectorAll('.metro-cell')];
+  const at = cells.map((cell) => { const b = cell.getBoundingClientRect(); return (b.left + b.right) / 2 / scale; });
+  for (const [size, border] of METRO_SIZES) {
+    row.classList.remove('smaller', 'smallest');
+    if (size) row.classList.add(size);
+    const r = cells.map((cell) => cell.firstElementChild.offsetWidth / 2);   // (its dot's size as set, lit or not)
+    if (size === 'smallest' || !at.some((x, i) => i > 0 && x - at[i - 1] - (r[i - 1] + r[i] + border) < METRO_CLEAR)) return;
+  }
+}
+function openMetronome() {
+  if (els.metronome.open) return;
+  loadMetronome();
+  if (!els.metroMeters.children.length) {
+    els.metroMeters.innerHTML = METERS.map(({ name }) => {
+      const [top, bottom] = name.split('/');
+      return `<button type="button" class="metro-meter" data-meter="${name}" aria-pressed="false" aria-label="${name}"><span aria-hidden="true">${top}</span><span aria-hidden="true">${bottom}</span></button>`;
+    }).join('');
+  }
+  metro.taps = [];
+  metro.beat = null;
+  renderMetronome();
+  if (els.metronome.showModal) els.metronome.showModal(); else els.metronome.setAttribute('open', '');
+  fitMetroBeats();
+  els.metroGo.focus({ preventScroll: true });   // (Space: start, stop)
+  metroFrame();   // (on meanwhile: its beats shown again)
+}
+function closeMetronome() {
+  if (els.metronome.open) { if (els.metronome.close) els.metronome.close(); else els.metronome.removeAttribute('open'); }
+}
+// − and +: a step a press, held, faster and faster; by the keyboard (Enter, Space), a step
+// (the metronome's tempo, the reference pitch: `step()` takes one). Held
+// on a phone: no long-press menu (as the strum button's), and no scroll
+// starting from it, which would end the hold (see .hold-step)
+function holdStep(btn, step) {
+  btn.classList.add('hold-step');
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  let timer = 0;
+  const stop = () => { clearTimeout(timer); timer = 0; };
+  const again = (wait) => { timer = setTimeout(() => { step(); if (btn.disabled) stop(); else again(wait > 100 ? 100 : Math.max(35, wait * 0.93)); }, wait); };
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.button > 0 || btn.disabled) return;
+    stop();
+    step();
+    again(400);
+  });
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(type, stop);
+  btn.addEventListener('click', (e) => { if (e.detail === 0) step(); });
 }

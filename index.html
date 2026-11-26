@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Frettle: Chord &amp; Scale Visualizer for Guitar, Bass, Ukulele, Banjo &amp; Piano</title>
-  <meta name="description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.">
+  <meta name="description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and use the built-in tuner and metronome.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://frettle.gruvw.com/">
   <meta name="color-scheme" content="dark">
@@ -15,7 +15,7 @@
   <meta property="og:site_name" content="Frettle">
   <meta property="og:url" content="https://frettle.gruvw.com/">
   <meta property="og:title" content="Frettle: Chord &amp; Scale Visualizer for Guitar, Bass, Ukulele, Banjo &amp; Piano">
-  <meta property="og:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.">
+  <meta property="og:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and use the built-in tuner and metronome.">
   <!-- The app icon as the preview picture, as a small thumbnail beside the
        title: 256px, under the 300px wide from which WhatsApp shows it as a
        big picture above it, at least the 200px Facebook asks for -->
@@ -26,7 +26,7 @@
   <meta property="og:image:alt" content="Frettle icon: a pink note on three strings">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Frettle: Chord &amp; Scale Visualizer">
-  <meta name="twitter:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.">
+  <meta name="twitter:description" content="Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and use the built-in tuner and metronome.">
   <meta name="twitter:image" content="https://frettle.gruvw.com/icon-256.png">
   <meta name="twitter:image:alt" content="Frettle icon: a pink note on three strings">
 
@@ -53,7 +53,7 @@
     "@type": "WebApplication",
     "name": "Frettle",
     "alternateName": "Frettle Chord & Scale Visualizer",
-    "description": "Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and tune with the built-in tuner.",
+    "description": "Free chord and scale visualizer for guitar, bass, ukulele, mandolin, banjo and piano. See every note, chord shape and scale on the neck or the keys, in any tuning, with or without a capo, hear them played, and use the built-in tuner and metronome.",
     "applicationCategory": "MusicApplication",
     "operatingSystem": "Any",
     "browserRequirements": "Requires JavaScript",
@@ -67,6 +67,7 @@
       "Scales with their notes, steps and triads",
       "Capo, octave map, left-handed mode and click-to-hear notes",
       "Tuner using the microphone, with the tuning's strings marked or chromatic",
+      "Metronome with tap tempo and time signatures",
       "6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola, 5-string banjo, 88-key piano and 97-key uniso",
       "Alternate tunings: Drop D, DADGAD, open G and more"
     ]
@@ -99,7 +100,7 @@
       <!-- Wide screens: the neck's title is the instrument menu (app.js
            moves it to the header on phones) -->
       <h2 id="instWideSlot" class="neck-title">
-        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
+        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument or reference pitch"></button>
         <!-- Reset: beside the instrument menu (app.js moves both; on
              phones it sits on the left, the menu centred) -->
         <button type="button" id="resetAll" class="btn icon reset-btn" aria-haspopup="dialog" aria-label="Reset"
@@ -110,9 +111,15 @@
            in place before the script runs: on phones this header is hidden. -->
       <div id="settingsWideSlot" class="settings-slot">
         <div id="settings" class="settings">
-          <!-- The tuning menu and the tuner before it (phones: the tuner on the Setup sheet's title row, see placeSettings) -->
+          <!-- The tuning menu, the metronome and the tuner before it (phones: the two side by side under the capo, see placeSettings) -->
           <div class="tuning-row">
-            <button type="button" id="tunerOpen" class="btn icon tuner-btn" aria-haspopup="dialog" aria-label="Tuner"
+            <!-- The metronome; while it plays, its tempo in place of its name and a stop at its end (as a list chip's ×) -->
+            <span id="metroTool" class="tool-wrap">
+              <button type="button" id="metroOpen" class="btn icon tool-btn" aria-haspopup="dialog" aria-label="Metronome"
+                    title="Metronome: keep time"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.2 3h5.6l4.2 18H5z"/><path d="M12 16L18.5 4.5"/></svg><span class="btn-label"><span class="tool-swap"><span class="tool-name">Metronome</span><span class="tool-bpm"><span id="metroShown" class="tool-num"></span><span class="tool-unit">bpm</span></span></span></span></button>
+              <button type="button" id="metroStop" class="tool-stop" aria-label="Stop the metronome" title="Stop the metronome" hidden><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg></button>
+            </span>
+            <button type="button" id="tunerOpen" class="btn icon tool-btn" aria-haspopup="dialog" aria-label="Tuner"
                     title="Tuner: tune the strings with the microphone"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 2.5v7a3.5 3.5 0 0 0 7 0v-7"/><path d="M12 13v8.5"/></svg><span class="btn-label">Tuner</span></button>
             <button type="button" id="tuningSelect" class="select-btn pill-select" aria-haspopup="dialog" aria-label="Tuning"
                     title="How the strings are tuned"></button>
@@ -379,13 +386,13 @@
       </button>
     </div>
     <div class="picker-body about-body">
-      <p>Frettle is a free, open source app that shows every note, chord shape and scale on the neck of a guitar, bass, ukulele, mandolin, mandola or banjo, and on the keys of a piano or a uniso.
+      <p>Frettle is a free, open-source app that shows every note, chord shape and scale on the neck of a guitar, bass, ukulele, mandolin, mandola or banjo, and on the keys of a piano or a uniso.
         It has no ads and works offline.</p>
       <p>Pick a chord to see all the ways to play it up the neck, with the root and intervals marked and barres drawn in.
-        Pick a scale to see it across the whole fretboard, in hand-sized groups to step through, and see the chords that fit it.
+        Pick a scale to see it across the whole fretboard, in hand-sized groups to step through.
         Tap any note to hear it, or place notes on the neck to name the chord they make.
-        Tune your strings with the tuner, through the microphone or by ear.</p>
-      <p>It covers 6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola
+        Tune your strings with the tuner, through the microphone or by ear, and keep time with the metronome.</p>
+      <p>Made for 6 and 7-string guitar, 4 and 5-string bass, ukulele (high or low G), baritone ukulele, mandolin, mandola
         and 5-string banjo, in standard tuning, Drop D, DADGAD, open G, double C and other alternate tunings, or custom ones saved by name, with or without a capo,
         as well as the 88 keys of a piano and the 97 keys of a uniso.</p>
     </div>
@@ -427,7 +434,6 @@
     <div class="about-links share-actions">
       <!-- Copy text: the text alone, no link (an icon on phones) -->
       <button type="button" id="shareText" class="btn icon side-action" aria-label="Copy text" title="Copy the text without the link"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg><span class="btn-label">Text</span></button>
-      <button type="button" id="shareCancel" class="btn"><span class="tx">Cancel</span></button>
       <button type="button" id="shareGo" class="btn primary"><span class="tx">Copy link</span></button>
     </div>
   </dialog>
@@ -484,7 +490,6 @@
     <div id="tuneActions" class="about-links share-actions">
       <!-- Save: keep the tuning under a name, in the tuning menu (a bookmark on phones) -->
       <button type="button" id="tuneSave" class="btn icon side-action" aria-label="Save" title="Save this tuning under a name"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4h11a1 1 0 0 1 1 1v15.2l-6.5-4.4-6.5 4.4V5a1 1 0 0 1 1-1z"/></svg><span class="btn-label">Save</span></button>
-      <button type="button" id="tuneCancel" class="btn"><span class="tx">Cancel</span></button>
       <button type="button" id="tuneDone" class="btn primary"><span class="tx">Select</span></button>
     </div>
     <!-- Its name, asked once Save is pressed (in place of the buttons above) -->
@@ -559,6 +564,8 @@
   <dialog id="tuner" class="picker tuner" aria-labelledby="tunerTitle">
     <div class="picker-head">
       <h2 id="tunerTitle">Tuner</h2>
+      <!-- The reference pitch it measures against (set in the instrument menu), when not 440 -->
+      <span id="tunerPitch" class="tuner-pitch" title="Reference pitch: change it in the instrument menu" hidden></span>
       <button type="button" id="tunerClose" class="btn icon" aria-label="Close">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -589,6 +596,39 @@
         <button type="button" id="tunerRetry" class="btn primary"></button>
       </div>
       <p id="tunerHint" class="tuner-hint" aria-live="polite"></p>
+    </div>
+  </dialog>
+
+  <!-- Metronome: ticks until stopped or closed (sound.js: openMetronome) -->
+  <dialog id="metronome" class="picker metronome" aria-labelledby="metroTitle">
+    <div class="picker-head">
+      <h2 id="metroTitle">Metronome</h2>
+      <button type="button" id="metroClose" class="btn icon" aria-label="Close">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="picker-body metro-body">
+      <!-- Each beat of the bar, the first bigger, the one sounding lit (no time signature: one, lit at every beat); tapped, another grouping.
+           On top, over the tempo: in view while it changes, on landscape phones too (their popup scrolls) -->
+      <button type="button" id="metroBeats" class="metro-beats"></button>
+      <div class="metro-head">
+        <span id="metroTempoLabel" class="label">Tempo (BPM)</span>
+        <button type="button" id="metroTap" class="btn small metro-tap" aria-label="Tap tempo" title="Tap the beat to set the tempo (T)"><span class="tx">Tap</span></button>
+      </div>
+      <div class="metro-tempo">
+        <button type="button" id="metroSlower" class="btn icon metro-step" aria-label="Slower" title="Slower (−)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 12h12"/></svg></button>
+        <div class="metro-read">
+          <span id="metroBpm" class="metro-num"></span>
+          <span id="metroMarking" class="metro-marking"></span>
+        </div>
+        <button type="button" id="metroFaster" class="btn icon metro-step" aria-label="Faster" title="Faster (+)"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 12h12M12 6v12"/></svg></button>
+      </div>
+      <input type="range" id="metroTempo" class="metro-slider" min="30" max="250" step="1" aria-labelledby="metroTempoLabel">
+      <span id="metroMeterLabel" class="label metro-meter-label">Time signature</span>
+      <div id="metroMeters" class="metro-meters" role="group" aria-labelledby="metroMeterLabel"></div>
+    </div>
+    <div class="about-links metro-actions">
+      <button type="button" id="metroGo" class="btn primary metro-go"></button>
     </div>
   </dialog>
 
