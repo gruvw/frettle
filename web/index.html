@@ -100,7 +100,7 @@
       <!-- Wide screens: the neck's title is the instrument menu (app.js
            moves it to the header on phones) -->
       <h2 id="instWideSlot" class="neck-title">
-        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument"></button>
+        <button type="button" id="instrumentPicker" class="inst-btn" aria-haspopup="dialog" title="Change instrument or reference pitch"></button>
         <!-- Reset: beside the instrument menu (app.js moves both; on
              phones it sits on the left, the menu centred) -->
         <button type="button" id="resetAll" class="btn icon reset-btn" aria-haspopup="dialog" aria-label="Reset"
@@ -564,6 +564,8 @@
   <dialog id="tuner" class="picker tuner" aria-labelledby="tunerTitle">
     <div class="picker-head">
       <h2 id="tunerTitle">Tuner</h2>
+      <!-- The reference pitch it measures against (set in the instrument menu), when not 440 -->
+      <span id="tunerPitch" class="tuner-pitch" title="Reference pitch: change it in the instrument menu" hidden></span>
       <button type="button" id="tunerClose" class="btn icon" aria-label="Close">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>

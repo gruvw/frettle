@@ -141,6 +141,7 @@ body {
    which would win over the page's) */
 dialog, button { -webkit-user-select: none; user-select: none; }
 #chordStrum, #dockStrum, #namerPlay { -webkit-touch-callout: none; }   /* (held: the chord arpeggiated, no phone's menu for it) */
+.hold-step { -webkit-touch-callout: none; touch-action: none; }   /* (− and + held, faster and faster: no menu, no scroll to end it) */
 .np-head, .about-body { -webkit-user-select: text; user-select: text; }
 input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 
@@ -211,10 +212,12 @@ kbd {
 .inst-slot .reset-btn { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
 /* (phones: a long name wraps, the tuning on the next line, rather than be cut short) */
 .inst-slot .inst-btn { max-width: calc(100% - 2 * (var(--control-h) + var(--sp-2))); height: auto; min-height: var(--control-h); padding-block: 6px; white-space: normal; }
-.inst-slot .inst-label { display: block; text-align: center; line-height: 1.25; }
+.inst-slot .inst-label { flex-wrap: wrap; justify-content: center; row-gap: 10px; text-align: center; line-height: 1.25; }   /* (as the tuner's: its gap, wrapped under it if need be) */
 .inst-slot .inst-name { overflow: visible; }
 .inst-slot .inst-tuning { display: inline-block; overflow: visible; }   /* (whole, on the next line if need be) */
 .inst-slot .inst-label.stacked { display: grid; justify-items: center; row-gap: 10px; }   /* (under the name: see stackInstLabel) */
+.inst-slot .inst-label.stacked .inst-tuning.split { display: contents; }   /* (the tuning, then the pitch: lines of the stack, see stackInstLabel) */
+.inst-tuning.split .inst-pitch::before { content: none; }
 .inst-slot .inst-btn:has(.inst-label.stacked) { padding-block: 14px; }   /* (as much room above and below its text as on one line: the stacked lines are trimmed to their letters) */
 .neck-title .reset-btn { flex: none; background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
 /* Reset's popup: what goes, a line each ("CHORD Dm") */
@@ -494,6 +497,12 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
    fill is a touch lighter */
 .neck-title .inst-btn { background: color-mix(in srgb, var(--kbd-bg) 50%, var(--panel)); }
 .inst-tuning { font-weight: 500; color: var(--muted); }
+/* The reference pitch, when not 440, after the tuning: "Drop D · A = 432";
+   whole, on the next line if need be; a long tuning name cut short first */
+.inst-tuning:has(.inst-pitch) { display: inline-flex; flex-wrap: wrap; justify-content: center; column-gap: var(--sp-1); }
+.inst-tname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.inst-pitch { flex: none; white-space: nowrap; }
+.inst-tname + .inst-pitch::before { content: "·"; margin-right: var(--sp-1); font-weight: 800; }   /* (bold: plainer, between two muted names) */
 .inst-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) { .inst-btn:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); } }
 
@@ -1561,7 +1570,7 @@ body.piano .tuning-row:not(:has(#metroOpen)), body.piano #tunerOpen, body.piano 
 /* The instrument button's two names are cut short with "…", so they clip
    at their edges: cut to the capitals, they keep room around them for
    accents and tails (padding, taken back by the margins) */
-.inst-name, .inst-tuning { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
+.inst-name, .inst-tuning, .inst-tuning.split > * { text-box: trim-both cap alphabetic; padding: 0.35em 0; margin: -0.35em 0; }
 
 /* ==========================================================================
    Dock (phones): shape bar + tabs fixed at the bottom; a tab opens its panel
@@ -1605,6 +1614,7 @@ body.piano .tuning-row:not(:has(#metroOpen)), body.piano #tunerOpen, body.piano 
    a swipe starts sideways, past setupDockTouch). Wide screens: in the quick
    bar, part of the page, which scrolls from it as from anywhere. */
 #dock .recent-chips { touch-action: pan-x; }
+.recent-chips li { -webkit-touch-callout: none; }   /* (held: a chip dragged, no iPhone menu for it) */
 /* The dock's row: its scrollbar is hidden (it would push the chips around);
    when the chips do not all fit, a thin bar under them shows how far along
    the row is and that it scrolls (app.js sizes and moves its thumb) */
@@ -2247,6 +2257,8 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   /* A long tuning name (a saved one) is cut short in the neck's header */
   #tuningSelect { max-width: 220px; }
   .neck-title .inst-tuning { max-width: 220px; }
+  .neck-title .inst-tuning:has(.inst-pitch) { max-width: none; flex-wrap: nowrap; }   /* (the pitch whole: its tuning's name cut short instead) */
+  .neck-title .inst-tname { max-width: 220px; white-space: nowrap; }
   .bar .push-right { margin-left: auto; }
 
   .panel { padding: 20px; }
@@ -2499,6 +2511,31 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
    ========================================================================== */
 .tuner { --tuner-cell: 50px; }
 .tuner-body { gap: var(--sp-3); padding-bottom: var(--sp-4); }
+/* Its title row: the reference pitch in its middle, quiet */
+.picker.tuner .picker-head { position: relative; }
+.tuner-pitch { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; cursor: default; }   /* (its tooltip: where to change it) */
+/* The instrument menu's foot: the reference pitch, a setting, not one more
+   family of instruments: under a rule, its label as a field's, Reset always
+   on its line. Wide enough (a computer's popup), all on that line, − and +
+   at its end, Reset just before them; else − and + centred on a line of
+   their own under it. Reset's room kept: nothing moves as it comes and goes */
+.pitch-foot { container-type: inline-size; margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--divider); }
+.pitch-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto minmax(0, 1fr); align-items: center; gap: var(--sp-2) var(--sp-3); }
+.pitch-grid > .label { grid-row: 1; grid-column: 1 / -1; justify-self: start; white-space: nowrap; }
+.pitch-grid > .pitch-reset { grid-row: 1; grid-column: 1 / -1; justify-self: end; }
+.pitch-grid > [data-pitch="-1"] { grid-row: 2; grid-column: 2; }
+.pitch-grid > .pitch-value { grid-row: 2; grid-column: 3; }
+.pitch-grid > [data-pitch="1"] { grid-row: 2; grid-column: 4; }
+.pitch-reset[hidden] { display: inline-flex; visibility: hidden; }
+@container (min-width: 420px) {
+  .pitch-grid { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
+  .pitch-grid > .label { grid-column: 1; }
+  .pitch-grid > .pitch-reset { grid-column: 2; }
+  .pitch-grid > [data-pitch="-1"] { grid-row: 1; grid-column: 3; }
+  .pitch-grid > .pitch-value { grid-row: 1; grid-column: 4; }
+  .pitch-grid > [data-pitch="1"] { grid-row: 1; grid-column: 5; }
+}
+.pitch-value { min-width: 8ch; text-align: center; white-space: nowrap; font: 600 var(--fs-md)/1 var(--font); font-variant-numeric: tabular-nums; }
 .tuner-body:last-child { padding-bottom: var(--sp-4); }
 .tuner-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); min-height: 28px; }
 .tuner-tuning { flex: 1 1 auto; flex-wrap: wrap; row-gap: 10px; font: 600 var(--fs-md)/1.2 var(--font); color: var(--text); }   /* (as the instrument menu writes them: its name, then any tuning, muted) */
@@ -2673,7 +2710,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .metro-tap.tapped { animation: metro-tap 180ms ease-out; }
 @keyframes metro-tap { from { border-color: var(--accent); background: var(--accent-soft); } }
 .metro-tempo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); width: 100%; max-width: 260px; margin-inline: auto; }   /* (− and + near the number) */
-.metro-step { touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.metro-step { user-select: none; -webkit-user-select: none; }   /* (held: see .hold-step) */
 .metro-read { display: grid; justify-items: center; gap: 8px; }
 .metro-num { display: block; font: 700 2.75rem/1 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; text-box: trim-both cap alphabetic; }
 .metro-marking { font-size: var(--fs-sm); font-style: italic; color: var(--muted); }

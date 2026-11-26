@@ -26,6 +26,7 @@ A chord and scale visualizer for guitar, bass, ukulele, mandolin, mandola, banjo
 - Tap a note to hear it, strum a chord, play a scale
 - Tuner: listens through the microphone, the tuning's strings marked (or chromatic), or tune by ear
 - Metronome: tap tempo, time signatures, the first beat marked
+- Reference pitch: A = 440 Hz or any other, for the tuner and the sounds
 - Capo, octave shading and a left-handed mode
 - Chord list: the chords of a song, each keeping its shape
 - Share links: pick what goes in (neck, chord, scale, chord list)

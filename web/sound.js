@@ -367,6 +367,7 @@ function strike(a, midi, delay, level) {
   const { ctx } = a;
   const src = ctx.createBufferSource();
   src.buffer = pianoTone(midi);
+  src.playbackRate.value = pitchA / PITCH_USUAL;   // (as playNote's)
   const gain = ctx.createGain();
   gain.gain.value = level;
   src.connect(gain);
@@ -390,7 +391,7 @@ function playNote(midi, delay = 0, level = 0.55) {
   const { buffer, rate } = pluck(midi);
   const src = a.ctx.createBufferSource();
   src.buffer = buffer;
-  src.playbackRate.value = rate;
+  src.playbackRate.value = (rate * pitchA) / PITCH_USUAL;   // (made at A 440: played at the reference pitch)
   const gain = a.ctx.createGain();
   gain.gain.value = level;
   src.connect(gain);
@@ -673,8 +674,41 @@ const IN_TUNE = 4;          // cents either way that count as in tune
 const TUNER_HOLD = 700;     // ms a note stays after it fades out
 const TUNER_SETTLE = 200;   // ms after a pluck its cents are not shown (see tunerFrame)
 const FINE_PX = 5;          // the fine strip: px per cent
-const hzMidi = (hz) => 69 + 12 * Math.log2(hz / 440);
-const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
+/* The reference pitch: A4's, in Hz (440 as usual; 415 for Baroque
+   players, 442 for some orchestras...). The tuner measures against it,
+   every note plays at it (playNote: its speed); kept on this device (in
+   the instrument menu: see setPitch). Within PITCH_MIN and PITCH_MAX: every
+   pitch in use (392, French Baroque, to 466, Venetian); past them, a
+   transposition, as the capo is */
+const PITCH_USUAL = 440;
+const PITCH_MIN = 390;
+const PITCH_MAX = 470;
+const PITCH_KEY = 'frettle-pitch';
+let pitchA = PITCH_USUAL;
+try {
+  const kept = typeof localStorage === 'undefined' ? NaN : Number(localStorage.getItem(PITCH_KEY));
+  if (kept >= PITCH_MIN && kept <= PITCH_MAX) pitchA = Math.round(kept);
+} catch { /* (none kept: as usual) */ }
+function setPitch(hz) {
+  pitchA = Math.max(PITCH_MIN, Math.min(PITCH_MAX, Math.round(hz)));
+  try { if (pitchA === PITCH_USUAL) localStorage.removeItem(PITCH_KEY); else localStorage.setItem(PITCH_KEY, String(pitchA)); } catch { /* not kept */ }
+  renderPitch();
+}
+const refText = () => `A = ${pitchA} Hz`;
+// (shown where it is: the instrument menu's row, if open; the tuner's title)
+function renderPitch() {
+  const row = document.querySelector('#pitchRow');
+  if (row) {
+    row.querySelector('.pitch-value').textContent = refText();
+    row.querySelector('[data-pitch="-1"]').disabled = pitchA <= PITCH_MIN;
+    row.querySelector('[data-pitch="1"]').disabled = pitchA >= PITCH_MAX;
+    row.querySelector('.pitch-reset').hidden = pitchA === PITCH_USUAL;
+  }
+  if (els.tunerPitch) { els.tunerPitch.textContent = refText(); els.tunerPitch.hidden = pitchA === PITCH_USUAL; }   // (the tuner's: only when not as usual)
+  if (typeof renderHeader === 'function' && els.instrumentPicker) renderHeader();   // (the instrument's button: there too, when not as usual)
+}
+const hzMidi = (hz) => 69 + 12 * Math.log2(hz / pitchA);
+const midiHz = (m) => pitchA * 2 ** ((m - 69) / 12);
 
 // FFT, in place (re, im: a power of two long); inverse: unscaled
 const fftTables = new Map();
@@ -878,6 +912,7 @@ const tunerLive = () => tuner.status === 'on' || tuner.status === 'asking';
 function openTuner() {
   const inst = instrument();
   if (inst.piano || els.tuner.open) return;
+  renderPitch();   // (its title: the reference pitch)
   // (the metronome on: paused while it listens, on again once it closes)
   metro.paused = metroOn();
   if (metro.paused) stopMetronome();
@@ -1224,7 +1259,7 @@ function pickTunerString(s) {
   tuner.target = s;
   // (the microphone would hear it: not listened to for 95% of its length,
   // the rest too faint to start a note)
-  tuner.mutedUntil = performance.now() + pluckSeconds(tuner.strings[s]) * 950;
+  tuner.mutedUntil = performance.now() + (pluckSeconds(tuner.strings[s]) * 950 * PITCH_USUAL) / pitchA;   // (played slower at a lower reference pitch: longer)
   renderTuner();
   ping(els.tunerStrings.children[s]);   // (the amber splash, as every note that sounds)
 }
@@ -1588,16 +1623,21 @@ function closeMetronome() {
   if (els.metronome.open) { if (els.metronome.close) els.metronome.close(); else els.metronome.removeAttribute('open'); }
 }
 // − and +: a step a press, held, faster and faster; by the keyboard (Enter, Space), a step
+// (the metronome's tempo, the reference pitch: `step()` takes one). Held
+// on a phone: no long-press menu (as the strum button's), and no scroll
+// starting from it, which would end the hold (see .hold-step)
 function holdStep(btn, step) {
+  btn.classList.add('hold-step');
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
   let timer = 0;
   const stop = () => { clearTimeout(timer); timer = 0; };
-  const again = (wait) => { timer = setTimeout(() => { setMetroTempo(metro.bpm + step); if (btn.disabled) stop(); else again(wait > 100 ? 100 : Math.max(35, wait * 0.93)); }, wait); };
+  const again = (wait) => { timer = setTimeout(() => { step(); if (btn.disabled) stop(); else again(wait > 100 ? 100 : Math.max(35, wait * 0.93)); }, wait); };
   btn.addEventListener('pointerdown', (e) => {
     if (e.button > 0 || btn.disabled) return;
     stop();
-    setMetroTempo(metro.bpm + step);
+    step();
     again(400);
   });
   for (const type of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(type, stop);
-  btn.addEventListener('click', (e) => { if (e.detail === 0) setMetroTempo(metro.bpm + step); });
+  btn.addEventListener('click', (e) => { if (e.detail === 0) step(); });
 }
