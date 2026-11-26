@@ -117,3 +117,64 @@ test('damaged saved data is read as a reload reads it: merging it never fails', 
   const mine = sharedForm(loadState({ v: SAVE_VERSION, prefs: {}, work: { list: [{ chord: 'G-maj', bass: 0 }] } }));
   assert.deepStrictEqual(chips(mergeShared(null, mine, theirs)), ['C-maj*0', 'G-maj*0']);
 });
+
+/* A chip in both tabs: merged as it is edited, part by part. Its shapes are
+   remembered by neck setting, its inversions by instrument; each of those,
+   mine where I changed it (or removed it), else theirs */
+const GUITAR = 'guitar*E2-A2-D3-G3-B3-E4*0*0', PIANO = 'piano**0*0', BASS = 'bass*E1-A1-D2-G2*0*0';
+const cMaj = (shapes = {}, inversions = {}, more = {}) => chip('C-maj', 0, { inversions, shapes, ...more });
+
+test('chips: my guitar shape and their piano shape are both kept (different instruments)', () => {
+  const base = shared({ list: [cMaj()] });
+  const mine = shared({ list: [cMaj({ [GUITAR]: 'x32010' })] });
+  const theirs = shared({ list: [cMaj({ [PIANO]: '48.52.55' })] });
+  assert.deepStrictEqual(mergeShared(base, mine, theirs).list[0].shapes, { [GUITAR]: 'x32010', [PIANO]: '48.52.55' });
+  // (and the other way round: whichever tab saves)
+  assert.deepStrictEqual(mergeShared(base, theirs, mine).list[0].shapes, { [GUITAR]: 'x32010', [PIANO]: '48.52.55' });
+});
+
+test('chips: one shape changed in both tabs: mine (the tab saving now)', () => {
+  const base = shared({ list: [cMaj({ [GUITAR]: 'x32010' })] });
+  const mine = shared({ list: [cMaj({ [GUITAR]: '8.10.10.9.8.8' })] });
+  const theirs = shared({ list: [cMaj({ [GUITAR]: 'x35553', [PIANO]: '48.52.55' })] });
+  assert.deepStrictEqual(mergeShared(base, mine, theirs).list[0].shapes, { [GUITAR]: '8.10.10.9.8.8', [PIANO]: '48.52.55' });
+});
+
+test('chips: a shape I went back from stays gone, their other shapes stay', () => {
+  const base = shared({ list: [cMaj({ [GUITAR]: 'x32010', [BASS]: 'x3' })] });
+  const mine = shared({ list: [cMaj({ [BASS]: 'x3' })] });
+  const theirs = shared({ list: [cMaj({ [GUITAR]: 'x32010', [BASS]: 'x3', [PIANO]: '48.52.55' })] });
+  assert.deepStrictEqual(mergeShared(base, mine, theirs).list[0].shapes, { [BASS]: 'x3', [PIANO]: '48.52.55' });
+});
+
+test('chips: inversions merge by instrument, shapes and name each on their own', () => {
+  const base = shared({ list: [cMaj({}, { guitar: 'root', piano: 'root' })] });
+  const mine = shared({ list: [cMaj({}, { guitar: 'first', piano: 'root' })] });
+  const theirs = shared({ list: [cMaj({ [PIANO]: '52.55.60' }, { guitar: 'root', piano: 'first' }, { name: 'B#' })] });
+  const merged = mergeShared(base, mine, theirs).list[0];
+  assert.deepStrictEqual(merged.inversions, { guitar: 'first', piano: 'first' });
+  assert.deepStrictEqual(merged.shapes, { [PIANO]: '52.55.60' });
+  assert.strictEqual(merged.name, 'B#');   // (theirs: not renamed here)
+});
+
+test('chips: merged part by part whoever reordered the list', () => {
+  const base = shared({ list: [cMaj(), chip('G-maj', 0, { inversions: {}, shapes: {} })] });
+  const mine = shared({ list: [chip('G-maj', 0, { inversions: {}, shapes: {} }), cMaj({ [GUITAR]: 'x32010' })] });   // (reordered here)
+  const theirs = shared({ list: [cMaj({ [PIANO]: '48.52.55' }), chip('G-maj', 0, { inversions: {}, shapes: {} })] });
+  const merged = mergeShared(base, mine, theirs);
+  assert.deepStrictEqual(chips(merged), ['G-maj*0', 'C-maj*0']);
+  assert.deepStrictEqual(merged.list[1].shapes, { [GUITAR]: 'x32010', [PIANO]: '48.52.55' });
+});
+
+test('chips: a chip they removed stays removed, even with my shape change', () => {
+  const base = shared({ list: [cMaj(), chip('G-maj', 0, { inversions: {}, shapes: {} })] });
+  const mine = shared({ list: [cMaj({ [GUITAR]: 'x32010' }), chip('G-maj', 0, { inversions: {}, shapes: {} })] });
+  const theirs = shared({ list: [chip('G-maj', 0, { inversions: {}, shapes: {} })] });
+  assert.deepStrictEqual(chips(mergeShared(base, mine, theirs)), ['G-maj*0']);
+});
+
+test('chips: the same chip added in both tabs: mine where I set it, theirs elsewhere', () => {
+  const mine = shared({ list: [cMaj({ [GUITAR]: 'x32010' })] });
+  const theirs = shared({ list: [cMaj({ [PIANO]: '48.52.55', [GUITAR]: 'x35553' })] });
+  assert.deepStrictEqual(mergeShared(shared(), mine, theirs).list[0].shapes, { [GUITAR]: 'x32010', [PIANO]: '48.52.55' });
+});

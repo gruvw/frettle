@@ -227,8 +227,9 @@ const sameJSON = (a, b) => sortedJSON(a) === sortedJSON(b);
    - the chord list, each chip known by its chord and bass: its order mine if
      I reordered it (less the chips they removed, plus the ones they added,
      last), else theirs (less the chips I removed, plus the ones I added,
-     each where I put it: before the chip it is before here, else last); a
-     chip mine if I changed it (a shape, an inversion), else theirs
+     each where I put it: before the chip it is before here, else last).
+     A chip in both: merged as it is edited, part by part (mergeChip), so
+     two tabs' changes to different instruments are both kept
    - custom shapes, each one known by all it holds: theirs, with mine added,
      without mine removed */
 function mergeShared(base, mine, theirs) {
@@ -237,7 +238,10 @@ function mergeShared(base, mine, theirs) {
   const prefs = { ...theirs.prefs };
   for (const k of Object.keys(mine.prefs)) if (!sameJSON(mine.prefs[k], base.prefs && base.prefs[k])) prefs[k] = mine.prefs[k];
   const keyed = (list, key) => new Map((list || []).map((x) => [key(x), x]));
-  const mergeSet = (b, m, t, key, changed = () => false, placed = false) => {
+  // (one in both: combine(mine, base, theirs); only in mine, mine (added
+  // here); only in theirs, theirs)
+  const pick = (k, B, M, T, combine) => (M.has(k) && T.has(k) ? combine(M.get(k), B.get(k), T.get(k)) : M.has(k) ? M.get(k) : T.get(k));
+  const mergeSet = (b, m, t, key, combine = (mm, bb, tt) => tt, placed = false) => {
     const [B, M, T] = [keyed(b, key), keyed(m, key), keyed(t, key)];
     const out = [...T.keys()].filter((k) => !(B.has(k) && !M.has(k)));   // (less mine removed)
     const mk = [...M.keys()];
@@ -246,29 +250,50 @@ function mergeShared(base, mine, theirs) {
       const next = placed ? mk.slice(i + 1).find((k) => out.includes(k)) : undefined;
       out.splice(next === undefined ? out.length : out.indexOf(next), 0, mk[i]);
     }
-    return out.map((k) => (M.has(k) && (changed(M.get(k), B.get(k)) || !T.has(k)) ? M.get(k) : T.get(k)));
+    return out.map((k) => pick(k, B, M, T, combine));
   };
   const saved = {};
   for (const id of new Set([...Object.keys(theirs.saved || {}), ...Object.keys(mine.saved || {})])) {
-    const list = mergeSet((base.saved || {})[id], (mine.saved || {})[id], (theirs.saved || {})[id], (t) => t.tuning, (m, b) => b && m.name !== b.name);
+    const list = mergeSet((base.saved || {})[id], (mine.saved || {})[id], (theirs.saved || {})[id], (t) => t.tuning, (m, b, t) => (b && m.name !== b.name ? m : t));
     if (list.length) saved[id] = list;
   }
   const chipKey = (e) => `${e.chord}*${e.bass}`;
-  const chipChanged = (m, b) => !b || !sameJSON(m, b);
   // (reordered: the chips that were and still are, in another order; adding or removing one is not)
   const [was, is] = [(base.list || []).map(chipKey), (mine.list || []).map(chipKey)];
   let list;
   if (sameJSON(is.filter((k) => was.includes(k)), was.filter((k) => is.includes(k)))) {
-    list = mergeSet(base.list, mine.list, theirs.list, chipKey, chipChanged, true);
+    list = mergeSet(base.list, mine.list, theirs.list, chipKey, mergeChip, true);
   } else {   // my order, with their removals and additions
-    const [B, T] = [keyed(base.list, chipKey), keyed(theirs.list, chipKey)];
-    const M = keyed(mine.list, chipKey);
+    const [B, M, T] = [keyed(base.list, chipKey), keyed(mine.list, chipKey), keyed(theirs.list, chipKey)];
     const keys = [...M.keys()].filter((k) => !(B.has(k) && !T.has(k)));
     for (const k of T.keys()) if (!B.has(k) && !keys.includes(k)) keys.push(k);
-    list = keys.map((k) => (M.has(k) && (chipChanged(M.get(k), B.get(k)) || !T.has(k)) ? M.get(k) : T.get(k)));
+    list = keys.map((k) => pick(k, B, M, T, mergeChip));
   }
   const drawn = mergeSet(base.drawn, mine.drawn, theirs.drawn, (d) => JSON.stringify(d)).slice(-DRAWN_MAX);
   return { prefs, saved, list: list.slice(0, LIST_MAX), drawn };
+}
+/* One chip in both, mine changed from base into theirs, as it is edited:
+   each remembered shape (by neck setting) and inversion (by instrument),
+   mine where I set it, changed it or removed it, else theirs; its name
+   (the root written its other way: name and nameAt together), the same.
+   Base unknown (both added it): mine where I have it, else theirs */
+function mergeChip(m, b, t) {
+  b = b || {};
+  const byKey = (k) => {
+    const [bm, mm] = [b[k] || {}, m[k] || {}];
+    const out = { ...(t[k] || {}) };
+    for (const key of new Set([...Object.keys(bm), ...Object.keys(mm)])) {
+      if (sameJSON(mm[key], bm[key])) continue;   // (not changed here: theirs)
+      if (Object.hasOwn(mm, key)) out[key] = mm[key]; else delete out[key];
+    }
+    return out;
+  };
+  const named = sameJSON([m.name, m.nameAt], [b.name, b.nameAt]) ? t : m;
+  return {
+    chord: t.chord, bass: t.bass,
+    ...(named.name ? { name: named.name, ...(named.nameAt ? { nameAt: named.nameAt } : {}) } : {}),
+    inversions: byKey('inversions'), shapes: byKey('shapes'),
+  };
 }
 function saveState() {
   pruneDrawn();
@@ -882,32 +907,45 @@ function renderLinkPopup() {
   // Setup switched off, yours (another shape, see applyLink); under the
   // link's scale, or with Scale switched off, yours (a root your scale names
   // its own way: C♯ as D♭)
-  let shown = preview;
-  if ((has.neck && !parts.neck) || (has.scale && !parts.scale) || (has.recent && !parts.recent)) {
-    const key = [parts.neck, parts.scale, parts.recent].join('|');
-    pendingLink.as = pendingLink.as || {};
-    if (!pendingLink.as[key]) pendingLink.as[key] = linkPreview(pendingLink.search, { ...has }, { chord: true, neck: parts.neck, scale: parts.scale, recent: parts.recent });
-    shown = pendingLink.as[key];
-  }
+  // (land(over): the link as it lands with the parts as switched, `over`
+  // forced: the link's scale with Scale switched off, say, still on the
+  // neck it would land on)
+  pendingLink.as = pendingLink.as || {};
+  const land = (over = {}) => {
+    const p = { ...parts, ...over };
+    const on = ['neck', 'scale', 'recent'].map((k) => !has[k] || p[k]);   // (a part not in the link: as with it on)
+    if (on.every(Boolean)) return preview;
+    const key = on.join('|');
+    if (!pendingLink.as[key]) pendingLink.as[key] = linkPreview(pendingLink.search, { ...has }, { chord: true, neck: on[0], scale: on[1], recent: on[2] });
+    return pendingLink.as[key];
+  };
+  const shown = land();
   const linkChord = preview.chord === null ? null : shown.chord;
   const linkParts = preview.chord === null ? preview.chordParts : shown.chordParts;
   const nowParts = chordParts(ch);
   // The link's setup replacing yours: its chord and list shown by name,
   // their shapes only against a shape your chip remembers on that setup (the
-  // frets of another instrument, tuning or capo say nothing next to yours);
-  // the same names, No change, yet their shapes come with the setup
+  // frets of another instrument, tuning or capo say nothing next to yours).
+  // The same names, No change, yet they come with the setup: their shapes,
+  // and what they sound (a capo moved, with Names from capo: E major shared
+  // with a capo on 2 reads D major, as yours does with none; left behind,
+  // yours would read C major there)
   const newSetup = has.neck && parts.neck && setupKey() !== preview.setupKey;
   pendingLink.withSetup = {};
   // The list's chips whose shape changes: only with the link's neck (see
   // applyLink; on a new setup, see linkPreview)
+  // (the link's list, and its scale, as they land even when switched off)
   const reshaped = has.neck && !parts.neck ? {} : preview.listShapes || {};
   const reshapes = Object.keys(reshaped).length > 0;
+  const scaleNow = sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '';
   const rows = [   // [row, part, now, the link's]: text, or a list of chord names
     [els.linkNeck, 'neck', setupText(), preview.setup],
     // (compared with its shape; shown by name, the shapes only when the name stays: see below)
     [els.linkChord, 'chord', ch ? [chordLine(ch)] : [], linkChord === null ? null : [linkChord].filter(Boolean)],
-    [els.linkList, 'recent', listNames(), parts.recent && shown.list ? shown.list : preview.list],
-    [els.linkScale, 'scale', sc ? `${sc.rootName} ${scaleTitle(sc.def)}` : '', preview.scale],
+    // (the list and the scale: the link's as they would land, even switched
+    // off: on the neck the Setup row says, named from its capo)
+    [els.linkList, 'recent', listNames(), preview.list === null ? null : land({ recent: true }).list],
+    [els.linkScale, 'scale', scaleNow, preview.scale === null ? null : land({ scale: true }).scale],
   ];
   let loads = false;   // Load: only with something switched on
   for (let [row, key, now, link] of rows) {
@@ -919,7 +957,7 @@ function renderLinkPopup() {
       same = (nowParts ? nowParts.name : '') === (linkParts ? linkParts.name : '')
         && !(memory && linkParts && memory !== linkParts.shape);
     }
-    if (newSetup && (key === 'chord' || key === 'recent')) pendingLink.withSetup[key] = same && !lkEmpty(link);
+    if (newSetup && key !== 'neck') pendingLink.withSetup[key] = same && !lkEmpty(link);
     // The chord: by its name ("C → D"); the same name, another shape: the name
     // once, its shapes after it, as a list's chip ("A (xx7650 x 12 11 x 10 12)")
     let reshapedChord = null;
@@ -1021,8 +1059,9 @@ function closeLink(load) {
   if (load) {
     // A part marked No change is left as it is (a chord's shapes, a list's
     // remembered shapes stay yours); the neck, as it is the same, still
-    // places the link's chord on its shape. The same chord or list with a new
-    // setup: on the link's shapes there (see renderLinkPopup)
+    // places the link's chord on its shape. The same chord, list or scale
+    // with a new setup: the link's, on its shapes there, reading as the
+    // popup said (see renderLinkPopup)
     const parts = { ...link.parts };
     for (const k of ['chord', 'scale', 'recent']) if (link.same[k] && !link.withSetup[k]) parts[k] = false;
     loadLink(link.search, parts);

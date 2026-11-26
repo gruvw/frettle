@@ -141,7 +141,7 @@ body {
    which would win over the page's) */
 dialog, button { -webkit-user-select: none; user-select: none; }
 #chordStrum, #dockStrum, #namerPlay { -webkit-touch-callout: none; }   /* (held: the chord arpeggiated, no phone's menu for it) */
-.hold-step { -webkit-touch-callout: none; touch-action: none; }   /* (− and + held, faster and faster: no menu, no scroll to end it) */
+.hold-step { -webkit-touch-callout: none; }   /* (− and + held, faster and faster: no menu; a swipe from one still scrolls, see holdStep) */
 .np-head, .about-body { -webkit-user-select: text; user-select: text; }
 input { -webkit-user-select: text; user-select: text; }   /* (a field you could not type in, on iPhones, otherwise) */
 
@@ -229,7 +229,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
 .picker-body.about-body { gap: var(--sp-4); }
 .about-body p { margin: 0; color: color-mix(in srgb, var(--text) 85%, transparent); }
 /* The links stay in view under the text (which scrolls on short screens):
-   stacked on phones, side by side on wide screens */
+   side by side, one under the other only if they do not fit (a narrow phone) */
 .about-links {
   flex: none;
   display: flex;
@@ -239,6 +239,7 @@ body.naming .reset-btn { display: none; }   /* (not while naming a chord) */
   padding: var(--sp-3) var(--sp-4);
   border-top: 1px solid var(--divider);
 }
+#about .about-links { flex-direction: row; flex-wrap: wrap; justify-content: center; column-gap: 6px; }   /* (6: side by side on a 390px phone too) */
 .about-link { text-decoration: none; display: inline-flex; align-items: center; gap: var(--sp-2); }
 .about-link.support { border-color: var(--chord); }   /* Support Frettle: a pink outline and heart */
 .about-link .heart { color: var(--chord); }
@@ -2193,7 +2194,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
    Keep in sync with WIDE_QUERY in app.js.
    ========================================================================== */
 @media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
-  .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
+  .about-links, #about .about-links { flex-direction: row; justify-content: center; gap: var(--sp-4); }
   body { --dock-h: 0px; }   /* no dock bar: the panels are part of the page */
   .recent-remove, .recent-pin { width: 22px; height: 22px; }   /* (in a 28px chip; see .recent-remove) */
   :root {
@@ -2276,6 +2277,11 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   .neck-panel .panel-head { margin-bottom: var(--sp-3); min-height: 32px; }
   .neck-panel h2 { font-size: var(--fs-lg); }
   .neck-scroll { padding-bottom: var(--scroll-gap); }
+  /* Room past the neck's right end for a degree badge there (one hangs past
+     its note: "♭13" on the last fret), taken from the panel's padding: the
+     neck ends where it did, the badge whole and where it belongs, and it no
+     longer makes the neck scroll (see fitScroll) */
+  .neck-scroll:has(> .neck.horizontal) { padding-right: 12px; margin-right: -12px; }
   /* Before app.js draws the neck, its room is kept (six strings, the
      usual case), so the panels below do not jump down when it appears */
   .neck:empty { min-height: calc(var(--ruler-row) + 6 * var(--row-h)); }
@@ -2769,6 +2775,7 @@ html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
   border-radius: var(--r-pill);
   background: transparent;
   cursor: pointer;
+  touch-action: pan-y;   /* a finger across it scrolls (see onSlide) */
 }
 .metro-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--accent) calc(10px + (100% - 20px) * var(--f)), var(--border) 0); }
 .metro-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--panel); }

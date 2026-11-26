@@ -494,7 +494,8 @@ function setupNeckTaps() {
 /* Anything that sounds plays on press, like the neck: at once with a mouse
    or a pen; with a finger after TAP_DELAY (or on lifting it, if sooner), and
    not at all if it moves past TAP_SLOP first (it was a swipe to scroll).
-   Enter or Space on a focused one plays it too. */
+   Enter or Space on a focused one plays it too. `act(el, at)`: at, when it
+   was pressed (performance.now()'s clock; a finger: when it landed) */
 function onPress(box, selector, act) {   // (selector null: the box itself, a button)
   const taps = new Map();
   const target = (e) => {
@@ -509,10 +510,10 @@ function onPress(box, selector, act) {   // (selector null: the box itself, a bu
     if (e.button > 0) return;
     const el = target(e);
     if (!el) return;
-    if (e.pointerType !== 'touch') { act(el); return; }
+    if (e.pointerType !== 'touch') { act(el, e.timeStamp); return; }
     if (stillScrolling()) return;
-    const tap = { el, x: e.clientX, y: e.clientY, done: false };
-    tap.timer = setTimeout(() => { tap.done = true; act(el); }, TAP_DELAY);
+    const tap = { el, x: e.clientX, y: e.clientY, at: e.timeStamp, done: false };
+    tap.timer = setTimeout(() => { tap.done = true; act(el, tap.at); }, TAP_DELAY);
     taps.set(e.pointerId, tap);
   });
   box.addEventListener('pointermove', (e) => {
@@ -523,13 +524,58 @@ function onPress(box, selector, act) {   // (selector null: the box itself, a bu
     const tap = taps.get(e.pointerId);
     if (!tap) return;
     clearTimeout(tap.timer);
-    if (!tap.done) act(tap.el);
+    if (!tap.done) act(tap.el, tap.at);
     taps.delete(e.pointerId);
   });
   box.addEventListener('pointercancel', cancel);
   box.addEventListener('click', (e) => {   // the keyboard (a pointer played it on press)
     const el = e.detail === 0 && target(e);
-    if (el) act(el);
+    if (el) act(el, performance.now());
+  });
+}
+
+/* A slider: the browser's own with a mouse, a pen or the keyboard. A finger
+   sets it only once it slides along it (past TAP_SLOP), or rests TAP_DELAY,
+   or lifts first (a tap on the track: the value there, as the browser's);
+   moving across it instead is a swipe to scroll (touch-action: pan-y), and
+   the value stays as it was, as after a touch that stops a scroll still
+   gliding. (The browser sets it as soon as a finger lands: those values
+   are held back, and the slider shown as before, until then.) `act(value)` */
+function onSlide(input, act) {
+  let touch = null;   // a finger on it: { id, x, y, from, to, state: 'wait' | 'on' | 'off', tap, timer }
+  const go = () => {   // sliding: the value held back, then the browser's
+    clearTimeout(touch.timer);
+    touch.state = 'on';
+    if (touch.to !== null) { input.value = touch.to; act(Number(touch.to)); }
+  };
+  input.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || touch) return;
+    touch = { id: e.pointerId, x: e.clientX, y: e.clientY, from: input.value, to: null, state: 'wait', tap: !stillScrolling() };
+    if (touch.tap) touch.timer = setTimeout(go, TAP_DELAY);
+  });
+  input.addEventListener('input', (e) => {
+    if (touch && touch.state !== 'on') { touch.to = input.value; input.value = touch.from; e.stopImmediatePropagation(); return; }
+    act(Number(input.value));
+  });
+  input.addEventListener('pointermove', (e) => {
+    if (!touch || touch.id !== e.pointerId || touch.state !== 'wait') return;
+    const dx = Math.abs(e.clientX - touch.x);
+    const dy = Math.abs(e.clientY - touch.y);
+    if (Math.max(dx, dy) <= TAP_SLOP) return;
+    if (dx >= dy) go();
+    else { clearTimeout(touch.timer); touch.state = 'off'; }   // (across: held back till it lifts)
+  });
+  input.addEventListener('pointerup', (e) => {
+    if (!touch || touch.id !== e.pointerId) return;
+    if (touch.state === 'wait' && touch.tap) go();
+    clearTimeout(touch.timer);
+    touch = null;
+  });
+  input.addEventListener('pointercancel', (e) => {   // (the browser scrolls)
+    if (!touch || touch.id !== e.pointerId) return;
+    clearTimeout(touch.timer);
+    if (touch.state !== 'on') input.value = touch.from;
+    touch = null;
   });
 }
 
@@ -600,12 +646,44 @@ function strumFrets(frets) {
   });
 }
 
+/* One sequence of notes at a time: the scale (playScale), one of its
+   groups (playGroup) or a chord one note at a time (arpeggiate). Each says
+   what it plays (its kind, and its key: what it was started on, so a change
+   stops it), its notes ({ midi, light }: light, what shows it as it sounds),
+   their level, and the button to draw again (render: Play or Stop); here,
+   all the rest, once: the notes NOTE_GAP apart, each lit as it starts;
+   another sequence stopped first (its button back); stopping (its sounds
+   cut, its timers cleared, then onStop, if any); and its end, once its last
+   note has started (it rings on: the button back). */
+let sequence = null;   // { kind, key, sources, timers, render, onStop }
+const playingNow = (kind) => (sequence && sequence.kind === kind ? sequence : null);
+function playSequence({ kind, key, notes, level = 0.5, render, onStop = null }) {
+  stopSequence();
+  const run = { kind, key, sources: [], timers: [], render, onStop };
+  sequence = run;
+  notes.forEach((x, i) => {
+    run.sources.push(playNote(x.midi, i * NOTE_GAP, level));
+    if (x.light) run.timers.push(setTimeout(x.light, i * NOTE_GAP * 1000));
+  });
+  run.timers.push(setTimeout(() => { if (sequence === run) { sequence = null; render(); } }, Math.max(0, notes.length - 1) * NOTE_GAP * 1000 + 50));
+  render();
+}
+// (kind: only that one, if it is the one playing; none: whichever is)
+function stopSequence(kind = null) {
+  const run = sequence;
+  if (!run || (kind && run.kind !== kind)) return;
+  sequence = null;
+  for (const src of run.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
+  for (const t of run.timers) clearTimeout(t);
+  if (run.onStop) run.onStop();
+  run.render();
+}
+
 /* A chord one note at a time (a strum button held, or Space): the shape
-   shown, or the notes placed (Name a chord), in a strum's order, NOTE_GAP
-   apart, as the scale and its groups play, each lit as it sounds. Its
+   shown, or the notes placed (Name a chord), in a strum's order, as the
+   scale and its groups play (playSequence), each lit as it sounds. Its
    button a Stop meanwhile: tapped (or Space) it stops, as does playing the
    scale or a group, or another chord, shape or notes (see draw). */
-let arpRun = null;   // { key, sources, timers }
 // (what it plays: the notes placed, naming; else the shape shown; '' none)
 function arpKey() {
   if (naming) return naming.frets.some((f) => f >= 0) ? `namer|${naming.frets}|${instrument().strings}|${capo()}` : '';
@@ -613,37 +691,26 @@ function arpKey() {
   return ch && ch.shape ? [ch.root, ch.def.id, ch.bassIndex, ch.shape.frets, instrument().strings, capo()].join('|') : '';
 }
 function arpeggiate() {
-  if (arpRun) { stopArpeggio(); return; }
+  if (playingNow('arp')) { stopArpeggio(); return; }
   const key = arpKey();
   if (!key) return;
   const frets = naming ? naming.frets : currentChord().shape.frets;
   if (!naming) keepChord();
-  stopScale();
-  stopGroup();
   const inst = instrument();
   const c = capo();
-  const notes = inst.piano ? frets.map((k) => ({ midi: inst.low + k, k }))
-    : frets.flatMap((f, s) => (f < 0 ? [] : [{ midi: shapePitch(inst, s, f) + c, s, f: shapeNeckFret(inst, s, f, c) }]));
-  arpRun = { key, sources: [], timers: [] };
-  notes.forEach((x, i) => {
-    arpRun.sources.push(playNote(x.midi, i * NOTE_GAP, inst.piano ? 0.6 : 0.5));
-    arpRun.timers.push(setTimeout(() => (x.k !== undefined ? flashKey(x.k) : flashCell(x.s, x.f)), i * NOTE_GAP * 1000));
-  });
-  // Done once the last note has started: it rings on, and the button is back
-  arpRun.timers.push(setTimeout(() => { arpRun = null; renderStrumButtons(); }, (notes.length - 1) * NOTE_GAP * 1000 + 50));
-  renderStrumButtons();
+  const notes = inst.piano ? frets.map((k) => ({ midi: inst.low + k, light: () => flashKey(k) }))
+    : frets.flatMap((f, s) => {
+      if (f < 0) return [];
+      const at = shapeNeckFret(inst, s, f, c);
+      return [{ midi: shapePitch(inst, s, f) + c, light: () => flashCell(s, at) }];
+    });
+  playSequence({ kind: 'arp', key, notes, level: inst.piano ? 0.6 : 0.5, render: renderStrumButtons });
 }
-function stopArpeggio() {
-  if (!arpRun) return;
-  for (const src of arpRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
-  for (const t of arpRun.timers) clearTimeout(t);
-  arpRun = null;
-  renderStrumButtons();
-}
+const stopArpeggio = () => stopSequence('arp');
 // A strum button tapped: its strum (Name a chord: the notes placed); while
 // an arpeggio plays, it stops it
 function strumTapped() {
-  if (arpRun) stopArpeggio();
+  if (playingNow('arp')) stopArpeggio();
   else if (naming) namerPlay();
   else strum();
 }
@@ -1480,8 +1547,7 @@ function setMetroMeter(meter) {
 }
 /* Tap tempo: the beat tapped, the tempo its taps' (the last 6; one more
    than 2 s after the last starts over: slower than the slowest tempo) */
-function tapTempo() {
-  const now = performance.now();
+function tapTempo(now = performance.now()) {   // (now: when it was tapped)
   const taps = metro.taps;
   if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
   taps.push(now);
@@ -1623,21 +1689,37 @@ function closeMetronome() {
   if (els.metronome.open) { if (els.metronome.close) els.metronome.close(); else els.metronome.removeAttribute('open'); }
 }
 // − and +: a step a press, held, faster and faster; by the keyboard (Enter, Space), a step
-// (the metronome's tempo, the reference pitch: `step()` takes one). Held
-// on a phone: no long-press menu (as the strum button's), and no scroll
-// starting from it, which would end the hold (see .hold-step)
+// (the metronome's tempo, the reference pitch: `step()` takes one). With a
+// mouse or a pen, the first step on press; with a finger, as onPress: once
+// it has rested TAP_DELAY (or on lifting it, if sooner), and none if it
+// moves past TAP_SLOP first (a swipe to scroll) or stops a scroll still
+// gliding. Held: no long-press menu (see .hold-step), and no scroll from
+// then on, which would end the hold
 function holdStep(btn, step) {
   btn.classList.add('hold-step');
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
   let timer = 0;
-  const stop = () => { clearTimeout(timer); timer = 0; };
+  let touch = null;   // a finger on it: { id, x, y, held }
+  const stop = () => { clearTimeout(timer); timer = 0; touch = null; };
   const again = (wait) => { timer = setTimeout(() => { step(); if (btn.disabled) stop(); else again(wait > 100 ? 100 : Math.max(35, wait * 0.93)); }, wait); };
+  const start = (wait) => { step(); if (btn.disabled) stop(); else again(wait); };
   btn.addEventListener('pointerdown', (e) => {
     if (e.button > 0 || btn.disabled) return;
     stop();
-    step();
-    again(400);
+    if (e.pointerType !== 'touch') { start(400); return; }
+    if (stillScrolling()) return;
+    const press = { id: e.pointerId, x: e.clientX, y: e.clientY, held: false };
+    touch = press;
+    timer = setTimeout(() => { press.held = true; start(400 - TAP_DELAY); }, TAP_DELAY);   // (the next step as soon after the press as with a mouse)
   });
-  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(type, stop);
+  btn.addEventListener('pointermove', (e) => {
+    if (touch && !touch.held && touch.id === e.pointerId && Math.hypot(e.clientX - touch.x, e.clientY - touch.y) > TAP_SLOP) stop();
+  });
+  btn.addEventListener('pointerup', (e) => {
+    if (touch && touch.id === e.pointerId && !touch.held) { stop(); step(); return; }   // (a quick tap: its step)
+    stop();
+  });
+  for (const type of ['pointerleave', 'pointercancel']) btn.addEventListener(type, stop);
+  btn.addEventListener('touchmove', (e) => { if (touch && touch.held && e.cancelable) e.preventDefault(); }, { passive: false });
   btn.addEventListener('click', (e) => { if (e.detail === 0) step(); });
 }

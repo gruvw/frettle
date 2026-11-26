@@ -8,8 +8,9 @@
    Plain actions listen for 'click' (the browser already leaves out swipes,
    and taps that only stop a scroll still gliding). Anything that acts on
    press (a sound, mostly) goes through onPress, or the neck's own handler
-   (setupNeckTaps): never a bare 'pointerdown' listener, which fires as soon
-   as a finger lands, swipe or not. The few 'pointerdown' listeners left
+   (setupNeckTaps), held − and + through holdStep, a slider through onSlide:
+   never a bare 'pointerdown' listener, which fires as soon as a finger
+   lands, swipe or not. The few 'pointerdown' listeners left
    only watch (the chord list's drag and its × and +, the sheet's drag,
    starting the audio, the keyboard focus, keeping the screen on, the
    install card's count).
@@ -285,45 +286,30 @@ function renderNamer() {
    re-entrant tuning's high string first, as its place in the group:
    the ukulele's g, C, E, A), lighting each note on the neck. As
    the scale's Play: pressing again (or Space) while it plays stops it, its
-   button a Stop meanwhile; picking another group, scale... stops it too. */
-let groupRun = null;     // { sources, timers }
+   button a Stop meanwhile; picking another group, scale... stops it too.
+   Played as a sequence (playSequence: the timing, stopping, its end). */
 function playGroup() {
   const g = ui.groups[ui.group];
   const sc = currentScale();
-  if (groupRun) { stopGroup(); return; }
+  if (playingNow('group')) { stopGroup(); return; }
   if (!g || !sc) return;
-  stopScale();
-  stopArpeggio();
   const inst = instrument();
   const notes = [];
   if (g.keys) {   // a keyboard's: its keys in the scale, low to high
-    for (let k = g.keys[0]; k <= g.keys[1]; k++) if (sc.set.has(mod12(inst.low + k))) notes.push({ k, midi: inst.low + k });
+    for (let k = g.keys[0]; k <= g.keys[1]; k++) if (sc.set.has(mod12(inst.low + k))) notes.push({ midi: inst.low + k, light: () => flashKey(k) });
   } else {
     for (const { s, a, b } of g.bars) {   // (its strings in group order)
-      for (let f = a; f <= b; f++) if (sc.set.has(mod12(fretPitch(inst, s, f)))) notes.push({ s, f, midi: fretPitch(inst, s, f) });
+      for (let f = a; f <= b; f++) if (sc.set.has(mod12(fretPitch(inst, s, f)))) notes.push({ midi: fretPitch(inst, s, f), light: () => flashCell(s, f) });
     }
   }
-  groupRun = { key: groupKey(g, sc), sources: [], timers: [] };
-  notes.forEach((x, i) => {
-    groupRun.sources.push(playNote(x.midi, i * NOTE_GAP, 0.5));
-    groupRun.timers.push(setTimeout(() => (g.keys ? flashKey(x.k) : flashCell(x.s, x.f)), i * NOTE_GAP * 1000));
-  });
-  // Done once the last note has started: it rings on, and Play is back
-  groupRun.timers.push(setTimeout(() => { groupRun = null; renderGroupPlay(); }, (notes.length - 1) * NOTE_GAP * 1000 + 50));
-  renderGroupPlay();
+  playSequence({ kind: 'group', key: groupKey(g, sc), notes, render: renderGroupPlay });
 }
 // The group as played: another scale, tuning, capo or group stops it (see draw)
 const groupKey = (g, sc) => (g && sc ? [scaleKey(sc), g.keys ? `keys:${g.keys.join('-')}` : g.bars.map((b) => `${b.s}:${b.a}-${b.b}`)].join('|') : '');
-function stopGroup() {
-  if (!groupRun) return;
-  for (const src of groupRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
-  for (const t of groupRun.timers) clearTimeout(t);
-  groupRun = null;
-  renderGroupPlay();
-}
+const stopGroup = () => stopSequence('group');
 // A group stepper's play button: Play, or Stop while the group plays
 function showGroupPlay(bar) {
-  const playing = Boolean(groupRun);
+  const playing = Boolean(playingNow('group'));
   bar.play.querySelector('.ico').outerHTML = playing ? STOP_ICON : PLAY_ICON;
   bar.play.querySelector('.strum-label').innerHTML = playStopLabel(playing);
   bar.play.setAttribute('aria-label', playing ? 'Stop the group' : 'Play the group');
@@ -337,8 +323,8 @@ function renderGroupPlay() {
 /* Play the scale once, low to high (root to octave), from its lowest root
    you can play (above the capo), lighting each note in the Notes row. The
    last note rings out. Pressing again stops it; so does picking another
-   scale. A note of the row can also be tapped to hear it. */
-let scaleRun = null;     // { key, sources, timers }
+   scale. A note of the row can also be tapped to hear it. Played as a
+   sequence (playSequence: the timing, stopping, its end). */
 function scalePitches(sc) {   // the Notes row's pitches, root to octave
   const low = instrument().piano ? 60 : Math.min(...instrument().strings) + capo();   // (the piano: from middle C up)
   const start = low + mod12(sc.root - low);
@@ -360,29 +346,16 @@ function followScaleNote(i) {
   row.scrollTo({ left: Math.max(0, Math.min(left, row.scrollWidth - row.clientWidth)), behavior: 'smooth' });
 }
 function playScale() {
-  if (scaleRun) { stopScale(); return; }
+  if (playingNow('scale')) { stopScale(); return; }
   const sc = currentScale();
   if (!sc) return;
-  stopGroup();
-  stopArpeggio();
-  const pitches = scalePitches(sc);
-  scaleRun = { key: scaleKey(sc), sources: [], timers: [] };
-  pitches.forEach((midi, i) => {
-    scaleRun.sources.push(playNote(midi, i * NOTE_GAP, 0.5));
-    scaleRun.timers.push(setTimeout(() => { followScaleNote(i); pingScaleNote(i); }, i * NOTE_GAP * 1000));
+  const notes = scalePitches(sc).map((midi, i) => ({ midi, light: () => { followScaleNote(i); pingScaleNote(i); } }));
+  playSequence({
+    kind: 'scale', key: scaleKey(sc), notes, render: renderPlayButton,
+    onStop: () => els.scaleNotes.scrollTo({ left: els.scaleNotes.scrollLeft }),   // (stopped: the row stops where it is)
   });
-  // Done once the last note has started: it rings on, and Play is back
-  scaleRun.timers.push(setTimeout(() => { scaleRun = null; renderPlayButton(); }, (pitches.length - 1) * NOTE_GAP * 1000 + 50));
-  renderPlayButton();
 }
-function stopScale() {
-  if (!scaleRun) return;
-  for (const src of scaleRun.sources) { try { if (src) src.stop(); } catch { /* already over */ } }
-  for (const t of scaleRun.timers) clearTimeout(t);
-  scaleRun = null;
-  els.scaleNotes.scrollTo({ left: els.scaleNotes.scrollLeft });   // (the row stops where it is)
-  renderPlayButton();
-}
+const stopScale = () => stopSequence('scale');
 // A note tapped: it alone (a scale playing stops, the row where it is)
 function playScaleNote(i) {
   const sc = currentScale();
@@ -402,7 +375,7 @@ const playStopLabel = (playing, word = 'Play') => `<span class="swap"><span${pla
    while the chord is arpeggiated (see arpeggiate) */
 const HOLD_HINT = 'hold for one note at a time';
 function showStrum(btn, label, word, title) {
-  const playing = Boolean(arpRun);
+  const playing = Boolean(playingNow('arp'));
   btn.querySelector('.ico').outerHTML = playing ? STOP_ICON : PLAY_ICON;
   btn.querySelector('.strum-label, .tx').innerHTML = playStopLabel(playing, word);
   btn.setAttribute('aria-label', playing ? 'Stop' : label);
@@ -419,7 +392,7 @@ function renderStrumButtons() {
   if (naming) showStrum(els.namerPlay, 'Play the notes', 'Play', `Play the notes (Space), ${HOLD_HINT}`);
 }
 function renderPlayButton() {
-  const playing = Boolean(scaleRun);
+  const playing = Boolean(playingNow('scale'));
   els.scalePlay.innerHTML = `${playing ? STOP_ICON : PLAY_ICON}<span class="btn-label">${playStopLabel(playing)}</span>`;
   els.scalePlay.setAttribute('aria-label', playing ? 'Stop the scale' : 'Play the scale');
   els.scalePlay.title = playing ? 'Stop' : 'Play the scale, low to high';
@@ -490,8 +463,9 @@ function draw() {
   renderRecent();
   renderNeck(naming ? namerChord() : ch, sc);
   warmUp(ch, sc);
-  if (groupRun && groupRun.key !== groupKey(ui.groups[ui.group], sc)) stopGroup();   // what it was playing is gone
-  if (arpRun && arpRun.key !== arpKey()) stopArpeggio();   // (the chord arpeggiated, the same)
+  const run = sequence;   // (what it was playing gone: the group, or the chord arpeggiated)
+  if (run && run.kind === 'group' && run.key !== groupKey(ui.groups[ui.group], sc)) stopGroup();
+  if (run && run.kind === 'arp' && run.key !== arpKey()) stopArpeggio();
   const seen = noteFocus(ch, sc);   // (what was last acted on: the phone's stepper, the keys and the neck's scroll follow it)
   renderChordPanel(ch, sc);
   renderScalePanel(sc, ch);
@@ -1360,9 +1334,12 @@ const infoWidths = new WeakMap();
 function setupInfoFit() {
   if (!window.ResizeObserver) return;
   const watch = new ResizeObserver((entries) => {
-    for (const { target } of entries) {
-      if (infoWidths.get(target) === target.clientWidth) continue;   // (a height change: nothing to fit)
-      infoWidths.set(target, target.clientWidth);
+    for (const { target, contentRect } of entries) {
+      // (a height change: nothing to fit. To the fraction of a pixel, not
+      // clientWidth's whole ones: a fraction narrower, a form that only just
+      // fitted would be cut, "Shape 14/14, fret …")
+      if (infoWidths.get(target) === contentRect.width) continue;
+      infoWidths.set(target, contentRect.width);
       if (target === els.chordTones) fitNotesRow();
       else if (target === els.namer) fitNamer();
       else fitInfo(target);
@@ -1728,6 +1705,10 @@ function renderHeader() {
   for (const [id, key] of TOGGLES) {
     els[id].setAttribute('aria-pressed', String(state[key]));
   }
+  // (the capo menu's switch, made with the menu: open, it follows too, as
+  // when another tab turns it off)
+  const sw = els.pickerTools.querySelector('#tglNameFromCapo');
+  if (sw) sw.setAttribute('aria-pressed', String(state.nameFromCapo));
   fitNeckHead();
 }
 
@@ -2878,7 +2859,7 @@ function renderScalePanel(sc, ch) {
     : 'Outline the scale in hand-sized groups, a few notes per string, and step from one to the next';
   renderGroupLine(sc, ch);
 
-  if (scaleRun && scaleRun.key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
+  if (playingNow('scale') && playingNow('scale').key !== scaleKey(sc)) stopScale();   // another scale (or none): stop playing the old one
   els.scalePlay.disabled = !sc;
   if (!sc) {
     els.scaleSymbol.textContent = '';
@@ -3253,11 +3234,10 @@ function init() {
   els.metroClose.addEventListener('click', closeMetronome);
   els.metronome.addEventListener('click', (e) => { if (e.target === els.metronome) closeMetronome(); });
   els.metroGo.addEventListener('click', () => (metroOn() ? stopMetronome() : startMetronome()));
-  els.metroTap.addEventListener('pointerdown', (e) => { if (e.button === 0) tapTempo(); });   // (on press: as tapped, not as let go)
-  els.metroTap.addEventListener('click', (e) => { if (e.detail === 0) tapTempo(); });   // (the keyboard)
+  onPress(els.metroTap, null, (b, at) => tapTempo(at));   // (timed from the press, not from letting go)
   holdStep(els.metroSlower, () => setMetroTempo(metro.bpm - 1));
   holdStep(els.metroFaster, () => setMetroTempo(metro.bpm + 1));
-  els.metroTempo.addEventListener('input', () => setMetroTempo(Number(els.metroTempo.value)));
+  onSlide(els.metroTempo, setMetroTempo);
   els.metroMeters.addEventListener('click', (e) => { const b = e.target.closest('[data-meter]'); if (b) setMetroMeter(b.dataset.meter); });
   els.metroBeats.addEventListener('click', cycleGroups);   // (the beats row: the next way of grouping them)
   window.addEventListener('resize', fitMetroBeats);   // (its dots smaller only while the row is too narrow for them)
@@ -3458,9 +3438,7 @@ function init() {
     },
     onToggle: () => {   // (only the switch changes in the menu: the rest stays as it is, focus too)
       state.nameFromCapo = !state.nameFromCapo;
-      render();
-      const sw = els.pickerTools.querySelector('#tglNameFromCapo');
-      if (sw) sw.setAttribute('aria-pressed', String(state.nameFromCapo));
+      render();   // (its switch too, see renderHeader)
     },
   });
   els.capoSelect.addEventListener('click', openCapo);
@@ -3668,7 +3646,7 @@ function init() {
   let spaceHold = null;   // { timer }, or { stopped }: a press under way
   const spaceDown = () => {
     if (spaceHold) return;
-    if (arpRun) { stopArpeggio(); spaceHold = { stopped: true }; return; }
+    if (playingNow('arp')) { stopArpeggio(); spaceHold = { stopped: true }; return; }
     spaceHold = { timer: setTimeout(() => { spaceHold = { stopped: true }; arpeggiate(); }, HOLD_MS) };
   };
   const spaceUp = () => {
